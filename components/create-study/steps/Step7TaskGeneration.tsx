@@ -398,6 +398,8 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     try {
       console.log('[Step7] Marking step7 as completed')
       localStorage.setItem('cs_step7_tasks', JSON.stringify({ completed: true, timestamp: Date.now() }))
+      // Mark step 8 as completed too so it shows as blue in stepper
+      localStorage.setItem('cs_step8', JSON.stringify({ completed: true }))
       // Dispatch custom event to trigger Stepper refresh (storage event only fires for other tabs)
       window.dispatchEvent(new CustomEvent('stepDataChanged'))
       onDataChange?.()
@@ -600,6 +602,8 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         // Mark step 7 as completed
         console.log('[Step7] Marking step7 as completed (immediate)')
         localStorage.setItem('cs_step7_tasks', JSON.stringify({ completed: true, timestamp: Date.now() }))
+        // Mark step 8 as completed too
+        localStorage.setItem('cs_step8', JSON.stringify({ completed: true }))
         clearJobState() // Clear job state when completed
         clearTimerState() // Clear timer state when completed
         stopTimerSaving() // Stop timer saving when completed
@@ -703,6 +707,9 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
           // Set matrix after clearing state to ensure timer doesn't start
           setMatrix(matrixData)
+          // Also mark step 8 as completed if step 7 is done
+          localStorage.setItem('cs_step8', JSON.stringify({ completed: true }))
+          window.dispatchEvent(new CustomEvent('stepDataChanged'))
 
           console.log('[Step7] Loaded cached matrix:', {
             hasMetadata: !!matrixData.metadata,

@@ -7,28 +7,47 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { ChevronDown, Plus, LogOut, Share2 } from "lucide-react"
 import { useAuth } from "@/lib/auth/AuthContext"
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ShareStudyModal } from "@/components/create-study/ShareStudyModal"
+import { ShareProjectModal } from "@/components/home/ShareProjectModal"
 
 export function DashboardHeader() {
   const { user, logout } = useAuth()
   const [showDropdown, setShowDropdown] = useState(false)
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
+  const [isProjectShareModalOpen, setIsProjectShareModalOpen] = useState(false)
   const [studyId, setStudyId] = useState<string | null>(null)
-  const [userRole, setUserRole] = useState<string>('admin')
+  const [userRole, setUserRole] = useState<string>('viewer')
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const projId = searchParams.get('proj_id')
   const isCreateStudyRoute = pathname?.startsWith('/home/create-study')
 
   // Effect to track cs_study_id and user_role in localStorage
   useEffect(() => {
     const checkStudyInfo = () => {
       const storedId = localStorage.getItem('cs_study_id')
-      const role = localStorage.getItem('user_role')
 
-      if (role) setUserRole(role)
+      // If we are in a project context, strictly use the project-specific role
+      if (projId) {
+        const projRole = localStorage.getItem(`ps_role_${projId}`)
+        // If we have a project role, use it. Otherwise default to 'viewer' (safe)
+        // We do NOT fall back to global 'user_role' here because project permissions are distinct
+        setUserRole(projRole || 'viewer')
+      } else {
+        // Not in project context (or looking at a study), check global/study role.
+        // If it's missing, default to 'admin' so that a user who can reach the
+        // dashboard is not accidentally treated as a viewer everywhere.
+        const role = localStorage.getItem('user_role')
+        if (role) {
+          setUserRole(role)
+        } else {
+          setUserRole('admin')
+        }
+      }
 
       if (storedId) {
         // Handle both plain string and JSON-stringified format
@@ -52,7 +71,7 @@ export function DashboardHeader() {
     checkStudyInfo() // Initial check
 
     return () => clearInterval(interval)
-  }, [])
+  }, [projId])
 
   const handleCreateNewStudy = () => {
     // Clear all create-study related localStorage items to start fresh from Step 1
@@ -81,8 +100,7 @@ export function DashboardHeader() {
       'cs_resuming_draft',
       'cs_study_id',
       'cs_is_fresh_start',
-      'cs_step8',
-      'user_role'
+      'cs_step8'
     ]
 
     keysToRemove.forEach(key => {
@@ -102,7 +120,8 @@ export function DashboardHeader() {
     } catch { }
 
     // Navigate to create-study page
-    router.push('/home/create-study')
+    const url = projId ? `/home/create-study?proj_id=${projId}` : '/home/create-study'
+    router.push(url)
   }
 
   // Close dropdown when clicking outside
@@ -129,7 +148,7 @@ export function DashboardHeader() {
       >
         <div className="max-w-7xl mx-auto flex items-center justify-between h-16">
 
-          <Link href="/home">
+          <Link href={projId ? `/home?proj_id=${projId}` : "/home"}>
             {/* Logo */}
             <div className="flex items-center">
               <motion.div whileHover={{ scale: 1.05 }} className="text-2xl font-bold">
@@ -167,16 +186,22 @@ export function DashboardHeader() {
             )}
 
             {!isCreateStudyRoute && (
-              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                <Button
-                  onClick={handleCreateNewStudy}
-                  className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-4 py-2 rounded-lg flex items-center space-x-2"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span className="hidden sm:inline cursor-pointer">Create New Study</span>
-                  <span className="sm:hidden cursor-pointer">Create</span>
-                </Button>
-              </motion.div>
+              <div className="flex items-center space-x-2">
+
+
+                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                  <Button
+                    onClick={handleCreateNewStudy}
+                    disabled={!!projId && userRole === 'viewer'}
+                    className={`bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-4 py-2 rounded-lg flex items-center space-x-2 ${!!projId && userRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    title={!!projId && userRole === 'viewer' ? "Viewers cannot create studies" : "Create new study"}
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span className="hidden sm:inline cursor-pointer">Create New Study</span>
+                    <span className="sm:hidden cursor-pointer">Create</span>
+                  </Button>
+                </motion.div>
+              </div>
             )}
 
             <div className="relative" ref={dropdownRef}>
@@ -228,12 +253,20 @@ export function DashboardHeader() {
         </div>
       </motion.header>
 
-      {/* Share Modal */}
-      {studyId && (
+      {isShareModalOpen && studyId && (
         <ShareStudyModal
           isOpen={isShareModalOpen}
           onClose={() => setIsShareModalOpen(false)}
           studyId={studyId}
+          userRole={userRole}
+        />
+      )}
+
+      {isProjectShareModalOpen && projId && (
+        <ShareProjectModal
+          isOpen={isProjectShareModalOpen}
+          onClose={() => setIsProjectShareModalOpen(false)}
+          projectId={projId}
           userRole={userRole}
         />
       )}

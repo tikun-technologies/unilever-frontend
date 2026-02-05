@@ -618,7 +618,14 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
             const data = localStorage.getItem('cs_step7_tasks')
             return !!data
           }
-          case 8: return false // Cannot auto-complete step 8 to jump *past* it
+          case 8: {
+            const data = localStorage.getItem('cs_step8')
+            if (!data) return false
+            try {
+              const parsed = JSON.parse(data)
+              return !!parsed.completed
+            } catch { return false }
+          }
           default: return false
         }
       } catch { return false }
@@ -632,7 +639,7 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
 
     // First, verify up to where we have continuous completion
     let maxCompleted = 0
-    for (let i = 1; i <= 7; i++) {
+    for (let i = 1; i <= 8; i++) {
       if (isStepCompleted(i)) {
         maxCompleted = i
       } else {
@@ -884,6 +891,12 @@ export default function CreateStudyPage() {
           localStorage.removeItem('cs_is_fresh_start')
           // Clear the previous study ID so next resume loads fresh
           sessionStorage.removeItem('cs_previous_study_id')
+          // For a brand-new study, always treat the current user as having edit rights.
+          // This avoids leaking a previous 'viewer' role from another context into a new flow.
+          try {
+            localStorage.setItem('user_role', 'admin')
+            setUserRole('admin')
+          } catch { }
           // Reset to step 1
           setCurrentStep(1)
         }

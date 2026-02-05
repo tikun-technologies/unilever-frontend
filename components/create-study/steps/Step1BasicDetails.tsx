@@ -23,7 +23,7 @@ function readTokens(): { access_token?: string; refresh_token?: string; token_ty
   }
 }
 
-async function createStudyMinimal(title: string, background: string, language: string) {
+async function createStudyMinimal(title: string, background: string, language: string, projectId?: string | null) {
   const tokens = readTokens()
   if (!tokens) throw new Error("Authentication token not found")
 
@@ -38,6 +38,7 @@ async function createStudyMinimal(title: string, background: string, language: s
       title,
       background,
       language: language.toLowerCase().substring(0, 2),
+      ...(projectId && { project_id: projectId }),
     }),
   })
   const data = await res.json()
@@ -130,7 +131,9 @@ export function Step1BasicDetails({ onNext, onCancel, onDataChange, isReadOnly =
 
     setLoading(true)
     try {
-      const response = await createStudyMinimal(title, description, language)
+      const params = new URLSearchParams(window.location.search)
+      const projectId = params.get('proj_id')
+      const response = await createStudyMinimal(title, description, language, projectId)
       const studyId = response.id || response.study_id
       if (!studyId) throw new Error("No study ID returned")
       localStorage.setItem('cs_study_id', studyId)

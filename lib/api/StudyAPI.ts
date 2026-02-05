@@ -99,6 +99,7 @@ export interface CreateStudyPayload {
   background_image_url?: string // NEW: Optional background image for layer studies
   phase_order?: ("grid" | "text" | "mix")[] // NEW: Phase order for hybrid studies
   toggle_shuffle?: boolean // NEW: Shuffle classification questions
+  project_id?: string
 }
 
 export interface UploadImageResult {
@@ -245,11 +246,12 @@ export async function uploadImages(files: File[] | FileList): Promise<UploadImag
 
 // Create a new study using the backend API contract
 export async function createStudy(payload: CreateStudyPayload): Promise<{ id: string } & any> {
-  // console.log('=== HTTP REQUEST TO /studIES ===')
-  // console.log('URL:', `${API_BASE_URL}/studies`)
-  // console.log('Method: POST')
-  // console.log('Headers:', { "Content-Type": "application/json", ...getAuthHeader() })
-  // console.log('Body size:', JSON.stringify(payload).length, 'characters')
+  // Inject project_id from URL if missing
+  if (!payload.project_id && typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search)
+    const projId = params.get('proj_id')
+    if (projId) payload.project_id = projId
+  }
 
   const res = await fetchWithAuth(`${API_BASE_URL}/studies`, {
     method: "POST",
@@ -634,6 +636,16 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
     phase_order: normalizedType === 'hybrid' ? (Array.isArray(phaseOrder) ? phaseOrder : [phaseOrder]) : undefined, // NEW: Include phase_order for hybrid
     classification_questions: classification_questions.length > 0 ? classification_questions : undefined, // NEW: Include classification questions if any
     ...(normalizedType === 'layer' && layerBackground && (layerBackground.secureUrl || layerBackground.previewUrl) ? { background_image_url: layerBackground.secureUrl || layerBackground.previewUrl } : {}),
+    ...((() => {
+      try {
+        if (typeof window !== 'undefined') {
+          const params = new URLSearchParams(window.location.search)
+          const projId = params.get('proj_id')
+          return projId ? { project_id: projId } : {}
+        }
+      } catch { }
+      return {}
+    })())
   }
 
   console.log('Built elements:', elements)
@@ -737,6 +749,7 @@ export interface TaskGenerationPayload {
     }>
   }>
   aspect_ratio?: string
+  project_id?: string
 }
 
 export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayload {
@@ -1096,6 +1109,16 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
         const value = ar && map[ar] ? map[ar] : undefined
         return value ? { aspect_ratio: value } : {}
       } catch { return {} }
+    })()),
+    ...((() => {
+      try {
+        if (typeof window !== 'undefined') {
+          const params = new URLSearchParams(window.location.search)
+          const projId = params.get('proj_id')
+          return projId ? { project_id: projId } : {}
+        }
+      } catch { }
+      return {}
     })())
   }
 
@@ -1521,6 +1544,7 @@ export type UpdateStudyPutPayload = Partial<{
   classification_questions: ClassificationQuestionPayload[] // NEW: Include classification questions in updates
   status: "draft" | "active" | "paused" | "completed"
   toggle_shuffle?: boolean
+  project_id?: string
 }>
 
 // Fetch study details by ID
@@ -1637,6 +1661,13 @@ export async function putUpdateStudy(studyId: string, payload: UpdateStudyPutPay
   // Add last_step if provided
   if (last_step !== undefined) {
     safePayload.last_step = last_step
+  }
+
+  // Inject project_id from URL if missing
+  if (!safePayload.project_id && typeof window !== 'undefined') {
+    const params = new URLSearchParams(window.location.search)
+    const projId = params.get('proj_id')
+    if (projId) safePayload.project_id = projId
   }
 
   console.log('[API] PUT study update - Study ID:', cleanId)

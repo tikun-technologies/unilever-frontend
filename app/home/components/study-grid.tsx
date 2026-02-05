@@ -2,11 +2,13 @@
 
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { Calendar, Share2, Eye } from "lucide-react"
-import { useRouter } from "next/navigation"
+import { Calendar, Share2, Eye, Folder, Circle, FolderPlus } from "lucide-react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { StudyListItem } from "@/lib/api/StudyAPI"
 import { format } from "date-fns"
-import { useState } from "react"
+import { useState, useEffect } from "react"
+import { Project } from "@/api/projectApi"
+import { mapStudyToProject, unmapStudyFromProject, getStudyProjectMapping } from "@/lib/utils/projectUtils"
 
 interface StudyGridProps {
   studies: StudyListItem[]
@@ -16,6 +18,8 @@ interface StudyGridProps {
   selectedTime: string
   loading: boolean
   error: string | null
+  projects: Project[]
+  onMappingChange?: () => void
 }
 
 export function StudyGrid({
@@ -25,10 +29,31 @@ export function StudyGrid({
   selectedType,
   selectedTime,
   loading,
-  error
+  error,
+  projects,
+  onMappingChange
 }: StudyGridProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const projId = searchParams.get('proj_id')
   const [loadingStudyId, setLoadingStudyId] = useState<string | null>(null)
+  const [studyProjectMapping, setStudyProjectMapping] = useState<Record<string, string>>({})
+  const [activeMenuId, setActiveMenuId] = useState<string | null>(null)
+
+  useEffect(() => {
+    setStudyProjectMapping(getStudyProjectMapping())
+  }, [])
+
+  const handleMapStudy = (studyId: string, projectId: string | null) => {
+    if (projectId) {
+      mapStudyToProject(studyId, projectId)
+    } else {
+      unmapStudyFromProject(studyId)
+    }
+    setStudyProjectMapping(getStudyProjectMapping())
+    if (onMappingChange) onMappingChange()
+    setActiveMenuId(null)
+  }
 
   const clearCreateStudyLocalStorage = () => {
     // Clear all create-study related localStorage items to start fresh from Step 1
@@ -104,9 +129,11 @@ export function StudyGrid({
       localStorage.removeItem('cs_step8')
 
       // Navigate to create-study page
-      router.push('/home/create-study')
+      const url = projId ? `/home/create-study?proj_id=${projId}` : '/home/create-study'
+      router.push(url)
     } else {
-      router.push(`/home/study/${study.id}`)
+      const url = projId ? `/home/study/${study.id}?proj_id=${projId}` : `/home/study/${study.id}`
+      router.push(url)
     }
   }
 
@@ -114,11 +141,13 @@ export function StudyGrid({
     // Clear all create-study localStorage to start fresh from Step 1
     clearCreateStudyLocalStorage()
     // Navigate to create-study page
-    router.push('/home/create-study')
+    const url = projId ? `/home/create-study?proj_id=${projId}` : '/home/create-study'
+    router.push(url)
   }
 
   const handleShare = (studyId: string) => {
-    router.push(`/home/study/${studyId}/share`)
+    const url = projId ? `/home/study/${studyId}/share?proj_id=${projId}` : `/home/study/${studyId}/share`
+    router.push(url)
   }
 
   // Filter studies based on active tab, search query, and filters
@@ -295,10 +324,61 @@ export function StudyGrid({
             <span className={`text-sm font-medium ${getStatusColor(study.status)}`}>
               {study.status.charAt(0).toUpperCase() + study.status.slice(1)}
             </span>
-            <span className="text-[rgba(38,116,186,1)] text-sm font-medium">
-              {study.study_type.charAt(0).toUpperCase() + study.study_type.slice(1)}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="text-[rgba(38,116,186,1)] text-sm font-medium">
+                {study.study_type.charAt(0).toUpperCase() + study.study_type.slice(1)}
+              </span>
+
+              <div className="relative">
+                {/* <button
+                  onClick={() => setActiveMenuId(activeMenuId === study.id ? null : study.id)}
+                  className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                  title="Manage Project"
+                >
+                  <FolderPlus className="w-4 h-4 text-gray-400 hover:text-[rgba(38,116,186,1)]" />
+                </button> */}
+
+                {activeMenuId === study.id && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setActiveMenuId(null)}
+                    />
+                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-gray-100 py-2 z-20">
+                      <p className="px-4 py-1 text-xs font-semibold text-gray-400 uppercase">
+                        Assign to Project
+                      </p>
+                      <button
+                        onClick={() => handleMapStudy(study.id, null)}
+                        className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 ${!studyProjectMapping[study.id] ? 'text-[rgba(38,116,186,1)] font-medium bg-[rgba(38,116,186,0.05)]' : 'text-gray-700'}`}
+                      >
+                        <Circle className={`w-2 h-2 ${!studyProjectMapping[study.id] ? 'fill-current' : ''}`} />
+                        No Project
+                      </button>
+                      {projects.map(project => (
+                        <button
+                          key={project.id}
+                          onClick={() => handleMapStudy(study.id, project.id)}
+                          className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 ${studyProjectMapping[study.id] === project.id ? 'text-[rgba(38,116,186,1)] font-medium bg-[rgba(38,116,186,0.05)]' : 'text-gray-700'}`}
+                        >
+                          <Circle className={`w-2 h-2 ${studyProjectMapping[study.id] === project.id ? 'fill-current' : ''}`} />
+                          {project.name}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
+
+          {/* Project Tag */}
+          {studyProjectMapping[study.id] && (
+            <div className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-[rgba(38,116,186,1)] mb-2">
+              <Folder className="w-3 h-3 mr-1" />
+              {projects.find(p => p.id === studyProjectMapping[study.id])?.name || 'Project'}
+            </div>
+          )}
 
           {/* Title */}
           <h3 className="text-lg font-semibold text-gray-900 mb-2">{study.title}</h3>
