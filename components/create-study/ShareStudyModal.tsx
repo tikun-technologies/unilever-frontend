@@ -49,10 +49,10 @@ export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }
     })();
 
     useEffect(() => {
-        if (studyId && (userRole === 'admin' || userRole === 'editor')) {
+        if (studyId) {
             fetchMembers()
         }
-    }, [studyId, userRole])
+    }, [studyId])
 
     const fetchMembers = async () => {
         setIsLoading(true)
@@ -221,7 +221,10 @@ export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }
                             {/* Body */}
                             <div className="p-6 space-y-6 overflow-y-auto">
                                 {/* Invite Form */}
-                                <div className="space-y-4 bg-blue-50/30 p-4 rounded-lg border border-blue-100">
+                                <div className={`space-y-4 p-4 rounded-lg border transition-colors ${(userRole === 'admin' || userRole === 'editor')
+                                        ? "bg-blue-50/30 border-blue-100"
+                                        : "bg-gray-50 border-gray-200 opacity-75"
+                                    }`}>
                                     <div className="flex flex-col sm:flex-row gap-3">
                                         <div className="flex-1">
                                             <Input
@@ -230,10 +233,15 @@ export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }
                                                 value={email}
                                                 onChange={(e) => setEmail(e.target.value)}
                                                 className="bg-white"
+                                                disabled={isActionLoading || (userRole !== 'admin' && userRole !== 'editor')}
                                             />
                                         </div>
                                         <div className="w-full sm:w-32">
-                                            <Select value={role} onValueChange={setRole}>
+                                            <Select
+                                                value={role}
+                                                onValueChange={setRole}
+                                                disabled={isActionLoading || (userRole !== 'admin' && userRole !== 'editor')}
+                                            >
                                                 <SelectTrigger className="bg-white">
                                                     <SelectValue />
                                                 </SelectTrigger>
@@ -245,7 +253,7 @@ export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }
                                         </div>
                                         <Button
                                             onClick={handleInvite}
-                                            disabled={!email || !email.includes("@") || isActionLoading}
+                                            disabled={!email || !email.includes("@") || isActionLoading || (userRole !== 'admin' && userRole !== 'editor')}
                                             className="bg-blue-600 hover:bg-blue-700 text-white shrink-0"
                                         >
                                             {isActionLoading ? (
@@ -255,6 +263,11 @@ export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }
                                             )}
                                         </Button>
                                     </div>
+                                    {(userRole !== 'admin' && userRole !== 'editor') && (
+                                        <p className="text-[10px] text-gray-500 italic">
+                                            Only admins and editors can invite new members
+                                        </p>
+                                    )}
                                     {error && <p className="text-xs text-red-500">{error}</p>}
                                 </div>
 

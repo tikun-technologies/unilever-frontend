@@ -171,13 +171,13 @@ export function DashboardHeader() {
               >
                 <Button
                   onClick={() => setIsShareModalOpen(true)}
-                  disabled={!studyId || (userRole !== 'admin' && userRole !== 'editor')}
+                  disabled={!studyId || !userRole}
                   variant="outline"
-                  className={`${studyId && (userRole === 'admin' || userRole === 'editor')
+                  className={`${studyId
                     ? "border-blue-200 text-blue-600 hover:bg-blue-50"
                     : "opacity-50 cursor-not-allowed text-gray-400 border-gray-200"
                     } px-4 py-2 rounded-lg flex items-center space-x-2 transition-all`}
-                  title={(userRole !== 'admin' && userRole !== 'editor') ? "Only admins and editors can share the study" : "Share study"}
+                  title={!studyId ? "Create a study first to share" : "Share study"}
                 >
                   <Share2 className="w-4 h-4" />
                   <span className="hidden sm:inline">Share</span>

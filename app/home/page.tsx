@@ -12,8 +12,16 @@ import { getStudies, StudyListItem } from "@/lib/api/StudyAPI"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
 import { Sidebar } from "./components/sidebar"
 import { CreateProjectModal } from "./components/create-project-modal"
+import { EditProjectModal } from "./components/edit-project-modal"
 import { ShareProjectModal } from "@/components/home/ShareProjectModal"
-import { getProjects as getProjectsApi, createProject as createProjectApi, Project } from "@/api/projectApi"
+import {
+  getProjects as getProjectsApi,
+  createProject as createProjectApi,
+  updateProject as updateProjectApi,
+  getProjectStudies as getProjectStudiesApi,
+  getProjectMembers as getProjectMembersApi,
+  Project
+} from "@/api/projectApi"
 import { getStudyProjectMapping } from "@/lib/utils/projectUtils"
 
 function DashboardContent() {
@@ -43,8 +51,11 @@ function DashboardContent() {
   const [studyProjectMapping, setStudyProjectMapping] = useState<Record<string, string>>({})
   const [projectStudies, setProjectStudies] = useState<StudyListItem[]>([])
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [projectsLoading, setProjectsLoading] = useState(true)
   const [isCreatingProject, setIsCreatingProject] = useState(false)
+  const [isUpdatingProject, setIsUpdatingProject] = useState(false)
   const [projectStudiesLoading, setProjectStudiesLoading] = useState(false)
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
   const [sharingProjectId, setSharingProjectId] = useState<string | null>(null)
@@ -161,7 +172,7 @@ function DashboardContent() {
               localStorage.setItem(`ps_role_${project.id}`, project.role);
             }
 
-            const members = await import("@/api/projectApi").then(m => m.getProjectMembers(project.id));
+            const members = await getProjectMembersApi(project.id);
             localStorage.setItem(`ps_members_${project.id}`, JSON.stringify(members));
           } catch (err) {
             console.error(`Failed to pre-fetch members/role for project ${project.id}:`, err);
@@ -296,6 +307,23 @@ function DashboardContent() {
     }
   }
 
+  const handleUpdateProject = async (id: string, name: string, description: string) => {
+    setIsUpdatingProject(true)
+    try {
+      await updateProjectApi(id, { name, description });
+      const data = await getProjectsApi();
+      setProjects(data);
+      // Update cache
+      try { localStorage.setItem('home_projects_cache', JSON.stringify(data)) } catch { }
+      setIsEditModalOpen(false)
+      setEditingProject(null)
+    } catch (err) {
+      console.error("Failed to update project:", err);
+    } finally {
+      setIsUpdatingProject(false)
+    }
+  }
+
   const handleSelectProject = (id: string | null) => {
     setSelectedProjectId(id)
 
@@ -349,7 +377,7 @@ function DashboardContent() {
 
       const fetchProjectStudies = async () => {
         try {
-          const data = await import("@/api/projectApi").then(m => m.getProjectStudies(currentProjectId));
+          const data = await getProjectStudiesApi(currentProjectId);
           // If while we were fetching the user switched to another project,
           // don't override the studies for the new selection.
           if (latestProjectRequestId.current !== currentProjectId) return
@@ -360,7 +388,10 @@ function DashboardContent() {
           } catch { }
         } catch (err) {
           console.error("Failed to fetch project studies:", err);
-          setProjectStudies([]);
+          if (latestProjectRequestId.current === currentProjectId) {
+            setProjectStudies([]);
+            setError("Failed to load project studies. Please try again.");
+          }
         } finally {
           if (latestProjectRequestId.current === currentProjectId) {
             setProjectStudiesLoading(false)
@@ -415,6 +446,10 @@ function DashboardContent() {
             setSharingProjectId(id)
             setIsShareModalOpen(true)
           }}
+          onEditProject={(project) => {
+            setEditingProject(project)
+            setIsEditModalOpen(true)
+          }}
           isLoading={projectsLoading}
         />
 
@@ -462,6 +497,17 @@ function DashboardContent() {
         onClose={() => setIsProjectModalOpen(false)}
         onCreate={handleCreateProject}
         isSubmitting={isCreatingProject}
+      />
+
+      <EditProjectModal
+        isOpen={isEditModalOpen}
+        onClose={() => {
+          setIsEditModalOpen(false)
+          setEditingProject(null)
+        }}
+        onUpdate={handleUpdateProject}
+        project={editingProject}
+        isSubmitting={isUpdatingProject}
       />
 
       {sharingProjectId && (

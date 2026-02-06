@@ -9,7 +9,8 @@ import {
     Folder,
     LayoutGrid,
     Circle,
-    Share2
+    Share2,
+    Pencil
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Project } from "@/api/projectApi"
@@ -20,6 +21,7 @@ interface SidebarProps {
     onSelectProject: (id: string | null) => void;
     onCreateProject: () => void;
     onShareProject?: (id: string) => void;
+    onEditProject?: (project: Project) => void;
     isLoading?: boolean;
 }
 
@@ -29,6 +31,7 @@ export function Sidebar({
     onSelectProject,
     onCreateProject,
     onShareProject,
+    onEditProject,
     isLoading
 }: SidebarProps) {
     const [isCollapsed, setIsCollapsed] = useState(false);
@@ -67,7 +70,8 @@ export function Sidebar({
                     width: isCollapsed ? (isMobile ? 0 : 80) : 280,
                     x: isMobile && isCollapsed ? -280 : 0
                 }}
-                className={`bg-white border-r border-[rgba(209,223,235,1)] flex flex-col h-screen sticky top-0 transition-all duration-300 ease-in-out shadow-sm overflow-hidden z-[101] 
+                transition={{ duration: 0.15, ease: "easeInOut" }}
+                className={`bg-white border-r border-[rgba(209,223,235,1)] flex flex-col h-screen sticky top-0 shadow-sm overflow-hidden z-[101] 
                     ${isMobile ? "fixed left-0 top-0 bottom-0 shadow-2xl" : "sticky"}
                 `}
             >
@@ -79,6 +83,7 @@ export function Sidebar({
                                 initial={{ opacity: 0, x: -10 }}
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: -10 }}
+                                transition={{ duration: 0.1 }}
                                 className="flex flex-col"
                             >
 
@@ -155,43 +160,61 @@ export function Sidebar({
                             ) : projects.length === 0 ? (
                                 !isCollapsed && <p className="px-4 py-4 text-sm text-gray-400 italic">No projects found</p>
                             ) : (
-                                projects.map((project) => (
-                                    <div
-                                        key={project.id}
-                                        role="button"
-                                        tabIndex={0}
-                                        onClick={() => onSelectProject(project.id)}
-                                        onKeyDown={(e) => {
-                                            if (e.key === 'Enter' || e.key === ' ') {
-                                                e.preventDefault();
-                                                onSelectProject(project.id);
-                                            }
-                                        }}
-                                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors group relative cursor-pointer ${selectedProjectId === project.id
-                                            ? "bg-[rgba(38,116,186,0.1)] text-[rgba(38,116,186,1)] border-l-4 border-[rgba(38,116,186,1)] rounded-l-none"
-                                            : "text-gray-600 hover:bg-gray-50"
-                                            }`}
-                                    >
-                                        <div className={`w-2 h-2 rounded-full shrink-0 ${selectedProjectId === project.id ? "bg-[rgba(38,116,186,1)]" : "bg-gray-300"}`} />
-                                        {!isCollapsed && (
-                                            <div className="flex flex-col items-start overflow-hidden text-left flex-1">
-                                                <span className="font-medium truncate w-full pr-6">{project.name}</span>
-                                            </div>
-                                        )}
-                                        {!isCollapsed && (
-                                            <button
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    onShareProject?.(project.id);
-                                                }}
-                                                className="absolute right-2 opacity-0 group-hover:opacity-100 p-1.5 hover:bg-[rgba(38,116,186,0.1)] rounded-full transition-all"
-                                                title="Share Project"
-                                            >
-                                                <Share2 className="w-4 h-4 text-[rgba(38,116,186,1)]" />
-                                            </button>
-                                        )}
-                                    </div>
-                                ))
+                                projects.map((project) => {
+                                    const canEdit = project.role === 'admin' || project.role === 'owner';
+
+                                    return (
+                                        <div
+                                            key={project.id}
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={() => onSelectProject(project.id)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                    e.preventDefault();
+                                                    onSelectProject(project.id);
+                                                }
+                                            }}
+                                            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors group relative cursor-pointer ${selectedProjectId === project.id
+                                                ? "bg-[rgba(38,116,186,0.1)] text-[rgba(38,116,186,1)] border-l-4 border-[rgba(38,116,186,1)] rounded-l-none"
+                                                : "text-gray-600 hover:bg-gray-50"
+                                                }`}
+                                        >
+                                            <div className={`w-2 h-2 rounded-full shrink-0 ${selectedProjectId === project.id ? "bg-[rgba(38,116,186,1)]" : "bg-gray-300"}`} />
+                                            {!isCollapsed && (
+                                                <div className="flex flex-col items-start overflow-hidden text-left flex-1">
+                                                    <span className="font-medium truncate w-full pr-14">{project.name}</span>
+                                                </div>
+                                            )}
+                                            {!isCollapsed && (
+                                                <div className={`absolute right-2 flex items-center gap-1 transition-all ${isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
+                                                    {canEdit && (
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                onEditProject?.(project);
+                                                            }}
+                                                            className="p-1.5 hover:bg-[rgba(38,116,186,0.1)] rounded-full"
+                                                            title="Edit Project"
+                                                        >
+                                                            <Pencil className="w-3.5 h-3.5 text-[rgba(38,116,186,1)]" />
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            onShareProject?.(project.id);
+                                                        }}
+                                                        className="p-1.5 hover:bg-[rgba(38,116,186,0.1)] rounded-full"
+                                                        title="Share Project"
+                                                    >
+                                                        <Share2 className="w-4 h-4 text-[rgba(38,116,186,1)]" />
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })
                             )}
                         </div>
                     </div>
