@@ -89,7 +89,7 @@ export function EditProjectModal({ isOpen, onClose, onUpdate, isSubmitting, proj
                                     </Button>
                                     <Button
                                         type="submit"
-                                        disabled={isSubmitting || !name.trim() || (project && name === project.name)}
+                                        disabled={isSubmitting || !name.trim() || !!(project && name === project.name)}
                                         className="flex-1 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white py-2 flex items-center justify-center gap-2"
                                     >
                                         {isSubmitting ? (
