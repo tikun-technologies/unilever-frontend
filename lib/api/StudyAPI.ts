@@ -1855,6 +1855,49 @@ export async function getPrivateStudyDetails(studyId: string): Promise<StudyDeta
   return data
 }
 
+// Fetch study details for shareable preview (API-driven)
+export async function getStudyDetailsForSharedPreview(studyId: string): Promise<any> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetch(`${API_BASE_URL}/responses/respondent/preview/study/${cleanId}/info`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  })
+
+  const text = await res.text().catch(() => "")
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+
+  if (!res.ok) {
+    const msg = (data && (data.detail || data.message)) || text || `Get shared preview details failed (${res.status})`
+    throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+
+  return data
+}
+
+/**
+ * Fetch basic study details for public preview.
+ * Returns: { id, title, study_type, orientation_text, language, creator_email, etc. }
+ */
+export async function getPublicPreviewDetails(studyId: string): Promise<any> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetch(`${API_BASE_URL}/studies/public/preview/${cleanId}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  })
+
+  const text = await res.text().catch(() => "")
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+
+  if (!res.ok) {
+    const msg = (data && (data.detail || data.message)) || text || `Get public preview details failed (${res.status})`
+    throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+
+  return data
+}
+
 // NEW: Public share details for id/share page
 export async function getPublicShareDetails(studyId: string): Promise<{ id: string; title: string; study_type: string; status: string; share_url: string }> {
   const url = `${API_BASE_URL}/studies/share/details?study_id=${encodeURIComponent(studyId)}`

@@ -27,9 +27,15 @@ export default function PreviewPersonalInformation() {
 
   useEffect(() => {
     try {
-      const user = JSON.parse(localStorage.getItem('user') || '{}')
-      if (checkIsSpecialCreator(user?.email)) {
+      const creatorEmail = localStorage.getItem('current_study_creator_email')
+      if (checkIsSpecialCreator(creatorEmail)) {
         setIsAdmin(true)
+      } else {
+        // Fallback to check logged-in user if explicit creator email is missing
+        const user = JSON.parse(localStorage.getItem('user') || '{}')
+        if (checkIsSpecialCreator(user?.email)) {
+          setIsAdmin(true)
+        }
       }
     } catch { }
   }, [])
@@ -97,6 +103,8 @@ export default function PreviewPersonalInformation() {
         onComplete={() => router.push('/home/create-study/preview/classification-questions')}
         creatorEmail={(() => {
           try {
+            const stored = localStorage.getItem('current_study_creator_email')
+            if (stored) return stored
             const user = JSON.parse(localStorage.getItem('user') || '{}')
             return user?.email || ""
           } catch { return "" }
