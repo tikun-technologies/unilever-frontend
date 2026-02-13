@@ -8,17 +8,38 @@ interface AnalyticsHeatmapProps {
     analysisData: any
     activeMetric: string
     activeTab: string
+    studyType?: string
+    /** When provided with onElementClick, element names with a content URL are rendered as clickable (underline, pointer). */
+    elementContentMap?: Record<string, string>
+    onElementClick?: (contentUrl: string, elementName: string) => void
 }
 
-export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({ analysisData, activeMetric, activeTab }) => {
+export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({
+    analysisData,
+    activeMetric,
+    activeTab,
+    studyType,
+    elementContentMap,
+    onElementClick,
+}) => {
     const { categories, columns } = transformAnalysisForView(analysisData || {}, activeMetric, activeTab)
+    const isLayerStudy = (studyType || "").toLowerCase() === "layer"
 
     const getCellColor = (value: number) => {
         const v = Number(value)
-        if (v === 0 || isNaN(v)) return "#94A3B8"
-        if (v < 0) return "#F97316"
+        if (v === 0 || isNaN(v)) return "rgba(148, 163, 184, 0.5)"
+        if (v < 0) return "#E11D48"
+        // Response Time: lower is better (typically 0.2-2s)
+        if (activeMetric === "Response Time") {
+            if (v < 0.5) return "#22C55E"
+            if (v < 1) return "#82E0AA"
+            if (v < 2) return "#FCCD5B"
+            return "#F7945A"
+        }
+        // Top Down / Bottom Up: higher is better
         if (v >= 20) return "#2674BA"
-        return "#22C55E"
+        if (v >= 10) return "#22C55E"
+        return "#82E0AA"
     }
 
     if (!analysisData || categories.length === 0) {
@@ -49,12 +70,13 @@ export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({ analysisData
                 return (
                     <div key={category.title} className="space-y-6">
                         <div className="flex items-center justify-between">
-                            <h2 className="text-xl font-bold text-gray-900">{category.title}</h2>
+                            <h2 className="text-xl font-bold text-gray-900">{isLayerStudy ? `Layer: ${category.title}` : category.title}</h2>
                             <div className="flex items-center gap-4 text-xs flex-wrap">
-                                <div className="flex items-center gap-1.5"><div className="w-3 h-3" style={{ backgroundColor: "#94A3B8" }} /> Low / Zero</div>
-                                <div className="flex items-center gap-1.5"><div className="w-3 h-3" style={{ backgroundColor: "#22C55E" }} /> Medium</div>
-                                <div className="flex items-center gap-1.5"><div className="w-3 h-3" style={{ backgroundColor: "#2674BA" }} /> High</div>
-                                <div className="flex items-center gap-1.5"><div className="w-3 h-3" style={{ backgroundColor: "#F97316" }} /> Negative</div>
+                                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ backgroundColor: "rgba(148, 163, 184, 0.5)" }} /> Low / Zero</div>
+                                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ backgroundColor: "#82E0AA" }} /> Low+</div>
+                                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ backgroundColor: "#22C55E" }} /> Medium</div>
+                                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ backgroundColor: "#2674BA" }} /> High</div>
+                                <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded-sm" style={{ backgroundColor: "#E11D48" }} /> Negative</div>
                             </div>
                         </div>
 
@@ -62,11 +84,26 @@ export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({ analysisData
                             <div className="flex flex-col md:flex-row">
                                 {/* Left Column: Responses */}
                                 <div className="w-full md:w-[30%] space-y-1 md:pr-6 md:pt-10 mb-4 md:mb-0">
-                                    {category.data.map((row, i) => (
-                                        <div key={i} className="h-12 md:h-24 flex items-center md:justify-end md:text-right">
-                                            <span className="text-[10px] md:text-xs font-bold text-gray-800 leading-tight md:max-w-[200px]">{row.response}</span>
-                                        </div>
-                                    ))}
+                                    {category.data.map((row, i) => {
+                                        const contentUrl = elementContentMap?.[`${category.title}|${row.response}`]
+                                        const hasContent = !!contentUrl && contentUrl.startsWith("http")
+                                        return (
+                                            <div key={i} className="h-12 md:h-24 flex items-center md:justify-end md:text-right">
+                                                {hasContent && onElementClick ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => onElementClick(contentUrl, String(row.response))}
+                                                        className="text-[10px] md:text-xs font-bold leading-tight md:max-w-[200px] underline cursor-pointer text-left hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-[#2674BA]/30 rounded"
+                                                        style={{ color: "#2674BA" }}
+                                                    >
+                                                        {row.response}
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-[10px] md:text-xs font-bold text-gray-800 leading-tight md:max-w-[200px]">{row.response}</span>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
                                 </div>
 
                                 {/* Heatmap Grid Wrapper for potential horizontal scrolling */}

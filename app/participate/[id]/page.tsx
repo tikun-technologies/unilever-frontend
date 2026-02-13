@@ -188,9 +188,9 @@ export default function ParticipateIntroPage() {
       // Get respondent-specific study details using the new API
       try {
         const respondentDetails = await getRespondentStudyDetails(String(response.respondent_id), params.id)
-        // Normalize background image URL into metadata for consumers
+        // Normalize background image URL into metadata for consumers (API returns it at root metadata)
         const rawInfo = respondentDetails?.study_info || respondentDetails || {}
-        const backgroundUrl = rawInfo?.metadata?.background_image_url || rawInfo?.background_image_url || null
+        const backgroundUrl = rawInfo?.metadata?.background_image_url || rawInfo?.background_image_url || respondentDetails?.metadata?.background_image_url || null
         const normalizedInfo = backgroundUrl
           ? { ...rawInfo, metadata: { ...(rawInfo.metadata || {}), background_image_url: backgroundUrl } }
           : rawInfo

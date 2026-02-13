@@ -6,7 +6,7 @@ import { DashboardHeader } from "../../components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
 import { updateStudyStatus, putUpdateStudy, StudyDetails, getStudyBasicDetails } from "@/lib/api/StudyAPI"
 import { StudyAnalytics, downloadStudyResponsesCsv, subscribeStudyAnalytics } from "@/lib/api/ResponseAPI"
-import { Pause, Play, CheckCircle, Share, Download, BarChart3, ArrowLeft, ChevronDown } from "lucide-react"
+import { Pause, Play, CheckCircle, Share, Download, BarChart3, ArrowLeft, ChevronDown, LineChart } from "lucide-react"
 import Link from "next/link"
 import { motion, AnimatePresence } from "framer-motion"
 
@@ -70,6 +70,14 @@ export default function StudyManagementPage() {
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [exporting, setExporting] = useState(false)
   const [exportStage, setExportStage] = useState(0)
+  const exportLoadingMessages = [
+    "Getting your responses...",
+    "Crunching the numbers...",
+    "Building your export...",
+    "Creating your CSV...",
+    "Almost there...",
+  ]
+  const [exportMessageIndex, setExportMessageIndex] = useState(0)
 
   // Cache keys
   const STUDY_CACHE_KEY = `study_details_cache_${studyId}`
@@ -92,6 +100,15 @@ export default function StudyManagementPage() {
     } catch { }
     loadStudyDetails()
   }, [studyId])
+
+  // Cycle export CSV loading message while exporting
+  useEffect(() => {
+    if (!exporting) return
+    const id = setInterval(() => {
+      setExportMessageIndex((i) => (i + 1) % exportLoadingMessages.length)
+    }, 2200)
+    return () => clearInterval(id)
+  }, [exporting])
 
   // Live analytics subscription (SSE with fallback)
   useEffect(() => {
@@ -211,9 +228,9 @@ export default function StudyManagementPage() {
       return (
         <button
           disabled
-          className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-500 rounded-lg cursor-not-allowed"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-100 text-gray-500 rounded-md cursor-not-allowed shrink-0"
         >
-          <CheckCircle className="w-4 h-4" />
+          <CheckCircle className="w-3.5 h-3.5" />
           Study Completed
         </button>
       )
@@ -224,10 +241,10 @@ export default function StudyManagementPage() {
         <button
           onClick={() => handleStatusUpdate("draft")}
           disabled={updating}
-          className="flex items-center gap-2 px-4 py-2 text-white rounded-lg hover:opacity-90 disabled:opacity-50"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-md text-white rounded-md hover:opacity-90 disabled:opacity-50 shrink-0"
           style={{ backgroundColor: '#FF6B35' }}
         >
-          <Pause className="w-4 h-4" />
+          <Pause className="w-3.5 h-3.5" />
           {updating ? "Updating..." : "Pause Study"}
         </button>
       )
@@ -237,9 +254,9 @@ export default function StudyManagementPage() {
       <button
         onClick={() => handleStatusUpdate("active")}
         disabled={updating}
-        className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 disabled:opacity-50"
+        className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-500 text-white rounded-md hover:bg-green-600 disabled:opacity-50 shrink-0"
       >
-        <Play className="w-4 h-4" />
+        <Play className="w-3.5 h-3.5" />
         {updating ? "Updating..." : "Activate Study"}
       </button>
     )
@@ -278,6 +295,7 @@ export default function StudyManagementPage() {
     try {
       setExporting(true)
       setExportStage(0)
+      setExportMessageIndex(0)
 
       // Stage 1: Extracting data
       setExportStage(1)
@@ -369,44 +387,49 @@ export default function StudyManagementPage() {
 
             {/* Title and Actions */}
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <h1 className="text-2xl font-bold">{study.title}</h1>
-              <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-2xl font-bold shrink-0">{study.title}</h1>
+              <div className="flex items-center gap-2 flex-nowrap min-w-0 overflow-x-auto pb-1 scrollbar-hide">
                 <button
                   onClick={() => (typeof window !== 'undefined' && window.history.length > 1) ? router.back() : router.push('/home')}
-                  className="flex cursor-pointer items-center gap-2 px-4 py-2 border rounded-lg hover:opacity-80"
+                  className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-md border rounded-md hover:opacity-80 shrink-0"
                   style={{ borderColor: '#FFFFFF', color: '#FFFFFF' }}
                 >
-                  <ArrowLeft className="w-4 h-4" />
+                  <ArrowLeft className="w-3.5 h-3.5" />
                   Back
                 </button>
 
                 <button
                   onClick={() => router.push(`/home/study/${studyId}/response`)}
-                  className="flex cursor-pointer items-center gap-2 px-4 py-2 bg-white rounded-lg hover:opacity-90 font-medium whitespace-nowrap"
+                  className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-md bg-white rounded-md hover:opacity-90 font-medium whitespace-nowrap shrink-0"
                   style={{ color: '#2674BA' }}
                 >
-                  <BarChart3 className="w-4 h-4" />
+                  <BarChart3 className="w-3.5 h-3.5" />
                   View All Response
+                </button>
+
+                <button
+                  onClick={() => router.push(`/home/study/${studyId}/analytics`)}
+                  className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-md bg-white rounded-md hover:opacity-90 font-medium whitespace-nowrap shrink-0"
+                  style={{ color: '#2674BA' }}
+                >
+                  <LineChart className="w-3.5 h-3.5" />
+                  Analytics
                 </button>
 
                 <button
                   onClick={buildCsvAndDownload}
                   disabled={exporting}
-                  className="flex cursor-pointer items-center gap-2 px-4 py-2 border rounded-lg hover:opacity-80 disabled:opacity-60 whitespace-nowrap"
+                  className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-md border rounded-md hover:opacity-80 disabled:opacity-60 whitespace-nowrap shrink-0"
                   style={{ borderColor: '#FFFFFF', color: '#FFFFFF' }}
                 >
                   {exporting ? (
                     <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
-                      <span>
-                        {exportStage === 1 && "Extracting data..."}
-                        {exportStage === 2 && "Processing responses..."}
-                        {exportStage === 3 && "Generating CSV..."}
-                      </span>
+                      <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-white shrink-0" />
+                      <span>{exportLoadingMessages[exportMessageIndex]}</span>
                     </>
                   ) : (
                     <>
-                      <Download className="w-4 h-4" />
+                      <Download className="w-3.5 h-3.5 shrink-0" />
                       <span>Export CSV</span>
                     </>
                   )}
@@ -416,9 +439,9 @@ export default function StudyManagementPage() {
                 <button
                   onClick={() => handleStatusUpdate("completed")}
                   disabled={updating || study.status === "completed"}
-                  className="flex cursor-pointer items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                  className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-md bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 shrink-0"
                 >
-                  <CheckCircle className="w-4 h-4" />
+                  <CheckCircle className="w-3.5 h-3.5 shrink-0" />
                   Complete Study
                 </button>
               </div>

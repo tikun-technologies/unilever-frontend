@@ -8,6 +8,10 @@ interface AnalyticsGraphProps {
     analysisData: any
     activeMetric: string
     activeTab: string
+    studyType?: string
+    /** When provided with onElementClick, element names with a content URL are rendered as clickable (underline, pointer). */
+    elementContentMap?: Record<string, string>
+    onElementClick?: (contentUrl: string, elementName: string) => void
 }
 
 const COLORS = [
@@ -19,8 +23,16 @@ const COLORS = [
     "#BB8FCE",
 ]
 
-export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({ analysisData, activeMetric, activeTab }) => {
+export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({
+    analysisData,
+    activeMetric,
+    activeTab,
+    studyType,
+    elementContentMap,
+    onElementClick,
+}) => {
     const { categories, columns } = transformAnalysisForView(analysisData || {}, activeMetric, activeTab)
+    const isLayerStudy = (studyType || "").toLowerCase() === "layer"
 
     if (!analysisData || categories.length === 0) {
         return (
@@ -43,10 +55,10 @@ export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({ analysisData, ac
                         <div className="flex items-center gap-3 px-1">
                             <div className="h-8 w-1.5 rounded-full bg-[#2674BA]" />
                             <h2 className="text-xl font-bold text-gray-800">
-                                {category.title}
+                                {isLayerStudy ? `Layer: ${category.title}` : category.title}
                             </h2>
                             <span className="text-sm font-medium text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                                {category.data.length} Elements
+                                {category.data.length} {isLayerStudy ? "variants" : "Elements"}
                             </span>
                         </div>
 
@@ -71,13 +83,27 @@ export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({ analysisData, ac
                                     yMin.toFixed(1),
                                 ]
 
+                                const contentUrl = elementContentMap?.[`${category.title}|${row.response}`]
+                                const hasContent = !!contentUrl && contentUrl.startsWith("http")
+
                                 return (
                                     <div
                                         key={rowIndex}
                                         className={`bg-white rounded-xl border border-gray-200 shadow-sm p-6 flex flex-col hover:shadow-md transition-shadow shrink-0 ${cardMinWidth}`}
                                     >
                                         <h3 className="text-sm font-bold text-gray-700 mb-8 whitespace-normal break-words leading-relaxed min-h-[3rem]">
-                                            {row.response}
+                                            {hasContent && onElementClick ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => onElementClick(contentUrl, String(row.response))}
+                                                    className="underline cursor-pointer text-left hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-[#2674BA]/30 rounded"
+                                                    style={{ color: "#2674BA" }}
+                                                >
+                                                    {row.response}
+                                                </button>
+                                            ) : (
+                                                row.response
+                                            )}
                                         </h3>
 
                                         <div className="flex gap-4 flex-1 items-start">

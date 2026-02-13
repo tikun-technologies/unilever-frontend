@@ -270,6 +270,54 @@ function DashboardContent() {
     setSelectedTime("All Time")
   }
 
+  const handleStudyClickFromSidebar = (study: StudyListItem) => {
+    if (study.status === "draft") {
+      let lastStep = study.last_step ?? 1
+      try {
+        const cached = localStorage.getItem("home_studies_cache")
+        if (cached) {
+          const parsed = JSON.parse(cached) as StudyListItem[]
+          const cachedStudy = parsed.find((s) => s.id === study.id)
+          if (cachedStudy?.last_step) lastStep = cachedStudy.last_step
+        }
+      } catch { /* ignore */ }
+      localStorage.setItem("cs_study_id", study.id)
+      localStorage.setItem("cs_current_step", String(lastStep))
+      localStorage.setItem("cs_resuming_draft", "true")
+      localStorage.removeItem("cs_is_fresh_start")
+      localStorage.removeItem("cs_step8")
+      const url = selectedProjectId
+        ? `/home/create-study?proj_id=${selectedProjectId}`
+        : "/home/create-study"
+      router.push(url)
+    } else {
+      const url = selectedProjectId
+        ? `/home/study/${study.id}?proj_id=${selectedProjectId}`
+        : `/home/study/${study.id}`
+      router.push(url)
+    }
+  }
+
+  const refetchStudies = async () => {
+    try {
+      const studiesArray = await getStudies(1, 200)
+      const safeStudiesArray = Array.isArray(studiesArray) ? studiesArray : []
+      setStudies(safeStudiesArray)
+      try { localStorage.setItem('home_studies_cache', JSON.stringify(safeStudiesArray)) } catch { }
+    } catch (err) {
+      console.error("Failed to refetch studies:", err)
+    }
+    if (selectedProjectId) {
+      try {
+        const data = await getProjectStudiesApi(selectedProjectId)
+        setProjectStudies(data)
+        try { localStorage.setItem(`ps_cache_${selectedProjectId}`, JSON.stringify(data)) } catch { }
+      } catch (err) {
+        console.error("Failed to refetch project studies:", err)
+      }
+    }
+  }
+
   const handleCreateProject = async (name: string, description: string) => {
     setIsCreatingProject(true)
     try {
@@ -450,7 +498,14 @@ function DashboardContent() {
             setEditingProject(project)
             setIsEditModalOpen(true)
           }}
+          onStudyClick={handleStudyClickFromSidebar}
           isLoading={projectsLoading}
+          studies={studies}
+          fetchProjectStudies={async (projectId) => {
+            const data = await getProjectStudiesApi(projectId)
+            return Array.isArray(data) ? (data as StudyListItem[]) : []
+          }}
+          onStudyCopied={refetchStudies}
         />
 
         <motion.div
@@ -487,6 +542,8 @@ function DashboardContent() {
               error={error}
               projects={projects}
               onMappingChange={() => setStudyProjectMapping(getStudyProjectMapping())}
+              onStudyCopied={refetchStudies}
+              onStudyDeleted={refetchStudies}
             />
           </div>
         </motion.div>

@@ -2,9 +2,9 @@
 
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { Calendar, Share2, Eye, Folder, Circle, FolderPlus } from "lucide-react"
+import { Calendar, Share2, Eye, Folder, Circle, FolderPlus, Copy, Trash2 } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { StudyListItem } from "@/lib/api/StudyAPI"
+import { StudyListItem, copyStudy, deleteStudy } from "@/lib/api/StudyAPI"
 import { format } from "date-fns"
 import { useState, useEffect } from "react"
 import { Project } from "@/api/projectApi"
@@ -20,6 +20,8 @@ interface StudyGridProps {
   error: string | null
   projects: Project[]
   onMappingChange?: () => void
+  onStudyCopied?: () => void | Promise<void>
+  onStudyDeleted?: () => void | Promise<void>
 }
 
 export function StudyGrid({
@@ -31,7 +33,9 @@ export function StudyGrid({
   loading,
   error,
   projects,
-  onMappingChange
+  onMappingChange,
+  onStudyCopied,
+  onStudyDeleted
 }: StudyGridProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -39,10 +43,26 @@ export function StudyGrid({
   const [loadingStudyId, setLoadingStudyId] = useState<string | null>(null)
   const [studyProjectMapping, setStudyProjectMapping] = useState<Record<string, string>>({})
   const [activeMenuId, setActiveMenuId] = useState<string | null>(null)
+  const [copyLoadingStudyId, setCopyLoadingStudyId] = useState<string | null>(null)
+  const [copyErrorStudyId, setCopyErrorStudyId] = useState<string | null>(null)
+  const [copyErrorMessage, setCopyErrorMessage] = useState<string>("")
+  const [canCopyStudies, setCanCopyStudies] = useState(true)
+  const [deleteConfirmStudy, setDeleteConfirmStudy] = useState<StudyListItem | null>(null)
+  const [deleteLoadingStudyId, setDeleteLoadingStudyId] = useState<string | null>(null)
 
   useEffect(() => {
     setStudyProjectMapping(getStudyProjectMapping())
   }, [])
+
+  // Role-based visibility: hide Copy when inside a project and user is Viewer
+  useEffect(() => {
+    if (projId) {
+      const role = typeof window !== "undefined" ? localStorage.getItem(`ps_role_${projId}`) : null
+      setCanCopyStudies(role !== "viewer")
+    } else {
+      setCanCopyStudies(true)
+    }
+  }, [projId])
 
   const handleMapStudy = (studyId: string, projectId: string | null) => {
     if (projectId) {
@@ -148,6 +168,54 @@ export function StudyGrid({
   const handleShare = (studyId: string) => {
     const url = projId ? `/home/study/${studyId}/share?proj_id=${projId}` : `/home/study/${studyId}/share`
     router.push(url)
+  }
+
+  const handleCopyStudy = async (studyId: string) => {
+    if (copyLoadingStudyId) return
+    setCopyLoadingStudyId(studyId)
+    setCopyErrorStudyId(null)
+    setCopyErrorMessage("")
+    try {
+      // When user is in a project, send project_id so the copied study is added to that project; in All Studies send nothing
+      await copyStudy(studyId, projId || undefined)
+      await onStudyCopied?.()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to copy study"
+      setCopyErrorStudyId(studyId)
+      setCopyErrorMessage(message)
+    } finally {
+      setCopyLoadingStudyId(null)
+    }
+  }
+
+  const handleDeleteStudyClick = (study: StudyListItem) => {
+    setDeleteConfirmStudy(study)
+  }
+
+  const handleDeleteStudyConfirm = async (confirmed: boolean) => {
+    if (!deleteConfirmStudy) {
+      setDeleteConfirmStudy(null)
+      return
+    }
+    if (!confirmed) {
+      setDeleteConfirmStudy(null)
+      return
+    }
+    const studyId = deleteConfirmStudy.id
+    setDeleteLoadingStudyId(studyId)
+    setCopyErrorStudyId(null)
+    setCopyErrorMessage("")
+    try {
+      await deleteStudy(studyId)
+      setDeleteConfirmStudy(null)
+      await onStudyDeleted?.()
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to delete study"
+      setCopyErrorStudyId(studyId)
+      setCopyErrorMessage(message)
+    } finally {
+      setDeleteLoadingStudyId(null)
+    }
   }
 
   // Filter studies based on active tab, search query, and filters
@@ -309,6 +377,7 @@ export function StudyGrid({
   }
 
   return (
+    <>
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {filteredStudies.map((study, index) => (
         <motion.div
@@ -435,6 +504,13 @@ export function StudyGrid({
             )}
           </div>
 
+          {/* Copy error feedback */}
+          {copyErrorStudyId === study.id && copyErrorMessage && (
+            <div className="mb-3 text-sm text-red-600 bg-red-50 px-3 py-2 rounded-md">
+              {copyErrorMessage}
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex items-center justify-between">
             <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
@@ -457,17 +533,83 @@ export function StudyGrid({
               </Button>
             </motion.div>
 
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.9 }}
-              onClick={() => handleShare(study.id)}
-              className="w-10 h-10 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] rounded-full flex items-center justify-center transition-colors"
-            >
-              <Share2 className="w-5 h-5 text-white cursor-pointer" />
-            </motion.button>
+            <div className="flex items-center gap-2">
+              {canCopyStudies && study.user_role !== "viewer" && study.status !== "draft" && (
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => handleCopyStudy(study.id)}
+                  disabled={copyLoadingStudyId !== null}
+                  className="w-10 h-10 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] rounded-full flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Copy study"
+                >
+                  {copyLoadingStudyId === study.id ? (
+                    <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Copy className="w-5 h-5 text-white cursor-pointer" />
+                  )}
+                </motion.button>
+              )}
+              {study.user_role === "admin" && study.status === "draft" && (
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => handleDeleteStudyClick(study)}
+                  disabled={deleteLoadingStudyId !== null}
+                  className="w-10 h-10 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Delete study"
+                >
+                  {deleteLoadingStudyId === study.id ? (
+                    <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Trash2 className="w-5 h-5 text-white cursor-pointer" />
+                  )}
+                </motion.button>
+              )}
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => handleShare(study.id)}
+                className="w-10 h-10 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] rounded-full flex items-center justify-center transition-colors"
+                title="Share study"
+              >
+                <Share2 className="w-5 h-5 text-white cursor-pointer" />
+              </motion.button>
+            </div>
           </div>
         </motion.div>
       ))}
     </div>
+
+    {/* Delete study confirmation modal */}
+    {deleteConfirmStudy && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+        <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 text-center">
+          <p className="text-gray-800 font-medium mb-6">Do you want to delete this study?</p>
+          <div className="flex items-center justify-center gap-3">
+            <Button
+              variant="outline"
+              onClick={() => handleDeleteStudyConfirm(false)}
+              disabled={deleteLoadingStudyId !== null}
+              className="px-4 py-2"
+            >
+              No
+            </Button>
+            <Button
+              onClick={() => handleDeleteStudyConfirm(true)}
+              disabled={deleteLoadingStudyId !== null}
+              className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white"
+            >
+              {deleteLoadingStudyId === deleteConfirmStudy.id ? (
+                <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                "Yes"
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

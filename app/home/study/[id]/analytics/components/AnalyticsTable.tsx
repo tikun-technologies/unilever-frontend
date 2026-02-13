@@ -7,10 +7,12 @@ interface AnalyticsTableProps {
     analysisData: any
     activeMetric: string
     activeTab: string
+    studyType?: string
 }
 
-export const AnalyticsTable: React.FC<AnalyticsTableProps> = ({ analysisData, activeMetric, activeTab }) => {
+export const AnalyticsTable: React.FC<AnalyticsTableProps> = ({ analysisData, activeMetric, activeTab, studyType }) => {
     const { categories, columns } = transformAnalysisForView(analysisData || {}, activeMetric, activeTab)
+    const isLayerStudy = (studyType || "").toLowerCase() === "layer"
 
     if (!analysisData || categories.length === 0) {
         return (
@@ -24,9 +26,10 @@ export const AnalyticsTable: React.FC<AnalyticsTableProps> = ({ analysisData, ac
         <div className="space-y-12 pb-12">
             {categories.map((category) => {
                 const sectionColumns = category.columns || columns
+                const sectionTitle = isLayerStudy ? `Layer: ${category.title}` : category.title
                 return (
                     <div key={category.title} className="space-y-4">
-                        <h2 className="text-lg font-bold text-gray-900 text-left">{category.title}</h2>
+                        <h2 className="text-lg font-bold text-gray-900 text-left">{sectionTitle}</h2>
                         <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm text-left">

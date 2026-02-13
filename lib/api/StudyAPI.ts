@@ -404,32 +404,7 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
     }
   } else {
     // For layer mode: use secure URLs directly (images already uploaded)
-    // If background present, prepend a background layer at z_index 0
-    const backgroundLayer = (() => {
-      if (layerBackground && (layerBackground.secureUrl || layerBackground.previewUrl)) {
-        const url = layerBackground.secureUrl || layerBackground.previewUrl
-        return {
-          layer_id: layerBackground.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
-          name: layerBackground.name || 'Background',
-          description: 'Auto-added background layer',
-          z_index: 0,
-          order: 0,
-          transform: { x: 0, y: 0, width: 100, height: 100 },
-          images: [
-            {
-              image_id: layerBackground.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
-              name: layerBackground.name || 'Background',
-              url,
-              alt_text: layerBackground.name || 'Background',
-              order: 0,
-              config: {},
-            },
-          ],
-        }
-      }
-      return null
-    })()
-
+    // Background image is sent only as background_image_url, not as a study layer
     const userLayers = layer.map((l: any, layerIdx: number) => {
       const imageObjects = l.images?.filter((img: any) => img.secureUrl || img.sourceType === 'text').map((img: any, imgIdx: number) => {
         // console.log(`Layer ${layerIdx} Image ${imgIdx}:`, { id: img.id, name: img.name, secureUrl: img.secureUrl })
@@ -503,8 +478,8 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
         layer_id: l.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
         name: l.name || `Layer ${layerIdx + 1}`,
         description: l.description || "",
-        z_index: typeof l.z === "number" ? l.z : layerIdx + (backgroundLayer ? 1 : 0),
-        order: typeof l.z === "number" ? l.z : layerIdx + (backgroundLayer ? 1 : 0),
+        z_index: typeof l.z === "number" ? l.z : layerIdx,
+        order: typeof l.z === "number" ? l.z : layerIdx,
         // PRIORITIZE explicitly saved layer transform
         ...(l.transform ? {
           transform: {
@@ -525,19 +500,7 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
         images: imageObjects,
       }
     })
-    // Prepend background layer but ensure we don't have a duplicate in userLayers 
-    // (e.g. if state was somehow polluted or resuming from an old version)
-    const bgUrl = backgroundLayer?.images?.[0]?.url
-    study_layers = backgroundLayer ? [
-      backgroundLayer,
-      ...userLayers.filter((l: any) => {
-        const isBgDescription = l.description === "Auto-added background layer"
-        const firstImgUrl = l.images?.[0]?.url
-        const isBgNameAndUrl = (l.name === 'Background' || l.name === 'Background Image') && firstImgUrl === bgUrl
-
-        return !(isBgDescription || isBgNameAndUrl)
-      })
-    ] : userLayers
+    study_layers = userLayers
   }
 
   // Build classification questions from localStorage (Step 4 format)
@@ -913,32 +876,7 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
       elements = result.elements
     }
   } else {
-    // Build study_layers
-    const backgroundLayer = (() => {
-      if (layerBackground && (layerBackground.secureUrl || layerBackground.previewUrl)) {
-        const url = layerBackground.secureUrl || layerBackground.previewUrl
-        return {
-          layer_id: layerBackground.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
-          name: layerBackground.name || 'Background',
-          description: 'Auto-added background layer',
-          z_index: 0,
-          order: 0,
-          transform: { x: 0, y: 0, width: 100, height: 100 },
-          images: [
-            {
-              image_id: layerBackground.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
-              name: layerBackground.name || 'Background',
-              url,
-              alt_text: layerBackground.name || 'Background',
-              order: 0,
-              config: {},
-            },
-          ],
-        }
-      }
-      return null
-    })()
-
+    // Build study_layers (background image is sent as background_image_url only, not as a layer)
     const userLayers = layer.map((l: any, layerIdx: number) => {
       const imageObjects = l.images?.filter((img: any) => img.secureUrl || img.sourceType === 'text').map((img: any, imgIdx: number) => {
         const imageObj: any = {
@@ -1027,13 +965,13 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
         layer_id: l.id || crypto.randomUUID?.() || Math.random().toString(36).slice(2),
         name: l.name || `Layer ${layerIdx + 1}`,
         description: l.description || "",
-        z_index: typeof l.z === "number" ? l.z : layerIdx + (backgroundLayer ? 1 : 0),
-        order: typeof l.z === "number" ? l.z : layerIdx + (backgroundLayer ? 1 : 0),
+        z_index: typeof l.z === "number" ? l.z : layerIdx,
+        order: typeof l.z === "number" ? l.z : layerIdx,
         ...(transform ? { transform } : {}),
         images: imageObjects,
       }
     })
-    study_layers = backgroundLayer ? [backgroundLayer, ...userLayers] : userLayers
+    study_layers = userLayers
 
   }
 
@@ -1943,6 +1881,9 @@ export interface StudyListItem {
   completed_responses: number
   abandoned_responses: number
   last_step?: number
+  project_id?: string
+  /** User's role for this study (from get studies API). Used to show/hide copy and delete. */
+  user_role?: 'admin' | 'editor' | 'viewer'
 }
 
 export interface StudiesResponse {
@@ -2003,6 +1944,60 @@ export async function getStudyBasicDetails(studyId: string): Promise<any> {
   } catch (error) {
     console.error('Error fetching study basic details:', error)
     throw error
+  }
+}
+
+/**
+ * Copy a study. Creates a new draft study from an existing one.
+ * POST /studies/{study_id}/copy
+ * When user is in a project, pass projectId to add the copied study to that project.
+ * When user is in All Studies, pass nothing (omit project_id from payload).
+ * Returns the newly created study (draft).
+ */
+export async function copyStudy(studyId: string, projectId?: string | null): Promise<StudyListItem> {
+  const cleanId = normalizeStudyId(studyId)
+  const body = projectId ? { project_id: projectId } : {}
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/copy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  const text = await res.text().catch(() => '')
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+
+  if (!res.ok) {
+    const msg = (data && (data.detail || data.message)) || text || `Copy study failed (${res.status})`
+    throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+
+  // Ensure the copied study is treated as draft and has list shape
+  const study = data as StudyListItem
+  if (study && typeof study.id === 'string') {
+    return { ...study, status: (study.status || 'draft') as StudyListItem['status'] }
+  }
+  throw new Error('Invalid response from copy study API')
+}
+
+/**
+ * Delete (dispose) a study.
+ * DELETE /studies/{study_id}
+ */
+export async function deleteStudy(studyId: string): Promise<void> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+  })
+
+  const text = await res.text().catch(() => '')
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+
+  if (!res.ok) {
+    const msg = (data && (data.detail || data.message)) || text || `Delete study failed (${res.status})`
+    throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
   }
 }
 

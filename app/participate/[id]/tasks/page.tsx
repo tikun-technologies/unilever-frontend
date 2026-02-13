@@ -149,8 +149,9 @@ export default function TasksPage() {
           middle: String(rs.middle_label || "")
         })
 
-        const metadata = info.metadata || {}
-        setBackgroundUrl(metadata.background_image_url || null)
+        // API returns background at root metadata; merge may add study_info.metadata — read both
+        const metadata = info.metadata || details.metadata || {}
+        setBackgroundUrl(metadata.background_image_url || info.background_image_url || details.background_image_url || null)
 
         // respondentTasks can be bucketed (for hybrid) or flat
         let respondentTasks: any[] = []
@@ -782,8 +783,8 @@ export default function TasksPage() {
                               ))}
                             </div>
                           ) : (
-                            <div className="flex flex-col gap-1 xs:gap-2 sm:gap-3 relative items-center justify-center w-full h-full max-h-full overflow-hidden" style={{ zIndex: 1 }}>
-                              <div className="aspect-square w-full max-w-[50%] overflow-hidden flex-shrink">
+                            <div className="grid grid-cols-2 gap-1 xs:gap-2 sm:gap-3 w-full h-full max-h-full overflow-hidden place-items-center relative min-w-0" style={{ zIndex: 1 }}>
+                              <div className="aspect-square w-full min-w-0 overflow-hidden">
                                 {task?.leftImageUrl ? (
                                   <Image
                                     src={getCachedUrl(task.leftImageUrl) || "/placeholder.svg"}
@@ -797,7 +798,7 @@ export default function TasksPage() {
                                   />
                                 ) : null}
                               </div>
-                              <div className="aspect-square w-full max-w-[50%] overflow-hidden flex-shrink">
+                              <div className="aspect-square w-full min-w-0 overflow-hidden">
                                 {task?.rightImageUrl ? (
                                   <Image
                                     src={getCachedUrl(task.rightImageUrl) || "/placeholder.svg"}
@@ -1033,7 +1034,7 @@ export default function TasksPage() {
 
                         if (urls.length <= 2) {
                           return (
-                            <div className="flex flex-col gap-4 relative max-w-lg mx-auto items-center">
+                            <div className="grid grid-cols-2 gap-4 relative max-w-lg mx-auto w-full min-w-0">
                               {backgroundUrl && (
                                 <img
                                   src={getCachedUrl(backgroundUrl) || "/placeholder.svg"}
@@ -1041,11 +1042,11 @@ export default function TasksPage() {
                                   decoding="async"
                                   loading="eager"
                                   fetchPriority="high"
-                                  className="absolute inset-0 w-full h-full object-cover"
+                                  className="absolute inset-0 w-full h-full object-cover rounded-xl"
                                   style={{ zIndex: 0 }}
                                 />
                               )}
-                              <div className="aspect-square w-1/2 overflow-hidden" style={{ zIndex: 1 }}>
+                              <div className="aspect-square w-full min-w-0 overflow-hidden rounded-lg" style={{ zIndex: 1 }}>
                                 {urls[0] && (
                                   <Image
                                     src={getCachedUrl(urls[0]) || "/placeholder.svg"}
@@ -1058,7 +1059,7 @@ export default function TasksPage() {
                                   />
                                 )}
                               </div>
-                              <div className="aspect-square w-1/2 overflow-hidden" style={{ zIndex: 1 }}>
+                              <div className="aspect-square w-full min-w-0 overflow-hidden rounded-lg" style={{ zIndex: 1 }}>
                                 {urls[1] && (
                                   <Image
                                     src={getCachedUrl(urls[1]) || "/placeholder.svg"}

@@ -1,17 +1,24 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useMemo } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { DashboardHeader } from "@/app/home/components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
 import { getStudyBasicDetails, StudyDetails } from "@/lib/api/StudyAPI"
-import { downloadStudyResponsesCsv } from "@/lib/api/ResponseAPI"
-import { ArrowLeft, BarChart3, Download } from "lucide-react"
+import { downloadStudyResponsesCsv, getStudyAnalysisJson } from "@/lib/api/ResponseAPI"
+import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard } from "lucide-react"
 import Link from "next/link"
 import { AnalyticsToolbar } from "./components/AnalyticsToolbar"
 import { AnalyticsTable } from "./components/AnalyticsTable"
 import { AnalyticsHeatmap } from "./components/AnalyticsHeatmap"
 import { AnalyticsGraph } from "./components/AnalyticsGraph"
+import { AnalyticsKPICards } from "./components/AnalyticsKPICards"
+import { AnalyticsResponseTimeSection } from "./components/AnalyticsResponseTimeSection"
+import { AnalyticsPieCharts } from "./components/AnalyticsPieCharts"
+import { AnalyticsTopBottomPerformers } from "./components/AnalyticsTopBottomPerformers"
+import { AnalyticsFatiguePredictor } from "./components/AnalyticsFatiguePredictor"
+import { AnalyticsPersonaBlueprints } from "./components/AnalyticsPersonaBlueprints"
+import { AnalyticsFilterAnalysis } from "./components/AnalyticsFilterAnalysis"
 
 export default function StudyAnalyticsPage() {
     const params = useParams()
@@ -24,6 +31,8 @@ export default function StudyAnalyticsPage() {
     const [exporting, setExporting] = useState(false)
     const [exportStage, setExportStage] = useState(0)
     const [analysisData, setAnalysisData] = useState<any>(null)
+    const [analysisLoading, setAnalysisLoading] = useState(true)
+    const [analysisError, setAnalysisError] = useState<string | null>(null)
 
     useEffect(() => {
         if (!studyId) return
@@ -31,11 +40,17 @@ export default function StudyAnalyticsPage() {
     }, [studyId])
 
     useEffect(() => {
-        fetch("/analysis.json")
-            .then((r) => r.json())
+        if (!studyId) return
+        setAnalysisLoading(true)
+        setAnalysisError(null)
+        getStudyAnalysisJson(studyId)
             .then(setAnalysisData)
-            .catch((e) => console.warn("Failed to load analysis.json:", e))
-    }, [])
+            .catch((e) => {
+                console.warn("Failed to load analysis:", e)
+                setAnalysisError((e as Error)?.message ?? "Failed to load analysis")
+            })
+            .finally(() => setAnalysisLoading(false))
+    }, [studyId])
 
     const loadStudyDetails = async () => {
         try {
@@ -79,9 +94,29 @@ export default function StudyAnalyticsPage() {
         }
     }
 
+    const [analyticsView, setAnalyticsView] = useState<"overview" | "filter" | "detail">("overview")
     const [activeView, setActiveView] = useState("table")
-    const [activeMetric, setActiveMetric] = useState("Response Time")
+    const [activeMetric, setActiveMetric] = useState("Top Down")
     const [activeTab, setActiveTab] = useState("Overall")
+
+    const loadingMessages = useMemo(
+        () => [
+            "Getting your responses...",
+            "Crunching the numbers...",
+            "Building your analysis...",
+            "Creating insights...",
+            "Almost there...",
+        ],
+        []
+    )
+    const [loadingMessageIndex, setLoadingMessageIndex] = useState(0)
+    useEffect(() => {
+        if (!analysisLoading || analysisData) return
+        const id = setInterval(() => {
+            setLoadingMessageIndex((i) => (i + 1) % loadingMessages.length)
+        }, 2200)
+        return () => clearInterval(id)
+    }, [analysisLoading, analysisData, loadingMessages.length])
 
     if (loading) {
         return (
@@ -99,7 +134,8 @@ export default function StudyAnalyticsPage() {
     }
 
     const pageTitle = study?.title || analysisData?.["Information Block"]?.["Study Title"] || "Study Analytics"
-    const studyType = study?.study_type || "text"
+    const rawStudyType = study?.study_type || analysisData?.["Information Block"]?.["Study Type"] || "text"
+    const studyType = typeof rawStudyType === "string" ? rawStudyType.toLowerCase() : "text"
 
     if (error && !analysisData) {
         return (
@@ -183,28 +219,125 @@ export default function StudyAnalyticsPage() {
                 </div>
 
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                    <AnalyticsToolbar
-                        activeView={activeView}
-                        setActiveView={setActiveView}
-                        activeMetric={activeMetric}
-                        setActiveMetric={setActiveMetric}
-                        activeTab={activeTab}
-                        setActiveTab={setActiveTab}
-                    />
-
-                    {activeView === "table" ? (
-                        <AnalyticsTable analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} />
-                    ) : activeView === "heatmap" ? (
-                        <AnalyticsHeatmap analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} />
-                    ) : activeView === "graph" ? (
-                        <AnalyticsGraph analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} />
-                    ) : (
-                        <div className="bg-white rounded-lg shadow-sm border p-12 text-center text-gray-500">
-                            <BarChart3 className="w-16 h-16 mx-auto mb-4 text-blue-200" />
-                            <h3 className="text-xl font-semibold text-gray-700">Analytics Content for {activeTab}</h3>
-                            <p>Displaying {activeMetric} in {activeView} view.</p>
-                            <p className="mt-2 text-sm italic">We are currently building the detailed visualizations for this section.</p>
+                    {analysisError && (
+                        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
+                            <p className="font-medium">Analysis could not be loaded</p>
+                            <p className="text-sm mt-1">{analysisError}</p>
                         </div>
+                    )}
+
+                    {analysisLoading && !analysisData ? (
+                        <div className="flex flex-col items-center justify-center min-h-[60vh] bg-gray-50/80 rounded-xl border border-gray-100">
+                            <div className="animate-spin rounded-full h-14 w-14 border-2 border-[#2674BA] border-t-transparent" />
+                            <p className="mt-5 text-lg font-medium text-gray-700 transition-opacity duration-300">
+                                {loadingMessages[loadingMessageIndex]}
+                            </p>
+                            <p className="mt-1 text-sm text-gray-500">
+                                Something good is cooking…
+                            </p>
+                        </div>
+                    ) : (
+                        <>
+                            {/* Overview / Filter Analysis / Detail Analysis toggle */}
+                            {analysisData && (
+                                <div className="flex flex-wrap gap-2 mb-6">
+                                    <button
+                                        type="button"
+                                        onClick={() => setAnalyticsView("overview")}
+                                        className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 ${
+                                            analyticsView === "overview"
+                                                ? "text-white shadow-sm"
+                                                : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+                                        }`}
+                                        style={analyticsView === "overview" ? { backgroundColor: "#2674BA" } : undefined}
+                                    >
+                                        <LayoutDashboard className="w-4 h-4" />
+                                        Overview
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAnalyticsView("filter")}
+                                        className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 ${
+                                            analyticsView === "filter"
+                                                ? "text-white shadow-sm"
+                                                : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+                                        }`}
+                                        style={analyticsView === "filter" ? { backgroundColor: "#2674BA" } : undefined}
+                                    >
+                                        <Filter className="w-4 h-4" />
+                                        Filter Analysis
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setAnalyticsView("detail")}
+                                        className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 ${
+                                            analyticsView === "detail"
+                                                ? "text-white shadow-sm"
+                                                : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+                                        }`}
+                                        style={analyticsView === "detail" ? { backgroundColor: "#2674BA" } : undefined}
+                                    >
+                                        <BarChart3 className="w-4 h-4" />
+                                        Detail Analysis
+                                    </button>
+                                </div>
+                            )}
+
+                            {analyticsView === "overview" && analysisData && (
+                                <>
+                                    <AnalyticsKPICards analysisData={analysisData} studyType={studyType} />
+                                    <AnalyticsResponseTimeSection analysisData={analysisData} />
+                                    <AnalyticsPieCharts analysisData={analysisData} />
+                                    <AnalyticsTopBottomPerformers analysisData={analysisData} studyType={studyType} />
+                                    <div className="mt-10">
+                                        <AnalyticsPersonaBlueprints
+                                            analysisData={analysisData}
+                                            studyType={studyType as "text" | "grid" | "layer" | "hybrid"}
+                                        />
+                                    </div>
+                                </>
+                            )}
+
+                            {/* Keep mounted when not active so filter state and results persist when switching tabs */}
+                            <div className={analyticsView !== "filter" ? "hidden" : undefined}>
+                                <AnalyticsFilterAnalysis
+                                    studyId={studyId}
+                                    studyType={studyType}
+                                    classificationQuestions={
+                                        (study as any)?.classification_questions ??
+                                        (analysisData as any)?.classification_questions ??
+                                        (analysisData as any)?.meta?.classification_questions
+                                    }
+                                />
+                            </div>
+
+                            {analyticsView === "detail" && analysisData && (
+                                <>
+                                    <AnalyticsToolbar
+                                        activeView={activeView}
+                                        setActiveView={setActiveView}
+                                        activeMetric={activeMetric}
+                                        setActiveMetric={setActiveMetric}
+                                        activeTab={activeTab}
+                                        setActiveTab={setActiveTab}
+                                    />
+                                    {activeView === "table" ? (
+                                        <AnalyticsTable analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
+                                    ) : activeView === "heatmap" ? (
+                                        <AnalyticsHeatmap analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
+                                    ) : activeView === "graph" ? (
+                                        <AnalyticsGraph analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
+                                    ) : (
+                                        <div className="bg-white rounded-lg shadow-sm border p-12 text-center text-gray-500">
+                                            <BarChart3 className="w-16 h-16 mx-auto mb-4 text-blue-200" />
+                                            <h3 className="text-xl font-semibold text-gray-700">Analytics Content for {activeTab}</h3>
+                                            <p>Displaying {activeMetric} in {activeView} view.</p>
+                                            <p className="mt-2 text-sm italic">We are currently building the detailed visualizations for this section.</p>
+                                        </div>
+                                    )}
+                                </>
+                            )}
+                        </>
                     )}
                 </div>
             </div>

@@ -4,18 +4,21 @@ import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ChevronDown, Plus, LogOut, Share2 } from "lucide-react"
+import { ChevronDown, Plus, LogOut, Share2, Trash2 } from "lucide-react"
 import { useAuth } from "@/lib/auth/AuthContext"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ShareStudyModal } from "@/components/create-study/ShareStudyModal"
 import { ShareProjectModal } from "@/components/home/ShareProjectModal"
+import { deleteStudy } from "@/lib/api/StudyAPI"
 
 export function DashboardHeader() {
   const { user, logout } = useAuth()
   const [showDropdown, setShowDropdown] = useState(false)
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
   const [isProjectShareModalOpen, setIsProjectShareModalOpen] = useState(false)
+  const [isDisposeModalOpen, setIsDisposeModalOpen] = useState(false)
+  const [isDisposing, setIsDisposing] = useState(false)
   const [studyId, setStudyId] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>('viewer')
 
@@ -124,6 +127,24 @@ export function DashboardHeader() {
     router.push(url)
   }
 
+  const canDisposeStudy = userRole === 'admin' || userRole === 'editor'
+
+  const handleDisposeStudyConfirm = async () => {
+    if (!studyId) return
+    setIsDisposing(true)
+    try {
+      await deleteStudy(studyId)
+      setIsDisposeModalOpen(false)
+      const homeUrl = projId ? `/home?proj_id=${projId}` : '/home'
+      router.push(homeUrl)
+    } catch (err) {
+      console.error('Dispose study failed:', err)
+      alert(err instanceof Error ? err.message : 'Failed to delete study')
+    } finally {
+      setIsDisposing(false)
+    }
+  }
+
   // Close dropdown when clicking outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -162,12 +183,12 @@ export function DashboardHeader() {
 
           {/* Right side */}
           <div className="flex items-center space-x-4">
-            {/* Share Button (Create Study Route Only) */}
+            {/* Share + Dispose Study (Create Study Route Only) */}
             {isCreateStudyRoute && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="mr-2"
+                className="mr-2 flex items-center gap-2"
               >
                 <Button
                   onClick={() => setIsShareModalOpen(true)}
@@ -181,6 +202,19 @@ export function DashboardHeader() {
                 >
                   <Share2 className="w-4 h-4" />
                   <span className="hidden sm:inline">Share</span>
+                </Button>
+                <Button
+                  onClick={() => canDisposeStudy && setIsDisposeModalOpen(true)}
+                  disabled={!studyId || !canDisposeStudy}
+                  variant="outline"
+                  className={`${studyId && canDisposeStudy
+                    ? "border-red-200 text-red-600 hover:bg-red-50"
+                    : "opacity-50 cursor-not-allowed text-gray-400 border-gray-200"
+                    } px-4 py-2 rounded-lg flex items-center space-x-2 transition-all`}
+                  title={!studyId ? "Create a study first" : !canDisposeStudy ? "Only editors and admins can dispose a study" : "Dispose study"}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  <span className="hidden sm:inline">Dispose Study</span>
                 </Button>
               </motion.div>
             )}
@@ -269,6 +303,35 @@ export function DashboardHeader() {
           projectId={projId}
           userRole={userRole}
         />
+      )}
+
+      {/* Dispose Study confirmation modal */}
+      {isDisposeModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50">
+          <div className="bg-white rounded-lg shadow-xl max-w-sm w-full p-6 text-center">
+            <p className="text-gray-800 text-lg font-medium mb-6">
+              Are you sure you want to delete this?
+            </p>
+            <div className="flex justify-center gap-3">
+              <Button
+                variant="outline"
+                onClick={() => !isDisposing && setIsDisposeModalOpen(false)}
+                disabled={isDisposing}
+                className="px-4 py-2"
+              >
+                No
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDisposeStudyConfirm}
+                disabled={isDisposing}
+                className="px-4 py-2"
+              >
+                {isDisposing ? "Deleting…" : "Yes"}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   )
