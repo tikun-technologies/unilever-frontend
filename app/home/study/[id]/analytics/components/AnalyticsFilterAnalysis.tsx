@@ -18,7 +18,7 @@ import { AnalyticsGraph } from "./AnalyticsGraph"
 import { ImageLightboxModal } from "@/components/ui/ImageLightboxModal"
 
 /** Age groups for Filter Analysis — onboarding step 1 (user-facing list). */
-const FILTER_AGE_GROUPS = ["18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
+const FILTER_AGE_GROUPS = ["13-18", "18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
 const GENDERS = ["Male", "Female"]
 
 const BRAND_BLUE = "#2674BA"
