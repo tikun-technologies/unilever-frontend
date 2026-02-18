@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { AuthGuard } from "@/components/auth/AuthGuard"
 import { DashboardHeader } from "../../../../../components/dashboard-header"
@@ -15,6 +15,9 @@ export default function ResponseDetailsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<ResponseSessionDetails | null>(null)
+  const [layerBgFit, setLayerBgFit] = useState<{ left: number; top: number; width: number; height: number } | null>(null)
+  const layerPreviewContainerRef = useRef<HTMLDivElement>(null)
+  const layerBgImgRef = useRef<HTMLImageElement>(null)
 
   useEffect(() => {
     if (!sessionId) return
@@ -36,6 +39,41 @@ export default function ResponseDetailsPage() {
   }, [sessionId])
 
   const tasks: SessionTaskItem[] = useMemo(() => data?.completed_tasks || [], [data])
+
+  const measureLayerBgFit = useRef(() => {
+    const cont = layerPreviewContainerRef.current
+    const imgEl = layerBgImgRef.current
+    if (!cont || !imgEl) return
+    const cw = cont.offsetWidth
+    const ch = cont.offsetHeight
+    if (!cw || !ch) return
+    const iw = imgEl.naturalWidth || cw
+    const ih = imgEl.naturalHeight || ch
+    if (!iw || !ih) return
+    const scale = Math.min(cw / iw, ch / ih)
+    const w = iw * scale
+    const h = ih * scale
+    const left = (cw - w) / 2
+    const top = (ch - h) / 2
+    setLayerBgFit({ left, top, width: w, height: h })
+  })
+
+  useEffect(() => {
+    if (!data?.background_image_url || !tasks.some(tt => (tt.task_type || (tt as any).phase_type) === 'layer')) return
+    const run = () => { measureLayerBgFit.current() }
+    const t1 = setTimeout(run, 0)
+    const t2 = setTimeout(run, 100)
+    const t3 = setTimeout(run, 350)
+    const t4 = setTimeout(run, 800)
+    return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4) }
+  }, [data, tasks])
+
+  useEffect(() => {
+    if (!layerBgFit) return
+    const onResize = () => { measureLayerBgFit.current() }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [layerBgFit])
 
   const StatRow = ({ label, value }: { label: string; value: string | number | undefined }) => (
     <div className="grid grid-cols-[130px_1fr] gap-3 text-sm">
@@ -162,29 +200,35 @@ export default function ResponseDetailsPage() {
                             {((t.task_type || (t as any).phase_type) === 'layer') && (t.elements_shown_content || t.elements_shown) && (
                               (() => {
                                 // Process layer elements from elements_shown_content
-                                const layerElements: Array<{ url: string, z: number, alt: string }> = []
+                                const layerElements: Array<{ url: string, z: number, alt: string, transform?: { x: number, y: number, width: number, height: number } }> = []
 
                                 // Try elements_shown first (preferred), fallback to elements_shown_in_task
                                 const shownElements = t.elements_shown || t.elements_shown_in_task || {}
                                 const content = t.elements_shown_content || {}
 
-                                // console.log('Layer task processing - shown:', shownElements)
-                                // console.log('Layer task processing - content:', content)
-                                // console.log('Layer task processing - task data:', t)
-
                                 // Process each layer element
                                 Object.keys(shownElements).forEach(key => {
                                   const element = shownElements[key]
                                   const isShown = element && element.visible === 1
-                                  const hasContent = content?.[key] && content[key] !== null
+                                  const raw = content?.[key]
+                                  const hasContent = raw !== undefined && raw !== null
+                                  // Layer study API returns objects { url, name, z_index, transform, layer_name }, not URL strings
+                                  const url = hasContent && typeof raw === 'object' && typeof (raw as any).url === 'string'
+                                    ? (raw as any).url
+                                    : typeof raw === 'string' && raw
+                                      ? raw
+                                      : ''
+                                  const tForm = (raw as any)?.transform
+                                  const transform = tForm && typeof tForm === 'object' && [tForm.x, tForm.y, tForm.width, tForm.height].every(n => typeof n === 'number')
+                                    ? { x: tForm.x, y: tForm.y, width: tForm.width, height: tForm.height }
+                                    : undefined
 
-                                  // console.log(`Layer ${key}: isShown=${isShown}, hasContent=${hasContent}, element:`, element)
-
-                                  if (isShown && hasContent) {
+                                  if (isShown && hasContent && url) {
                                     layerElements.push({
-                                      url: String(content[key]), // content[key] is the URL string directly
-                                      z: Number(element.z_index ?? 0),
-                                      alt: key
+                                      url,
+                                      z: Number(element.z_index ?? (raw as any)?.z_index ?? 0),
+                                      alt: (raw as any)?.name ?? key,
+                                      transform
                                     })
                                   }
                                 })
@@ -198,29 +242,57 @@ export default function ResponseDetailsPage() {
                                   )
                                 }
 
+                                const isFirstLayerTask = tasks.findIndex(tt => (tt.task_type || (tt as any).phase_type) === 'layer') === idx
+                                const overlayStyle = layerBgFit
+                                  ? { left: layerBgFit.left, top: layerBgFit.top, width: layerBgFit.width, height: layerBgFit.height, zIndex: 1 as const }
+                                  : { left: 0, top: 0, right: 0, bottom: 0, zIndex: 1 as const }
+
                                 return (
-                                  <div className="relative w-full max-w-lg aspect-square overflow-hidden rounded-md">
+                                  <div
+                                    ref={isFirstLayerTask ? layerPreviewContainerRef : undefined}
+                                    className="relative w-full max-w-lg aspect-square overflow-hidden rounded-md"
+                                  >
                                     {/* Optional background image behind all layers */}
                                     {data?.background_image_url && (
                                       // eslint-disable-next-line @next/next/no-img-element
                                       <img
+                                        ref={isFirstLayerTask ? layerBgImgRef : undefined}
                                         src={data.background_image_url}
                                         alt="Background"
                                         className="absolute inset-0 m-auto h-full w-full object-contain"
                                         style={{ zIndex: 0 }}
                                         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                                        onLoad={isFirstLayerTask ? () => {
+                                          requestAnimationFrame(() => { measureLayerBgFit.current() })
+                                        } : undefined}
                                       />
                                     )}
-                                    {layerElements.map((img, idx) => (
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img
-                                        key={`${img.url}-${idx}`}
-                                        src={img.url}
-                                        alt={img.alt}
-                                        className="absolute inset-0 m-auto h-full w-full object-contain"
-                                        style={{ zIndex: Math.max(1, img.z) }}
-                                      />
-                                    ))}
+                                    <div className="absolute overflow-hidden" style={overlayStyle}>
+                                      {layerElements.map((img, imgIdx) => {
+                                        const tForm = img.transform ?? { x: 0, y: 0, width: 100, height: 100 }
+                                        const widthPct = Math.max(1, Math.min(100, Number(tForm.width) || 100))
+                                        const heightPct = Math.max(1, Math.min(100, Number(tForm.height) || 100))
+                                        const leftPct = Math.max(0, Math.min(100 - widthPct, Number(tForm.x) || 0))
+                                        const topPct = Math.max(0, Math.min(100 - heightPct, Number(tForm.y) || 0))
+                                        return (
+                                          // eslint-disable-next-line @next/next/no-img-element
+                                          <img
+                                            key={`${img.url}-${imgIdx}`}
+                                            src={img.url}
+                                            alt={img.alt}
+                                            className="absolute object-contain"
+                                            style={{
+                                              zIndex: Math.max(1, img.z),
+                                              position: 'absolute',
+                                              top: `${topPct}%`,
+                                              left: `${leftPct}%`,
+                                              width: `${widthPct}%`,
+                                              height: `${heightPct}%`,
+                                            }}
+                                          />
+                                        )
+                                      })}
+                                    </div>
                                   </div>
                                 )
                               })()
