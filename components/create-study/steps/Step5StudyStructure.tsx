@@ -1,4 +1,4 @@
-﻿/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
 import { Fragment, useEffect, useRef, useState, forwardRef } from "react"
@@ -2711,17 +2711,9 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
 
         const imageId = crypto.randomUUID()
 
-        // Calculate clamped dimensions preserving aspect ratio
-        let finalWidth = baseTransform.width
-        let finalHeight = baseTransform.height
-
-        if (showLayerTextModal.mode === 'add') {
-          const rawW = (pixelWidth / (bgFit.width || 1)) * 100
-          const rawH = (pixelHeight / (bgFit.height || 1)) * 100
-          const scale = Math.min(1, 100 / (rawW || 1), 100 / (rawH || 1))
-          finalWidth = Math.max(5, rawW * scale)
-          finalHeight = Math.max(2, rawH * scale)
-        }
+        // Text layers use 100x100 (full container scale) so height is not reduced
+        const finalWidth = 100
+        const finalHeight = 100
 
         const image: LayerImage = {
           id: imageId,
@@ -2860,12 +2852,9 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
         const initialName = draftName || `Layer ${nextZ + 1}`
         const name = uniqueLayerName(initialName)
 
-        // Calculate clamped dimensions for new layer
-        const rawW = (pixelWidth / (bgFit.width || 1)) * 100
-        const rawH = (pixelHeight / (bgFit.height || 1)) * 100
-        const scale = Math.min(1, 100 / (rawW || 1), 100 / (rawH || 1))
-        const finalWidth = Math.max(5, rawW * scale)
-        const finalHeight = Math.max(2, rawH * scale)
+        // Text layers use 100x100 (full container scale) so height is not reduced
+        const finalWidth = 100
+        const finalHeight = 100
 
         const layerImage: LayerImage = {
           id: imageId,
