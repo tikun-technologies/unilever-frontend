@@ -398,6 +398,8 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     try {
       console.log('[Step7] Marking step7 as completed')
       localStorage.setItem('cs_step7_tasks', JSON.stringify({ completed: true, timestamp: Date.now() }))
+      // Mark step 8 as completed too so it shows as blue in stepper
+      localStorage.setItem('cs_step8', JSON.stringify({ completed: true }))
       // Dispatch custom event to trigger Stepper refresh (storage event only fires for other tabs)
       window.dispatchEvent(new CustomEvent('stepDataChanged'))
       onDataChange?.()
@@ -600,6 +602,8 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         // Mark step 7 as completed
         console.log('[Step7] Marking step7 as completed (immediate)')
         localStorage.setItem('cs_step7_tasks', JSON.stringify({ completed: true, timestamp: Date.now() }))
+        // Mark step 8 as completed too
+        localStorage.setItem('cs_step8', JSON.stringify({ completed: true }))
         clearJobState() // Clear job state when completed
         clearTimerState() // Clear timer state when completed
         stopTimerSaving() // Stop timer saving when completed
@@ -703,6 +707,9 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
           // Set matrix after clearing state to ensure timer doesn't start
           setMatrix(matrixData)
+          // Also mark step 8 as completed if step 7 is done
+          localStorage.setItem('cs_step8', JSON.stringify({ completed: true }))
+          window.dispatchEvent(new CustomEvent('stepDataChanged'))
 
           console.log('[Step7] Loaded cached matrix:', {
             hasMetadata: !!matrixData.metadata,
@@ -1488,6 +1495,65 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
             })
           }
         }
+      } else if (studyType === 'hybrid') {
+        const hybridGridData = localStorage.getItem('cs_step5_hybrid_grid')
+        const hybridTextData = localStorage.getItem('cs_step5_hybrid_text')
+        const phaseOrderRaw = localStorage.getItem('cs_step5_hybrid_phase_order')
+        let phaseOrder: ("grid" | "text")[] = ["grid", "text"]
+        if (phaseOrderRaw) {
+          try {
+            const parsed = JSON.parse(phaseOrderRaw)
+            const isMixValue = parsed === 'mix' || (Array.isArray(parsed) && parsed.length === 1 && parsed[0] === 'mix')
+            phaseOrder = isMixValue ? ['grid', 'text'] : parsed
+          } catch { }
+        }
+
+        elementColumns = []
+        elementKeyMapping = {}
+
+        phaseOrder.forEach(phase => {
+          if (phase === 'grid' && hybridGridData) {
+            try {
+              const categories = JSON.parse(hybridGridData)
+              categories.forEach((category: any, catIdx: number) => {
+                if (category.elements && Array.isArray(category.elements)) {
+                  category.elements.forEach((element: any, elIdx: number) => {
+                    const categoryName = category.title || `Category_${catIdx + 1}`
+                    const elementName = element.name || `Element_${elIdx + 1}`
+                    // Prefix with 'Grid:' to distinguish in CSV
+                    const columnName = `Grid: ${categoryName}-${elementName}`
+                    elementColumns.push(columnName)
+
+                    const apiKey = `${categoryName}_${elIdx + 1}`
+                    elementKeyMapping[apiKey] = columnName
+                  })
+                }
+              })
+            } catch (e) {
+              console.warn('[CSV] Failed to parse hybrid grid data:', e)
+            }
+          } else if (phase === 'text' && hybridTextData) {
+            try {
+              const categories = JSON.parse(hybridTextData)
+              categories.forEach((category: any, catIdx: number) => {
+                if (category.elements && Array.isArray(category.elements)) {
+                  category.elements.forEach((element: any, elIdx: number) => {
+                    const categoryName = category.title || `Category_${catIdx + 1}`
+                    const statementContent = element.name || `Statement_${elIdx + 1}`
+                    // Prefix with 'Text:' to distinguish in CSV
+                    const columnName = `Text: ${categoryName}-${statementContent}`
+                    elementColumns.push(columnName)
+
+                    const apiKey = `${categoryName}_${elIdx + 1}`
+                    elementKeyMapping[apiKey] = columnName
+                  })
+                }
+              })
+            } catch (e) {
+              console.warn('[CSV] Failed to parse hybrid text data:', e)
+            }
+          }
+        })
       }
 
       console.log('[CSV] Element columns found:', elementColumns.length, elementColumns)
@@ -1676,7 +1742,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
         <div className="rounded-lg border bg-white p-4">
           <div className="text-sm font-semibold mb-2">
-            {studyType === 'layer' ? 'Layer Study Algorithm Details' : studyType === 'text' ? 'Text Study Algorithm Details' : 'Grid Study Algorithm Details'}
+            {studyType === 'layer' ? 'Layer Study Algorithm Details' : studyType === 'text' ? 'Text Study Algorithm Details' : studyType === 'hybrid' ? 'Hybrid Study Algorithm Details' : 'Grid Study Algorithm Details'}
           </div>
           <ul className="text-xs text-gray-600 list-disc pl-5 space-y-1">
             {studyType === 'layer' ? (
@@ -1972,7 +2038,14 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
                           return (
                             <div key={tIdx} className="border rounded-lg overflow-hidden">
                               <div className="bg-slate-50 px-4 py-2 text-xs text-gray-600 flex items-center justify-between">
-                                <div>Task {(typeof task?.task_index === 'number') ? task.task_index + 1 : tIdx + 1}</div>
+                                <div>
+                                  Task {(typeof task?.task_index === 'number') ? task.task_index + 1 : tIdx + 1}
+                                  {/* {studyType === 'hybrid' && (
+                                    <span className="ml-2 px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded text-[10px] font-bold uppercase tracking-wider">
+                                      Statement Phase
+                                    </span>
+                                  )} */}
+                                </div>
                               </div>
                               <div className="p-4 space-y-3">
                                 {textStatements.map((statement, i) => (
@@ -2026,7 +2099,14 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
                         return (
                           <div key={tIdx} className="border rounded-lg overflow-hidden">
                             <div className="bg-slate-50 px-4 py-2 text-xs text-gray-600 flex items-center justify-between">
-                              <div>Task {(typeof task?.task_index === 'number') ? task.task_index + 1 : tIdx + 1}</div>
+                              <div>
+                                Task {(typeof task?.task_index === 'number') ? task.task_index + 1 : tIdx + 1}
+                                {/* {studyType === 'hybrid' && (
+                                  <span className="ml-2 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[10px] font-bold uppercase tracking-wider">
+                                    Image Phase
+                                  </span>
+                                )} */}
+                              </div>
                               {/* <div className="text-gray-400">{task?.task_id}</div> */}
                             </div>
                             <div className={`${containerClass} p-4`}>

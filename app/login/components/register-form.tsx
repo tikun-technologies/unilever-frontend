@@ -32,6 +32,7 @@ export function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
     try {
       localStorage.removeItem('home_stats_cache')
       localStorage.removeItem('home_studies_cache')
+      localStorage.removeItem('home_projects_cache')
 
       // Clear all create-study related localStorage items
       const keysToRemove = [
@@ -39,10 +40,19 @@ export function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
         'cs_step5_layer', 'cs_step5_layer_background', 'cs_step5_layer_preview_aspect',
         'cs_step6', 'cs_step7_tasks', 'cs_step7_matrix', 'cs_step7_job_state',
         'cs_step7_timer_state', 'cs_current_step', 'cs_backup_steps',
-        'cs_flash_message', 'cs_resuming_draft', 'cs_study_id', 'cs_is_fresh_start'
+        'cs_flash_message', 'cs_resuming_draft', 'cs_study_id', 'cs_is_fresh_start', 'cs_step8'
       ]
       keysToRemove.forEach(key => localStorage.removeItem(key))
+
+      // Clear all project specific study caches
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('ps_cache_')) {
+          localStorage.removeItem(key)
+        }
+      })
+
       sessionStorage.removeItem('cs_previous_study_id')
+      sessionStorage.removeItem('last_selected_project')
     } catch { }
   }
 

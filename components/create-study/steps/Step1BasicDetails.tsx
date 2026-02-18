@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { putUpdateStudyAsync } from "@/lib/api/StudyAPI"
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_BASE_URL
 
@@ -23,7 +24,7 @@ function readTokens(): { access_token?: string; refresh_token?: string; token_ty
   }
 }
 
-async function createStudyMinimal(title: string, background: string, language: string) {
+async function createStudyMinimal(title: string, background: string, language: string, projectId?: string | null) {
   const tokens = readTokens()
   if (!tokens) throw new Error("Authentication token not found")
 
@@ -38,6 +39,7 @@ async function createStudyMinimal(title: string, background: string, language: s
       title,
       background,
       language: language.toLowerCase().substring(0, 2),
+      ...(projectId && { project_id: projectId }),
     }),
   })
   const data = await res.json()
@@ -113,30 +115,54 @@ export function Step1BasicDetails({ onNext, onCancel, onDataChange, isReadOnly =
     if (loading) return
     setError(null)
 
-    // If read-only, we just navigate. No saving.
+    // Viewer: no create, no PUT — just go to next step
     if (isReadOnly) {
       onNext()
       return
     }
 
-    // Check if cs_study_id already exists in localStorage
-    const existingStudyId = localStorage.getItem('cs_study_id')
+    const langCode = language.toLowerCase().substring(0, 2)
+    const step1Payload = {
+      title,
+      background: description,
+      language: langCode,
+      last_step: 1,
+    }
+
+    // Parse existing study_id (may be stored as plain string or JSON)
+    let existingStudyId: string | null = null
+    try {
+      const stored = localStorage.getItem("cs_study_id")
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored)
+          existingStudyId = typeof parsed === "string" ? parsed : String(parsed)
+        } catch {
+          existingStudyId = stored
+        }
+      }
+    } catch { }
+
     if (existingStudyId) {
-      // Study already exists, skip API call and proceed
-      console.log('Study already exists with ID:', existingStudyId)
+      // Study exists: PUT step 1 data (title, description, language, last_step) — admin/creator/editor only (we're not isReadOnly)
+      putUpdateStudyAsync(existingStudyId, step1Payload, 1)
       onNext()
       return
     }
 
+    // No study_id: create minimal study first, then PUT step 1 data
     setLoading(true)
     try {
-      const response = await createStudyMinimal(title, description, language)
+      const params = new URLSearchParams(window.location.search)
+      const projectId = params.get("proj_id")
+      const response = await createStudyMinimal(title, description, language, projectId)
       const studyId = response.id || response.study_id
       if (!studyId) throw new Error("No study ID returned")
-      localStorage.setItem('cs_study_id', studyId)
+      localStorage.setItem("cs_study_id", typeof studyId === "string" ? studyId : JSON.stringify(studyId))
+      putUpdateStudyAsync(String(studyId), step1Payload, 1)
       onNext()
-    } catch (err: any) {
-      setError(err.message || "Failed to create study")
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to create study")
     } finally {
       setLoading(false)
     }

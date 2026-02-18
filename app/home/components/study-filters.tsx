@@ -50,7 +50,7 @@ export function StudyFilters({
     { name: "Complete", count: stats.completed },
   ]
 
-  const typeOptions = ["All Types", "Grid", "Layer"]
+  const typeOptions = ["All Types", "Grid", "Layer", "Hybrid", "Text"]
   const timeOptions = ["All Time", "Last 7 days", "Last 30 days", "Last 3 months", "Last year"]
 
   // Close dropdowns when clicking outside

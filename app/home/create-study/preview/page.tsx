@@ -1,177 +1,261 @@
 "use client"
 
-import { useRouter } from "next/navigation"
-import { useState, useEffect } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { useState, useEffect, Suspense } from "react"
+import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
+import { getStudyDetailsForSharedPreview, getPublicPreviewDetails } from "@/lib/api/StudyAPI"
+import { hydrateLocalStorageFromStudy } from "@/lib/utils/studyPreviewMapping"
+import { Share2, Check } from "lucide-react"
 
-export default function ParticipateIntroPage() {
+function ParticipateIntroContent() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const studyIdParam = searchParams.get('studyId')
   const [isStarting, setIsStarting] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-
-  // Track orientation page time
-  // const orientStartRef = useRef<number>(Date.now())
+  const [isCoping, setIsCoping] = useState(false)
+  const [publicInfo, setPublicInfo] = useState<any>(null)
+  const [isOwner, setIsOwner] = useState(false)
 
   // Fetch study details on component mount
   useEffect(() => {
-    try {
-      // Build from Step localStorage only
-      const step2 = JSON.parse(localStorage.getItem('cs_step2') || '{}')
-      const step5grid = JSON.parse(localStorage.getItem('cs_step5_grid') || '[]')
-      const step5layer = JSON.parse(localStorage.getItem('cs_step5_layer') || '[]')
-      const step7matrix = JSON.parse(localStorage.getItem('cs_step7_matrix') || '{}')
-      const layerBg = JSON.parse(localStorage.getItem('cs_step5_layer_background') || '{}')
+    async function init() {
+      try {
+        if (studyIdParam) {
+          console.log('[Preview] Loading shared preview for study:', studyIdParam)
 
-      console.log('[Preview] Step2:', step2)
-      console.log('[Preview] Step7 Matrix:', step7matrix)
-
-      // Preload all study assets
-      const urls = new Set<string>()
-
-      if (step2?.type === 'text') {
-        console.log('[Preview] Skipping image preloading for text study type')
-      } else {
-        // Add background image for layer studies
-        if (layerBg?.secureUrl) {
-          urls.add(String(layerBg.secureUrl))
-          console.log('[Preview] Adding background URL:', layerBg.secureUrl)
-        }
-
-        // Add grid elements
-        if (step2?.type === 'grid') {
-          (Array.isArray(step5grid) ? step5grid : []).forEach((e: Record<string, unknown>) => {
-            if (e?.secureUrl) {
-              urls.add(String(e.secureUrl))
-              console.log('[Preview] Adding grid URL:', e.secureUrl)
-            }
+          // 1. Fetch basic public info first
+          const pInfo = await getPublicPreviewDetails(studyIdParam).catch(err => {
+            console.error('[Preview] Failed to fetch public info:', err)
+            return null
           })
-        }
 
-        // Add layer images
-        if (step2?.type === 'layer') {
-          (Array.isArray(step5layer) ? step5layer : []).forEach((l: Record<string, unknown>) => {
-            (Array.isArray(l?.images) ? l.images : []).forEach((img: Record<string, unknown>) => {
-              if (img?.secureUrl) {
-                urls.add(String(img.secureUrl))
-                console.log('[Preview] Adding layer URL:', img.secureUrl)
-              }
-            })
-          })
-        }
+          if (pInfo) {
+            setPublicInfo(pInfo)
 
-        // Add task images from matrix
-        if (step7matrix && typeof step7matrix === 'object') {
-          // Check for new preview format first
-          if (Array.isArray(step7matrix.preview_tasks)) {
-            console.log('[Preview] Found preview_tasks:', step7matrix.preview_tasks.length)
-            step7matrix.preview_tasks.forEach((t: any) => {
-              const content = t?.elements_shown_content || {}
-              Object.values(content).forEach((v: any) => {
-                // Handle layer study format: {url: "...", layer_name: "...", name: "...", z_index: 0}
-                if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
-                  urls.add(String(v.url))
-                  console.log('[Preview] Adding task layer URL:', v.url)
+            // Check if current user is the creator
+            const userRaw = localStorage.getItem('user')
+            if (userRaw && pInfo.creator_email) {
+              try {
+                const userObj = JSON.parse(userRaw)
+                if (userObj.email && userObj.email.toLowerCase() === pInfo.creator_email.toLowerCase()) {
+                  setIsOwner(true)
                 }
-                // Handle other URL formats
-                else if (v && typeof v === 'object') {
-                  if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
-                    urls.add(String(v.content))
-                    console.log('[Preview] Adding task content URL:', v.content)
-                  }
-                } else if (typeof v === 'string' && v.startsWith('http')) {
-                  urls.add(String(v))
-                  console.log('[Preview] Adding task string URL:', v)
+              } catch (e) { }
+            }
+
+            // Store creator email for session consistent with main participate flow
+            if (pInfo.creator_email) {
+              localStorage.setItem('current_study_creator_email', pInfo.creator_email)
+            }
+          }
+
+          // 2. Fetch full study info for hydration
+          // 2. Fetch full study info for hydration
+          // Check if we are the creator viewing our own study to avoid wiping local unsaved changes
+          let isCreatorSession = false
+          const localIdRaw = localStorage.getItem('cs_study_id')
+          if (localIdRaw) {
+            try {
+              const parsed = JSON.parse(localIdRaw)
+              if (String(parsed) === String(studyIdParam)) isCreatorSession = true
+            } catch {
+              if (String(localIdRaw) === String(studyIdParam)) isCreatorSession = true
+            }
+          }
+
+          if (isCreatorSession) {
+            console.log('[Preview] Creator session detected. Preserving local draft data.')
+            // We skip fetching/hydrating from DB so that the user sees their current local state (draft)
+            // instead of potentially stale DB data.
+          } else {
+            const data = await getStudyDetailsForSharedPreview(studyIdParam)
+            if (data) {
+              // Clear existing creation storage to ensure clean slate for shared preview
+              // But preserve user login info
+              Object.keys(localStorage).forEach(key => {
+                if (key.startsWith('cs_')) {
+                  localStorage.removeItem(key)
                 }
               })
-            })
-          } else if (Array.isArray(step7matrix.tasks)) {
-            console.log('[Preview] Found tasks array:', step7matrix.tasks.length)
-            step7matrix.tasks.forEach((t: any) => {
-              const content = t?.elements_shown_content || {}
-              Object.values(content).forEach((v: any) => {
-                // Handle layer study format: {url: "...", layer_name: "...", name: "...", z_index: 0}
-                if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
-                  urls.add(String(v.url))
-                  console.log('[Preview] Adding task layer URL:', v.url)
-                }
-                // Handle other URL formats
-                else if (v && typeof v === 'object') {
-                  if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
-                    urls.add(String(v.content))
-                    console.log('[Preview] Adding task content URL:', v.content)
-                  }
-                } else if (typeof v === 'string' && v.startsWith('http')) {
-                  urls.add(String(v))
-                  console.log('[Preview] Adding task string URL:', v)
-                }
-              })
-            })
-          } else if (step7matrix.tasks && typeof step7matrix.tasks === 'object') {
-            const buckets = step7matrix.tasks as Record<string, any>
-            // Prefer bucket "0" if present; otherwise pick the first non-empty array
-            let respondentTasks: any[] = []
-            if (Array.isArray(buckets['0']) && buckets['0'].length) {
-              respondentTasks = buckets['0']
-            } else {
-              for (const v of Object.values(buckets)) {
-                if (Array.isArray(v) && v.length) { respondentTasks = v; break }
-              }
+
+              hydrateLocalStorageFromStudy(data)
             }
-            console.log('[Preview] Found bucket tasks:', respondentTasks.length)
-            respondentTasks.forEach((t: any) => {
-              const content = t?.elements_shown_content || {}
-              Object.values(content).forEach((v: any) => {
-                // Handle layer study format: {url: "...", layer_name: "...", name: "...", z_index: 0}
-                if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
-                  urls.add(String(v.url))
-                  console.log('[Preview] Adding bucket task layer URL:', v.url)
-                }
-                // Handle other URL formats
-                else if (v && typeof v === 'object') {
-                  if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
-                    urls.add(String(v.content))
-                    console.log('[Preview] Adding bucket task content URL:', v.content)
-                  }
-                } else if (typeof v === 'string' && v.startsWith('http')) {
-                  urls.add(String(v))
-                  console.log('[Preview] Adding bucket task string URL:', v)
+          }
+        }
+
+        // Build from Step localStorage only
+        const step2 = JSON.parse(localStorage.getItem('cs_step2') || '{}')
+        const step5grid = JSON.parse(localStorage.getItem('cs_step5_grid') || '[]')
+        const step5layer = JSON.parse(localStorage.getItem('cs_step5_layer') || '[]')
+        const step7matrix = JSON.parse(localStorage.getItem('cs_step7_matrix') || '{}')
+        const layerBg = JSON.parse(localStorage.getItem('cs_step5_layer_background') || '{}')
+
+        console.log('[Preview] Step2:', step2)
+        console.log('[Preview] Step7 Matrix:', step7matrix)
+
+        // Preload all study assets
+        const urls = new Set<string>()
+
+        if (step2?.type === 'text') {
+          console.log('[Preview] Skipping image preloading for text study type')
+        } else {
+          // Add background image for layer studies
+          if (layerBg?.secureUrl) {
+            urls.add(String(layerBg.secureUrl))
+            console.log('[Preview] Adding background URL:', layerBg.secureUrl)
+          }
+
+          // Add grid elements
+          if (step2?.type === 'grid') {
+            ; (Array.isArray(step5grid) ? step5grid : []).forEach((e: Record<string, unknown>) => {
+              if (e?.secureUrl) {
+                urls.add(String(e.secureUrl))
+                console.log('[Preview] Adding grid URL:', e.secureUrl)
+              }
+            })
+          }
+
+          // Add layer images
+          if (step2?.type === 'layer') {
+            ; (Array.isArray(step5layer) ? step5layer : []).forEach((l: Record<string, unknown>) => {
+              ; (Array.isArray(l?.images) ? l.images : []).forEach((img: Record<string, unknown>) => {
+                if (img?.secureUrl) {
+                  urls.add(String(img.secureUrl))
+                  console.log('[Preview] Adding layer URL:', img.secureUrl)
                 }
               })
             })
           }
-        }
-      }
 
-      // Preload all images
-      if (urls.size > 0) {
-        console.log('[Preview] Preloading', urls.size, 'images from localStorage')
-        Array.from(urls).forEach((src) => {
-          try {
-            console.log('[Preview] Preloading image:', src)
-            const img = new Image()
-              ; (img as any).decoding = 'async'
-              ; (img as any).referrerPolicy = 'no-referrer'
-            img.src = src
-          } catch (e) {
-            console.error('[Preview] Failed to preload:', src, e)
+          // Add task images from matrix
+          if (step7matrix && typeof step7matrix === 'object') {
+            // Check for new preview format first
+            if (Array.isArray(step7matrix.preview_tasks)) {
+              console.log('[Preview] Found preview_tasks:', step7matrix.preview_tasks.length)
+              step7matrix.preview_tasks.forEach((t: any) => {
+                const content = t?.elements_shown_content || {}
+                Object.values(content).forEach((v: any) => {
+                  if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
+                    urls.add(String(v.url))
+                  } else if (v && typeof v === 'object') {
+                    if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
+                      urls.add(String(v.content))
+                    }
+                  } else if (typeof v === 'string' && v.startsWith('http')) {
+                    urls.add(String(v))
+                  }
+                })
+              })
+            } else if (Array.isArray(step7matrix.tasks)) {
+              step7matrix.tasks.forEach((t: any) => {
+                const content = t?.elements_shown_content || {}
+                Object.values(content).forEach((v: any) => {
+                  if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
+                    urls.add(String(v.url))
+                  } else if (v && typeof v === 'object') {
+                    if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
+                      urls.add(String(v.content))
+                    }
+                  } else if (typeof v === 'string' && v.startsWith('http')) {
+                    urls.add(String(v))
+                  }
+                })
+              })
+            } else if (step7matrix.tasks && typeof step7matrix.tasks === 'object') {
+              const buckets = step7matrix.tasks as Record<string, any>
+              let respondentTasks: any[] = []
+              if (Array.isArray(buckets['0']) && buckets['0'].length) {
+                respondentTasks = buckets['0']
+              } else {
+                for (const v of Object.values(buckets)) {
+                  if (Array.isArray(v) && v.length) {
+                    respondentTasks = v
+                    break
+                  }
+                }
+              }
+              respondentTasks.forEach((t: any) => {
+                const content = t?.elements_shown_content || {}
+                Object.values(content).forEach((v: any) => {
+                  if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
+                    urls.add(String(v.url))
+                  } else if (v && typeof v === 'object') {
+                    if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
+                      urls.add(String(v.content))
+                    }
+                  } else if (typeof v === 'string' && v.startsWith('http')) {
+                    urls.add(String(v))
+                  }
+                })
+              })
+            }
           }
-        })
+        }
+
+        // Preload all images
+        if (urls.size > 0) {
+          console.log('[Preview] Preloading', urls.size, 'images')
+          Array.from(urls).forEach((src) => {
+            try {
+              const img = new Image()
+                ; (img as any).decoding = 'async'
+                ; (img as any).referrerPolicy = 'no-referrer'
+              img.src = src
+            } catch (e) {
+              console.error('[Preview] Failed to preload:', src, e)
+            }
+          })
+        }
+      } catch (e) {
+        console.error('[Preview] Error in init:', e)
+      } finally {
+        // Read latest localStorage data into state
+        try {
+          setLocalData({
+            step1: JSON.parse(localStorage.getItem('cs_step1') || '{}'),
+            step2: JSON.parse(localStorage.getItem('cs_step2') || '{}'),
+            user: JSON.parse(localStorage.getItem('user') || '{}'),
+            step6: JSON.parse(localStorage.getItem('cs_step6') || '{}'),
+            step7matrix: JSON.parse(localStorage.getItem('cs_step7_matrix') || '{}')
+          })
+        } catch (e) { console.error('Error reading local data', e) }
+
+        setIsLoading(false)
       }
-    } catch (e) {
-      console.error('[Preview] Error in useEffect:', e)
     }
-    setIsLoading(false)
-  }, [])
+
+    init()
+  }, [studyIdParam])
+
+  // State for data from localStorage (populated only on client)
+  const [localData, setLocalData] = useState<{
+    step1: any;
+    step2: any;
+    user: any;
+    step6: any;
+    step7matrix: any;
+  }>({
+    step1: {},
+    step2: {},
+    user: {},
+    step6: {},
+    step7matrix: {}
+  })
 
   // Derive UI strings from steps
-  const step1 = (() => { try { return JSON.parse(localStorage.getItem('cs_step1') || '{}') } catch { return {} } })()
-  const step2 = (() => { try { return JSON.parse(localStorage.getItem('cs_step2') || '{}') } catch { return {} } })()
-  const step6 = (() => { try { return JSON.parse(localStorage.getItem('cs_step6') || '{}') } catch { return {} } })()
-  const step7matrix = (() => { try { return JSON.parse(localStorage.getItem('cs_step7_matrix') || '{}') } catch { return {} } })()
+  // (localData state declaration here...)
 
-  const studyTitle = step1?.title || "Study Title"
+  const userEmail = localData.user?.email || ""
+  const isAdmin = checkIsSpecialCreator(userEmail)
+  // Derive values from state instead of direct localStorage
+  const { step1, step2, user, step6, step7matrix } = localData
+
+  const studyTitle = publicInfo?.title || step1?.title || "Study Title"
   const estimatedTime = "2-5 minutes"
-  const orientationText = step2?.orientationText || "Welcome to the study!"
-  const studyType = step2?.type === "layer" ? "Layer Study" : step2?.type === "text" ? "Text Study" : "Grid Study"
+  const orientationText = publicInfo?.orientation_text || step2?.orientationText || "Welcome to the study!"
+  const typeFromInfo = publicInfo?.study_type || step2?.type
+  const studyType = typeFromInfo === "layer" ? "Layer Study" : typeFromInfo === "text" ? "Text Study" : typeFromInfo === "hybrid" ? "Hybrid Study" : "Grid Study"
 
   // Calculate total number of tasks
   let totalTasks = 0
@@ -195,7 +279,7 @@ export default function ParticipateIntroPage() {
     }
   }
 
-  const totalVignettes = totalTasks || 0
+  const totalVignettes = publicInfo?.tasks_per_respondent || totalTasks || 0
   const startHref = '/home/create-study/preview/personal-information'
 
   const handleStartStudy = async () => {
@@ -308,8 +392,23 @@ export default function ParticipateIntroPage() {
       console.error('[Preview] Error in handleStartStudy:', e)
     }
 
-    // Preview mode: do not store anything and just navigate within preview flow
-    router.push(startHref)
+    // Preview mode: navigate within preview flow
+    let creatorEmail = localStorage.getItem('current_study_creator_email')
+
+    // If no stored creator email (e.g. direct preview), use logged-in user
+    if (!creatorEmail) {
+      try {
+        const user = JSON.parse(localStorage.getItem('user') || '{}')
+        creatorEmail = user?.email
+      } catch { }
+    }
+
+    const isSpecial = checkIsSpecialCreator(creatorEmail)
+    const canShare = !studyIdParam || isOwner || isAdmin
+
+    // Redirect logic same as participate page
+    const targetHref = isSpecial ? '/home/create-study/preview/product-id' : startHref
+    router.push(targetHref)
   }
 
   if (isLoading) {
@@ -350,6 +449,48 @@ export default function ParticipateIntroPage() {
             )}
           </button>
         </div>
+
+        {/* Share Preview Button for Creators (Only show when NOT viewing a shared link) */}
+        {!studyIdParam && (
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={() => {
+                const studyIdRaw = localStorage.getItem('cs_study_id')
+                let studyId = ''
+                if (studyIdRaw) {
+                  try {
+                    const parsed = JSON.parse(studyIdRaw)
+                    studyId = typeof parsed === 'string' ? parsed : String(parsed)
+                  } catch {
+                    studyId = studyIdRaw
+                  }
+                }
+
+                if (studyId) {
+                  const url = `${window.location.origin}${window.location.pathname}?studyId=${studyId}`
+                  navigator.clipboard.writeText(url)
+                  setIsCoping(true)
+                  setTimeout(() => setIsCoping(false), 2000)
+                } else {
+                  alert('No study ID found in local storage. Complete step 7 first.')
+                }
+              }}
+              className="inline-flex items-center justify-center px-4 py-1.5 rounded-md border border-gray-200 bg-white hover:bg-gray-50 text-gray-600 text-[13px] font-medium shadow-sm transition-colors"
+            >
+              {isCoping ? (
+                <>
+                  <Check className="w-3.5 h-3.5 mr-2 text-green-500" />
+                  Link Copied!
+                </>
+              ) : (
+                <>
+                  <Share2 className="w-3.5 h-3.5 mr-2" />
+                  Share Preview with others
+                </>
+              )}
+            </button>
+          </div>
+        )}
 
         <div className="mt-8">
           <div className="bg-white rounded-xl border shadow-sm p-4 sm:p-6">
@@ -412,6 +553,20 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       {children}
     </div>
   )
+} function ParticipateIntroPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-white pb-28 sm:pb-12">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-10 sm:pt-14">
+          <div className="flex justify-center items-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[rgba(38,116,186,1)]"></div>
+          </div>
+        </div>
+      </div>
+    }>
+      <ParticipateIntroContent />
+    </Suspense>
+  )
 }
 
-
+export default ParticipateIntroPage

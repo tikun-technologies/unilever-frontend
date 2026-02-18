@@ -320,6 +320,29 @@ export async function getStudyTasks(sessionId: string): Promise<any> {
 	return data
 }
 
+/**
+ * Submit Product ID for a session
+ * @param sessionId - The session ID
+ * @param productId - The Product ID entered by the user
+ * @returns Promise with submission result
+ */
+export async function submitProductId(sessionId: string, productId: string): Promise<any> {
+	const response = await fetch(`${API_BASE_URL}/responses/session/${sessionId}/product-id`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+		},
+		body: JSON.stringify({ product_id: productId }),
+	})
+
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(`Failed to submit Product ID: ${response.status} ${JSON.stringify(errorData)}`)
+	}
+
+	return response.json().catch(() => ({}))
+}
+
 // Analytics response interface
 export interface StudyAnalytics {
 	total_responses: number
@@ -353,6 +376,101 @@ export async function getStudyAnalytics(studyId: string): Promise<StudyAnalytics
 
 	const data = await response.json()
 	return data
+}
+
+/**
+ * Get study analysis JSON (same shape as analysis.json for grid/text/hybrid studies).
+ * Used by the analytics page for KPIs, heatmaps, tables, etc.
+ * @param studyId - The study ID from route params
+ * @returns Promise with analysis JSON (Information Block, RawData, (T) Overall, etc.)
+ */
+export async function getStudyAnalysisJson(studyId: string): Promise<any> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/analysis-json`,
+		{ method: 'GET', headers: { 'Content-Type': 'application/json' } }
+	)
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(
+			`Failed to load analysis: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
+		)
+	}
+	return response.json()
+}
+
+// ---------------- Filter Analysis ----------------
+export interface StudyFilterPayload {
+	filters?: {
+		age_groups?: string[]
+		genders?: string[]
+		classification_filters?: Record<string, string[]>
+	}
+	include_per_panelist?: boolean
+}
+
+export interface FilterElementDetail {
+	column: string
+	category_name: string
+	element_name: string
+	content: string
+}
+
+export interface FilterByCategoryElement {
+	element_name: string
+	content: string
+	top: number
+	bottom: number
+	response: number
+}
+
+export interface FilterByCategory {
+	category_name: string
+	elements: FilterByCategoryElement[]
+}
+
+export interface StudyFilterResponse {
+	meta?: Record<string, any>
+	top?: any
+	bottom?: any
+	response?: any
+	per_panelist?: any
+	element_details?: FilterElementDetail[]
+	by_category?: FilterByCategory[]
+}
+
+/**
+ * POST /responses/study/{study_id}/filter
+ * Returns filtered analysis: meta, top, bottom, response (TBR), optionally per_panelist.
+ */
+export async function postStudyFilter(
+	studyId: string,
+	payload: StudyFilterPayload
+): Promise<StudyFilterResponse> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+
+	const body: StudyFilterPayload = {
+		filters: payload.filters ?? {},
+		include_per_panelist: payload.include_per_panelist ?? false,
+	}
+
+	const res = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/filter`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		}
+	)
+	if (!res.ok) {
+		const errorData = await res.json().catch(() => ({}))
+		throw new Error(
+			`Failed to filter: ${res.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
+		)
+	}
+	return res.json()
 }
 
 /** Subscribe to live analytics via SSE with graceful fallback to polling. Returns an unsubscribe function. */
@@ -420,6 +538,7 @@ export interface StudyResponseItem {
 	personal_info?: {
 		gender?: string
 		date_of_birth?: string
+		age?: number
 	}
 	is_completed: boolean
 	is_abandoned: boolean
@@ -493,7 +612,7 @@ export interface ResponseSessionDetails {
 	session_end_time?: string
 	is_completed: boolean
 	background_image_url?: string
-	personal_info?: { gender?: string; date_of_birth?: string }
+	personal_info?: { gender?: string; date_of_birth?: string; age?: number }
 	ip_address?: string
 	user_agent?: string
 	browser_info?: any

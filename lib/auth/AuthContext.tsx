@@ -69,6 +69,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // Clear home page caches
       localStorage.removeItem('home_stats_cache')
       localStorage.removeItem('home_studies_cache')
+      localStorage.removeItem('home_projects_cache')
 
       // Clear all create-study related localStorage items
       const keysToRemove = [
@@ -90,16 +91,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
         'cs_flash_message',
         'cs_resuming_draft',
         'cs_study_id',
-        'cs_is_fresh_start'
+        'cs_is_fresh_start',
+        'cs_step8'
       ]
 
       keysToRemove.forEach(key => {
         localStorage.removeItem(key)
       })
 
+      // Clear all project specific caches and roles
+      Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('ps_')) {
+          localStorage.removeItem(key)
+        }
+      })
+
       // Also clear sessionStorage to remove study tracking
       sessionStorage.removeItem('cs_previous_study_id')
       sessionStorage.removeItem('auth_redirecting')
+      sessionStorage.removeItem('last_selected_project')
 
     } catch (error) {
       console.error('Error clearing caches:', error)
