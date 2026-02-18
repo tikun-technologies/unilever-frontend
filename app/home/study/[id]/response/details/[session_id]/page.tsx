@@ -212,6 +212,10 @@ export default function ResponseDetailsPage() {
                                   const isShown = element && element.visible === 1
                                   const raw = content?.[key]
                                   const hasContent = raw !== undefined && raw !== null
+                                  // Skip background layer — it's already rendered via data.background_image_url; including it here would draw it on top and hide foreground layers
+                                  const isBackground = key.startsWith('Background Image') || (raw && typeof raw === 'object' && (raw as any).layer_name === 'Background Image')
+                                  if (isBackground) return
+
                                   // Layer study API returns objects { url, name, z_index, transform, layer_name }, not URL strings
                                   const url = hasContent && typeof raw === 'object' && typeof (raw as any).url === 'string'
                                     ? (raw as any).url

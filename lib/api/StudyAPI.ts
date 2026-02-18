@@ -1874,7 +1874,7 @@ export async function checkStudyOwnership(studyId: string): Promise<{ is_owner: 
 export interface StudyListItem {
   id: string
   title: string
-  study_type: 'grid' | 'layer' | 'text'
+  study_type: StudyType
   status: 'active' | 'draft' | 'completed' | 'paused'
   created_at: string
   total_responses: number

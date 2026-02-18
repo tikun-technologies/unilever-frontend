@@ -234,6 +234,8 @@ export function StudyGrid({
     if (selectedType !== "All Types") {
       if (selectedType === "Grid" && study.study_type !== "grid") return false
       if (selectedType === "Layer" && study.study_type !== "layer") return false
+      if (selectedType === "Hybrid" && study.study_type !== "hybrid") return false
+      if (selectedType === "Text" && study.study_type !== "text") return false
     }
 
     // Time filtering (simplified - you can implement more sophisticated date filtering)
