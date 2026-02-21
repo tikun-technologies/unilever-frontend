@@ -30,9 +30,9 @@ export const AnalyticsToolbar: React.FC<AnalyticsToolbarProps> = ({
     const tabs = ["Overall", "Age", "Gender", "Prelim", "2 Market Segments", "3 Market Segments"]
 
     return (
-        <div className="w-full bg-transparent space-y-4 mb-6">
+        <div className="w-full space-y-4 mb-6">
             {/* Top Row: Views and Metrics */}
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 bg-white rounded-lg border border-gray-100 shadow-sm p-4">
                 <div className="flex items-center gap-3">
                     {/* View Toggles */}
                     <div className="flex items-center gap-2">
@@ -41,9 +41,10 @@ export const AnalyticsToolbar: React.FC<AnalyticsToolbarProps> = ({
                                 key={view.id}
                                 onClick={() => setActiveView(view.id)}
                                 className={`p-2.5 rounded-lg border transition-all duration-200 cursor-pointer ${activeView === view.id
-                                    ? "bg-black text-white border-black shadow-sm"
-                                    : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"
+                                    ? "text-white shadow-sm"
+                                    : "bg-gray-50 text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-100"
                                     }`}
+                                style={activeView === view.id ? { backgroundColor: "#2674BA", borderColor: "#2674BA" } : undefined}
                             >
                                 <view.icon className="w-5 h-5" />
                             </button>
@@ -57,9 +58,10 @@ export const AnalyticsToolbar: React.FC<AnalyticsToolbarProps> = ({
                                 key={metric}
                                 onClick={() => setActiveMetric(metric)}
                                 className={`px-4 sm:px-6 py-2.5 rounded-lg border text-xs sm:text-sm font-semibold transition-all duration-200 cursor-pointer whitespace-nowrap ${activeMetric === metric
-                                    ? "bg-black text-white border-black shadow-md"
-                                    : "bg-white text-gray-700 border-gray-100 hover:border-gray-200 shadow-sm"
+                                    ? "text-white shadow-md"
+                                    : "bg-gray-50 text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-100 shadow-sm"
                                     }`}
+                                style={activeMetric === metric ? { backgroundColor: "#2674BA", borderColor: "#2674BA" } : undefined}
                             >
                                 {metric}
                             </button>
