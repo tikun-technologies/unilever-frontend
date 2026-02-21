@@ -128,7 +128,7 @@ function DashboardContent() {
     validateTokenBeforeRender()
   }, [])
 
-  // Hydrate studies list from cache for instant render on refresh (only if token is valid)
+  // Hydrate study list from cache for instant render on refresh (only if token is valid)
   useEffect(() => {
     if (isValidatingToken) return // Wait for token validation
 
