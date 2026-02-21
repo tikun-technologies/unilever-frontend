@@ -6,6 +6,7 @@ import { DashboardHeader } from "@/app/home/components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
 import { getStudyBasicDetails, StudyDetails } from "@/lib/api/StudyAPI"
 import { downloadStudyResponsesCsv, getStudyAnalysisJson } from "@/lib/api/ResponseAPI"
+import { AnimatePresence, motion } from "framer-motion"
 import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard } from "lucide-react"
 import Link from "next/link"
 import { AnalyticsToolbar } from "./components/AnalyticsToolbar"
@@ -98,6 +99,12 @@ export default function StudyAnalyticsPage() {
     const [activeView, setActiveView] = useState("table")
     const [activeMetric, setActiveMetric] = useState("Top Down")
     const [activeTab, setActiveTab] = useState("Overall")
+
+    // Smooth scroll to top when switching tabs to prevent jarring layout shift
+    useEffect(() => {
+        if (!analysisData) return
+        window.scrollTo({ top: 0, behavior: "smooth" })
+    }, [analyticsView, analysisData])
 
     const loadingMessages = useMemo(
         () => [
@@ -283,20 +290,70 @@ export default function StudyAnalyticsPage() {
                                 </div>
                             )}
 
-                            {analyticsView === "overview" && analysisData && (
-                                <>
-                                    <AnalyticsKPICards analysisData={analysisData} studyType={studyType} />
-                                    <AnalyticsResponseTimeSection analysisData={analysisData} />
-                                    <AnalyticsPieCharts analysisData={analysisData} />
-                                    <AnalyticsTopBottomPerformers analysisData={analysisData} studyType={studyType} />
-                                    <div className="mt-10">
-                                        <AnalyticsPersonaBlueprints
-                                            analysisData={analysisData}
-                                            studyType={studyType as "text" | "grid" | "layer" | "hybrid"}
+                            <div className="min-h-[50vh]">
+                            <AnimatePresence mode="wait">
+                                {analyticsView === "overview" && analysisData && (
+                                    <motion.div
+                                        key="overview"
+                                        initial={{ opacity: 0, y: 16 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -16 }}
+                                        transition={{ duration: 0.25 }}
+                                        className="space-y-0"
+                                    >
+                                        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0, duration: 0.4 }}>
+                                            <AnalyticsKPICards analysisData={analysisData} studyType={studyType} />
+                                        </motion.div>
+                                        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.4 }}>
+                                            <AnalyticsResponseTimeSection analysisData={analysisData} />
+                                        </motion.div>
+                                        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16, duration: 0.4 }}>
+                                            <AnalyticsPieCharts analysisData={analysisData} />
+                                        </motion.div>
+                                        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24, duration: 0.4 }}>
+                                            <AnalyticsTopBottomPerformers analysisData={analysisData} studyType={studyType} />
+                                        </motion.div>
+                                        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32, duration: 0.4 }} className="mt-10">
+                                            <AnalyticsPersonaBlueprints
+                                                analysisData={analysisData}
+                                                studyType={studyType as "text" | "grid" | "layer" | "hybrid"}
+                                            />
+                                        </motion.div>
+                                    </motion.div>
+                                )}
+                                {analyticsView === "detail" && analysisData && (
+                                    <motion.div
+                                        key="detail"
+                                        initial={{ opacity: 0, y: 16 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -16 }}
+                                        transition={{ duration: 0.25 }}
+                                    >
+                                        <AnalyticsToolbar
+                                            activeView={activeView}
+                                            setActiveView={setActiveView}
+                                            activeMetric={activeMetric}
+                                            setActiveMetric={setActiveMetric}
+                                            activeTab={activeTab}
+                                            setActiveTab={setActiveTab}
                                         />
-                                    </div>
-                                </>
-                            )}
+                                        {activeView === "table" ? (
+                                            <AnalyticsTable analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
+                                        ) : activeView === "heatmap" ? (
+                                            <AnalyticsHeatmap analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
+                                        ) : activeView === "graph" ? (
+                                            <AnalyticsGraph analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
+                                        ) : (
+                                            <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-12 text-center text-gray-500">
+                                                <BarChart3 className="w-16 h-16 mx-auto mb-4" style={{ color: "#2674BA" }} />
+                                                <h3 className="text-xl font-semibold text-gray-700">Analytics Content for {activeTab}</h3>
+                                                <p>Displaying {activeMetric} in {activeView} view.</p>
+                                                <p className="mt-2 text-sm italic">We are currently building the detailed visualizations for this section.</p>
+                                            </div>
+                                        )}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
 
                             {/* Keep mounted when not active so filter state and results persist when switching tabs */}
                             <div className={analyticsView !== "filter" ? "hidden" : undefined}>
@@ -310,33 +367,7 @@ export default function StudyAnalyticsPage() {
                                     }
                                 />
                             </div>
-
-                            {analyticsView === "detail" && analysisData && (
-                                <>
-                                    <AnalyticsToolbar
-                                        activeView={activeView}
-                                        setActiveView={setActiveView}
-                                        activeMetric={activeMetric}
-                                        setActiveMetric={setActiveMetric}
-                                        activeTab={activeTab}
-                                        setActiveTab={setActiveTab}
-                                    />
-                                    {activeView === "table" ? (
-                                        <AnalyticsTable analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
-                                    ) : activeView === "heatmap" ? (
-                                        <AnalyticsHeatmap analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
-                                    ) : activeView === "graph" ? (
-                                        <AnalyticsGraph analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
-                                    ) : (
-                                        <div className="bg-white rounded-lg shadow-sm border p-12 text-center text-gray-500">
-                                            <BarChart3 className="w-16 h-16 mx-auto mb-4 text-blue-200" />
-                                            <h3 className="text-xl font-semibold text-gray-700">Analytics Content for {activeTab}</h3>
-                                            <p>Displaying {activeMetric} in {activeView} view.</p>
-                                            <p className="mt-2 text-sm italic">We are currently building the detailed visualizations for this section.</p>
-                                        </div>
-                                    )}
-                                </>
-                            )}
+                            </div>
                         </>
                     )}
                 </div>

@@ -1,6 +1,7 @@
 "use client"
 
 import React from "react"
+import { motion } from "framer-motion"
 import { transformAnalysisForView } from "@/lib/utils/analysisTransform"
 
 interface AnalyticsTableProps {
@@ -24,11 +25,17 @@ export const AnalyticsTable: React.FC<AnalyticsTableProps> = ({ analysisData, ac
 
     return (
         <div className="space-y-12 pb-12">
-            {categories.map((category) => {
+            {categories.map((category, catIndex) => {
                 const sectionColumns = category.columns || columns
                 const sectionTitle = isLayerStudy ? `Layer: ${category.title}` : category.title
                 return (
-                    <div key={category.title} className="space-y-4">
+                    <motion.div
+                        key={category.title}
+                        initial={{ opacity: 0, y: 16 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.4, delay: catIndex * 0.1 }}
+                        className="space-y-4"
+                    >
                         <h2 className="text-lg font-bold text-gray-900 text-left">{sectionTitle}</h2>
                         <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
                             <div className="overflow-x-auto">
@@ -48,7 +55,13 @@ export const AnalyticsTable: React.FC<AnalyticsTableProps> = ({ analysisData, ac
                                     </thead>
                                     <tbody className="divide-y divide-gray-50">
                                         {category.data.map((row, idx) => (
-                                            <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                                            <motion.tr
+                                                key={idx}
+                                                initial={{ opacity: 0, y: 8 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                transition={{ duration: 0.3, delay: Math.min(idx * 0.03, 0.5) }}
+                                                className="hover:bg-gray-50 transition-colors"
+                                            >
                                                 <td className="px-4 md:px-6 py-4 text-gray-700 font-medium text-xs md:text-sm">
                                                     {row.response}
                                                 </td>
@@ -57,13 +70,13 @@ export const AnalyticsTable: React.FC<AnalyticsTableProps> = ({ analysisData, ac
                                                         {row[col.key] !== undefined ? row[col.key] : "-"}
                                                     </td>
                                                 ))}
-                                            </tr>
+                                            </motion.tr>
                                         ))}
                                     </tbody>
                                 </table>
                             </div>
                         </div>
-                    </div>
+                    </motion.div>
                 )
             })}
         </div>

@@ -4,6 +4,7 @@ import React from "react"
 import { motion } from "framer-motion"
 import { Users, Clock, Star, Layers } from "lucide-react"
 import { getKPIStats } from "@/lib/utils/analysisDashboard"
+import { CountUp } from "./CountUp"
 
 const CARD_COLORS = ["#2674BA", "#22C55E", "#F7945A", "#FCCD5B"]
 
@@ -18,20 +19,42 @@ export function AnalyticsKPICards({ analysisData, rawDataOverride, studyType }: 
   const isLayerStudy = (studyType || "").toLowerCase() === "layer"
 
   const cards = [
-    { title: "Total Respondents", value: stats.totalRespondents, icon: Users, color: CARD_COLORS[0] },
+    {
+      title: "Total Respondents",
+      value: stats.totalRespondents,
+      numeric: stats.totalRespondents,
+      suffix: "",
+      decimals: 0,
+      icon: Users,
+      color: CARD_COLORS[0],
+    },
     {
       title: "Avg Response Time(Tasks)",
       value: stats.avgResponseTime > 0 ? `${(stats.avgResponseTime * 1000).toFixed(0)}ms` : "-",
+      numeric: stats.avgResponseTime > 0 ? stats.avgResponseTime * 1000 : 0,
+      suffix: "ms",
+      decimals: 0,
       icon: Clock,
       color: CARD_COLORS[1],
     },
     {
       title: "Avg Rating",
       value: stats.avgRating > 0 ? stats.avgRating.toFixed(1) : "-",
+      numeric: stats.avgRating > 0 ? stats.avgRating : 0,
+      suffix: "",
+      decimals: 1,
       icon: Star,
       color: CARD_COLORS[2],
     },
-    { title: isLayerStudy ? "Layers" : "Categories", value: stats.categoryCount, icon: Layers, color: CARD_COLORS[3] },
+    {
+      title: isLayerStudy ? "Layers" : "Categories",
+      value: stats.categoryCount,
+      numeric: stats.categoryCount,
+      suffix: "",
+      decimals: 0,
+      icon: Layers,
+      color: CARD_COLORS[3],
+    },
   ]
 
   return (
@@ -48,7 +71,17 @@ export function AnalyticsKPICards({ analysisData, rawDataOverride, studyType }: 
           <div className="p-5 flex items-start justify-between">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{card.title}</p>
-              <p className="text-2xl font-bold text-gray-900 tabular-nums">{card.value}</p>
+              <p className="text-2xl font-bold text-gray-900 tabular-nums">
+                {card.value === "-" ? (
+                  card.value
+                ) : (
+                  <CountUp
+                    value={card.numeric}
+                    decimals={card.decimals}
+                    suffix={card.suffix}
+                  />
+                )}
+              </p>
             </div>
             <div
               className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
