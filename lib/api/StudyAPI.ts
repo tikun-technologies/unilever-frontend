@@ -1208,10 +1208,12 @@ export async function cancelTaskGeneration(jobId: string): Promise<any> {
 }
 
 // Poll job status with adaptive intervals - faster when close to completion
+// Optional signal allows cancellation when component unmounts (stops lingering polling)
 export async function pollJobStatus(
   jobId: string,
   onProgress?: (status: JobStatus) => void,
-  baseIntervalDelay: number = 5000
+  baseIntervalDelay: number = 5000,
+  signal?: AbortSignal
 ): Promise<JobStatus> {
   console.log(`🔄 Starting adaptive job polling for job ${jobId} (base interval: ${baseIntervalDelay}ms)`)
 
@@ -1219,7 +1221,26 @@ export async function pollJobStatus(
   let lastProgress = 0
   let consecutiveHighProgressChecks = 0
 
+  const throwIfAborted = () => {
+    if (signal?.aborted) {
+      console.log('🛑 Polling aborted (component unmounted or navigation)')
+      throw new DOMException('Aborted', 'AbortError')
+    }
+  }
+
+  const waitWithAbort = (ms: number): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const id = setTimeout(resolve, ms)
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          clearTimeout(id)
+          reject(new DOMException('Aborted', 'AbortError'))
+        }, { once: true })
+      }
+    })
+
   while (true) {
+    throwIfAborted()
     try {
       const status = await getTaskGenerationStatus(jobId)
       const currentProgress = typeof status?.progress === 'number' ? status.progress : 0
@@ -1304,15 +1325,16 @@ export async function pollJobStatus(
 
       // Wait with adaptive delay before next check
       console.log(`⏳ Waiting ${intervalDelay}ms before next check...`)
-      await new Promise(resolve => setTimeout(resolve, intervalDelay))
+      await waitWithAbort(intervalDelay)
       attempt++
 
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error
       console.error(`❌ Error checking job status (attempt ${attempt}):`, error)
 
       // Wait before retry (use base interval for errors)
       console.log(`⏳ Retrying in ${baseIntervalDelay}ms...`)
-      await new Promise(resolve => setTimeout(resolve, baseIntervalDelay))
+      await waitWithAbort(baseIntervalDelay)
       attempt++
       consecutiveHighProgressChecks = 0 // Reset on error
     }
@@ -1320,9 +1342,11 @@ export async function pollJobStatus(
 }
 
 // Enhanced task generation with background job support
+// Optional signal allows cancellation when component unmounts
 export async function generateTasksWithPolling(
   payload: TaskGenerationPayload,
-  onProgress?: (status: JobStatus) => void
+  onProgress?: (status: JobStatus) => void,
+  signal?: AbortSignal
 ): Promise<any> {
   console.log('=== TASK GENERATION WITH BACKGROUND JOB SUPPORT ===')
 
@@ -1357,7 +1381,7 @@ export async function generateTasksWithPolling(
       }
 
       console.log('🔄 Background job started, polling for completion...')
-      const finalStatus = await pollJobStatus(effectiveJobId, onProgress, 5000) // 5 second interval
+      const finalStatus = await pollJobStatus(effectiveJobId, onProgress, 5000, signal) // 5 second interval
       if (finalStatus.status === 'completed') {
         // Fetch the final result from result endpoint
         console.log('🔄 Job completed, fetching final result...')

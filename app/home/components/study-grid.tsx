@@ -122,6 +122,9 @@ export function StudyGrid({
     if (study.status === 'draft') {
       setLoadingStudyId(study.id)
 
+      // Do NOT clear job state here - create-study page will clear it only when switching to a different study.
+      // Preserving job state allows resuming polling when returning to Study A after opening Study B.
+
       // Get last_step from study object or from cache
       let lastStep = study.last_step || 1
 

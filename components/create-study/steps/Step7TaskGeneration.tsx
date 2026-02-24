@@ -32,6 +32,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
   const timerSaveInterval = useRef<NodeJS.Timeout | null>(null)
   const hasCheckedForExistingJob = useRef<boolean>(false)
   const isResuming = useRef<boolean>(false)
+  const abortControllerRef = useRef<AbortController | null>(null)
   const isLoadingFromCache = useRef<boolean>(false)
   const [showTimer, setShowTimer] = useState<boolean>(false)
   // Preview anchoring to background fit box
@@ -51,8 +52,20 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
   }, [])
 
   // Job persistence functions
+  // Guard: only save when job's studyId matches current cs_study_id (prevents stale polling from overwriting when user switched studies)
   const saveJobState = (jobId: string, status: JobStatus, startTime: number, studyId?: string) => {
     try {
+      // Don't overwrite if user has switched to a different study (e.g. via Continue Editing)
+      if (studyId && typeof window !== 'undefined') {
+        try {
+          const raw = localStorage.getItem('cs_study_id')
+          const currentStudyId = raw ? (() => { try { const p = JSON.parse(raw); return typeof p === 'string' ? p : String(p) } catch { return raw } })() : null
+          if (currentStudyId && currentStudyId !== studyId) {
+            console.log('[Step7] Skipping saveJobState - current study', currentStudyId, '!= job study', studyId)
+            return
+          }
+        } catch { }
+      }
       const jobState = {
         jobId,
         status,
@@ -64,7 +77,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       localStorage.setItem('cs_step7_job_state', JSON.stringify(jobState))
       console.log('[Step7] Saved job state with progress:', jobState.progress + '%', studyId ? `and study_id: ${studyId}` : '')
 
-      // Also persist study_id separately if available
+      // Also persist study_id separately if available (only when study matches)
       if (studyId) {
         try {
           localStorage.setItem('cs_study_id', JSON.stringify(studyId))
@@ -85,18 +98,16 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         const jobState = JSON.parse(saved)
         console.log('[Step7] Loaded job state:', jobState)
 
-        // Restore study_id if available in job state
-        if (jobState.studyId) {
-          try {
-            localStorage.setItem('cs_study_id', JSON.stringify(jobState.studyId))
-            console.log('[Step7] Restored study_id from job state:', jobState.studyId)
-          } catch (storageError) {
-            console.warn('Failed to restore study_id from job state:', storageError)
-          }
-        }
+        // Do NOT overwrite cs_study_id from job state - the page/navigation determines current study.
+        // Overwriting caused wrong study to open when user clicked Continue Editing on a different study.
 
         // Check if job is still active (not completed or failed)
-        if (jobState.status && (jobState.status.status === 'processing' || jobState.status.status === 'pending')) {
+        // Accept both object format { status: { status: 'processing' } } and string/flat format
+        const s = jobState.status
+        const statusStr = typeof s === 'string' ? s : s?.status
+        const isActive = statusStr === 'processing' || statusStr === 'pending'
+        const isCompletedOrFailed = statusStr === 'completed' || statusStr === 'failed'
+        if (jobState.jobId && (isActive || (!statusStr && !isCompletedOrFailed))) {
           return jobState
         } else {
           console.log('[Step7] Job state found but job is completed/failed, clearing...')
@@ -180,7 +191,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         timestamp: Date.now()
       }
       localStorage.setItem('cs_step7_timer_state', JSON.stringify(timerState))
-      console.log('[Step7] Saved timer state:', timerState)
     } catch (error) {
       console.warn('Failed to save timer state:', error)
     }
@@ -191,7 +201,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       const saved = localStorage.getItem('cs_step7_timer_state')
       if (saved) {
         const timerState = JSON.parse(saved)
-        console.log('[Step7] Loaded timer state:', timerState)
         return timerState
       }
     } catch (error) {
@@ -219,7 +228,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     // Save timer every 5 seconds
     timerSaveInterval.current = setInterval(() => {
       saveTimerState(countdownRef.current)
-      console.log('[Step7] Saved timer state every 5 seconds:', countdownRef.current)
     }, 5000)
 
     console.log('[Step7] Started 5-second timer saving')
@@ -234,8 +242,8 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     }
   }
 
-  // Resume polling for existing job
-  const resumeJobPolling = async (jobId: string) => {
+  // Resume polling for existing job (signal allows cancellation on unmount)
+  const resumeJobPolling = async (jobId: string, signal?: AbortSignal) => {
     if (isResuming.current) {
       console.log('[Step7] Already resuming, skipping duplicate call')
       return
@@ -287,7 +295,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
           }
         })()
         saveJobState(jobId, monotonicStatus, jobStartTime || Date.now(), studyId)
-      }, 5000) // 5 second interval
+      }, 5000, signal) // 5 second interval, signal for unmount cancellation
 
       if (finalStatus.status === 'completed') {
         console.log('[Step7] Resumed job completed, fetching result...')
@@ -306,6 +314,10 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       }
 
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.log('[Step7] Resume polling aborted (unmounted)')
+        return
+      }
       console.error('[Step7] Error resuming job polling:', error)
       setPollingError(error instanceof Error ? error.message : 'Failed to resume job')
       clearJobState()
@@ -449,6 +461,9 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       console.log('[Step7] Submitting task generation payload')
       console.log('[Step7] Payload includes study_id:', !!payload.study_id, payload.study_id)
 
+      const ac = new AbortController()
+      abortControllerRef.current = ac
+
       // Use the polling-enabled generation (this handles both immediate and background jobs)
       const data = await generateTasksWithPolling(payload, (status) => {
         console.log('[Step7] Job status update:', {
@@ -492,7 +507,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
           // The result will be fetched separately via getTaskGenerationResult
           // This callback is just for status updates during polling
         }
-      })
+      }, ac.signal)
 
       console.log('[Step7] generateTasksWithPolling returned:', {
         hasData: !!data,
@@ -612,6 +627,10 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         onDataChange?.()
       }
     } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        console.log('[Step7] Task generation polling aborted (unmounted)')
+        return
+      }
       console.error('Task generation error:', e)
       const err: any = e
       const message = err?.data?.detail || err?.message || 'Task generation failed.'
@@ -656,37 +675,57 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     const existingJobState = loadJobState()
     console.log('[Step7] Checking for existing job state:', existingJobState)
 
+    let shouldCheckCachedMatrix = false
     if (existingJobState && (existingJobState.jobId || existingJobState.status?.job_id)) {
       const jobId = existingJobState.jobId || existingJobState.status?.job_id
-      console.log('[Step7] ✅ Found existing job, checking if completed:', jobId)
+      // Verify job belongs to current study - don't resume if user switched to a different study
+      const jobStudyId = existingJobState.studyId
+      let currentStudyId: string | null = null
+      try {
+        const raw = localStorage.getItem('cs_study_id')
+        currentStudyId = raw ? (() => { try { const p = JSON.parse(raw); return typeof p === 'string' ? p : String(p) } catch { return raw } })() : null
+      } catch { }
+      if (jobStudyId && currentStudyId && jobStudyId !== currentStudyId) {
+        console.log('[Step7] Job belongs to different study (job:', jobStudyId, 'current:', currentStudyId, '), skipping resume but preserving job state for when user returns')
+        // Do NOT clear job state - preserve it so when user returns to the other study, polling can resume
+        shouldCheckCachedMatrix = true
+      } else {
+        console.log('[Step7] ✅ Found existing job, checking if completed:', jobId)
 
-      // First check if the job is already completed
-      checkAndFetchCompletedJob(jobId).then((isCompleted) => {
-        if (isCompleted) {
-          console.log('[Step7] ✅ Job was already completed, preview loaded')
-          return
-        }
+        // Create AbortController early so cleanup can abort if user navigates away during checkAndFetchCompletedJob
+        const ac = new AbortController()
+        abortControllerRef.current = ac
 
-        console.log('[Step7] ✅ Job still in progress, resuming:', jobId)
-        setJobStatus(existingJobState.status)
-        setJobStartTime(existingJobState.startTime)
-        setHighestProgress(existingJobState.status?.progress || existingJobState.progress || 0)
-        setIsPolling(true)
+        // First check if the job is already completed
+        checkAndFetchCompletedJob(jobId).then((isCompleted) => {
+          if (ac.signal.aborted) return
+          if (isCompleted) {
+            console.log('[Step7] ✅ Job was already completed, preview loaded')
+            return
+          }
 
-        // Load timer state
-        const savedTimer = loadTimerState()
-        if (savedTimer) {
-          setCountdownSeconds(savedTimer.seconds)
-          countdownRef.current = savedTimer.seconds
-          timerInitialized.current = true
-        }
+          console.log('[Step7] ✅ Job still in progress, resuming:', jobId)
+          setJobStatus(existingJobState.status)
+          setJobStartTime(existingJobState.startTime)
+          setHighestProgress(existingJobState.status?.progress || existingJobState.progress || 0)
+          setIsPolling(true)
 
-        // Resume polling
-        resumeJobPolling(jobId)
-      })
-      return
-    } else {
-      console.log('[Step7] ❌ No existing job found')
+          // Load timer state
+          const savedTimer = loadTimerState()
+          if (savedTimer) {
+            setCountdownSeconds(savedTimer.seconds)
+            countdownRef.current = savedTimer.seconds
+            timerInitialized.current = true
+          }
+
+          // Resume polling with abort signal for unmount
+          resumeJobPolling(jobId, ac.signal)
+        })
+        return
+      }
+    }
+    if (!existingJobState || shouldCheckCachedMatrix) {
+      console.log('[Step7] ❌ No existing job found' + (shouldCheckCachedMatrix ? ' (job belongs to different study)' : ''))
 
       // Check for cached matrix
       try {
@@ -696,8 +735,12 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
           isLoadingFromCache.current = true
           const matrixData = JSON.parse(cached)
 
-          // Clear timer and job state since tasks are already completed
-          clearJobState()
+          // Clear job state only if it belongs to current study (cached matrix = completed tasks for current study)
+          // When job belongs to different study (shouldCheckCachedMatrix), preserve it for when user returns
+          const jobBelongsToOtherStudy = shouldCheckCachedMatrix && existingJobState?.studyId
+          if (!jobBelongsToOtherStudy) {
+            clearJobState()
+          }
           clearTimerState()
           stopTimerSaving()
           setJobStartTime(null)
@@ -727,20 +770,52 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     }
   }, [])
 
-  // Handle active prop changes - but DON'T start generation if job exists
+  // Handle active prop changes - resume polling if we have job state but are not polling (e.g. came back from home)
   useEffect(() => {
-    if (!active || !hasCheckedForExistingJob.current) return
+    if (!active) return
 
-    console.log('[Step7] Step became active')
-
-    // Check if there's an existing job or cached matrix
+    // If we have job state and we're not polling, try to resume (handles "went home and came back" and key-remount races)
     const existingJobState = loadJobState()
     const hasCachedMatrix = localStorage.getItem('cs_step7_matrix')
 
     if (existingJobState && (existingJobState.jobId || existingJobState.status?.job_id)) {
-      console.log('[Step7] ✅ Job already in progress, not starting new generation')
+      if (isPolling) {
+        console.log('[Step7] ✅ Job already in progress, not starting new generation')
+        return
+      }
+      // Have job state but not polling (e.g. we aborted when navigating away, or mount was aborted by key change) - resume
+      const jobId = existingJobState.jobId || existingJobState.status?.job_id
+      const jobStudyId = existingJobState.studyId
+      let currentStudyId: string | null = null
+      try {
+        const raw = localStorage.getItem('cs_study_id')
+        currentStudyId = raw ? (() => { try { const p = JSON.parse(raw); return typeof p === 'string' ? p : String(p) } catch { return raw } })() : null
+      } catch { }
+      if (jobStudyId && currentStudyId && jobStudyId !== currentStudyId) {
+        return
+      }
+      if (!isResuming.current) {
+        console.log('[Step7] Step active with job state but not polling, resuming:', jobId)
+        setJobStatus(existingJobState.status)
+        setJobStartTime(existingJobState.startTime)
+        setHighestProgress(existingJobState.status?.progress ?? existingJobState.progress ?? 0)
+        setIsPolling(true)
+        const ac = new AbortController()
+        abortControllerRef.current = ac
+        const savedTimer = loadTimerState()
+        if (savedTimer) {
+          setCountdownSeconds(savedTimer.seconds)
+          countdownRef.current = savedTimer.seconds
+          timerInitialized.current = true
+        }
+        resumeJobPolling(jobId, ac.signal)
+      }
       return
     }
+
+    if (!hasCheckedForExistingJob.current) return
+
+    console.log('[Step7] Step became active')
 
     if (hasCachedMatrix && matrix) {
       console.log('[Step7] ✅ Matrix already loaded, not starting new generation')
@@ -763,15 +838,16 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     generateNow()
   }, [active])
 
-  // Cleanup job state when component unmounts or when job completes
+  // Abort polling on unmount so lingering poll doesn't overwrite storage when user navigates away
   useEffect(() => {
     return () => {
-      if (!isPolling && !isGenerating) {
-        // Don't clear job state on unmount if still in progress
-        console.log('[Step7] Component unmounting, preserving job state')
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort()
+        abortControllerRef.current = null
+        console.log('[Step7] Component unmounting, aborted polling')
       }
     }
-  }, [isPolling, isGenerating])
+  }, [])
 
   // Show timer after 1 second delay to prevent flickering
   useEffect(() => {
@@ -797,16 +873,18 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
   useEffect(() => {
     if (!active) return
 
-    // Don't start timer if we're loading from cache
+    // Don't start timer if we're loading from cache (completed tasks, no active job)
     if (isLoadingFromCache.current) {
       console.log('[Step7] Loading from cache, skipping timer initialization')
       return
     }
 
-    // Check if cached matrix exists in localStorage (even if not loaded in state yet)
+    // If there's an active job, always run the timer — cached matrix may be stale (e.g. after Regenerate)
+    const hasActiveJob = !!loadJobState()
     const cachedMatrix = localStorage.getItem('cs_step7_matrix')
-    if (cachedMatrix) {
-      console.log('[Step7] Cached matrix found, skipping timer initialization')
+    if (cachedMatrix && !hasActiveJob) {
+      // Only skip when we have completed tasks (matrix) and no job in progress
+      console.log('[Step7] Cached matrix found, no active job, skipping timer initialization')
       return
     }
 
@@ -824,7 +902,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
       if (savedTimerState && savedTimerState.seconds !== undefined) {
         // Use saved timer value for resumed jobs
-        console.log('[Step7] Using saved timer value:', savedTimerState.seconds)
         initialCountdown = savedTimerState.seconds
       } else {
         // Calculate initial countdown based on job start time for new jobs
@@ -832,7 +909,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
           if (jobStartTime && !matrix) {
             const elapsedSeconds = Math.floor((Date.now() - jobStartTime) / 1000)
             const remainingSeconds = Math.max(0, 600 - elapsedSeconds) // 600 = 10 minutes
-            console.log('[Step7] Timer: elapsed', elapsedSeconds, 'remaining', remainingSeconds)
             return remainingSeconds
           }
           return 600 // Default 10 minutes

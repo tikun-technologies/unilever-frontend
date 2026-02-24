@@ -20,12 +20,26 @@ function clearStoredStudyId() {
   }
 }
 
+function isJobStateActive(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const raw = localStorage.getItem('cs_step7_job_state')
+    if (!raw) return false
+    const job = JSON.parse(raw) as { status?: { status?: string } }
+    const s = job?.status?.status
+    return s === 'processing' || s === 'pending'
+  } catch {
+    return false
+  }
+}
+
 export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, userRole = 'viewer' }: { onBack: () => void; onDataChange?: () => void; isReadOnly?: boolean; userRole?: string }) {
   const canLaunch = userRole === 'admin'
   const [isLaunching, setIsLaunching] = useState(false)
   const [launchStage, setLaunchStage] = useState(0)
   const [launchError, setLaunchError] = useState<string | null>(null)
   const [isConfirmed, setIsConfirmed] = useState(false)
+  const [isGeneratingTasks, setIsGeneratingTasks] = useState(false)
 
   const step1 = get('cs_step1', { title: '', description: '', language: '' })
   const step2 = get('cs_step2', { type: 'grid', mainQuestion: '', orientationText: '' })
@@ -55,6 +69,19 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
 
   const hasLayer = step2.type === 'layer'
   const hasText = step2.type === 'text'
+
+  // Sync isGeneratingTasks from cs_step7_job_state (on mount, poll, and stepDataChanged)
+  useEffect(() => {
+    const update = () => setIsGeneratingTasks(isJobStateActive())
+    update()
+    const poll = setInterval(update, 2000)
+    const handler = () => update()
+    window.addEventListener('stepDataChanged', handler)
+    return () => {
+      clearInterval(poll)
+      window.removeEventListener('stepDataChanged', handler)
+    }
+  }, [])
 
   // Update last_step to 8 on mount so resuming brings user here
   useEffect(() => {
@@ -90,6 +117,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
 
   const handleLaunchStudy = async () => {
     if (!canLaunch || isReadOnly) return
+    if (isGeneratingTasks) return
     if (!isConfirmed) {
       setLaunchError('Please confirm you are ready to launch this study')
       return
@@ -681,7 +709,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
               <Button
                 className="flex-1 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white rounded-full disabled:opacity-50 cursor-pointer"
                 onClick={handleLaunchStudy}
-                disabled={isLaunching || !isConfirmed || isReadOnly || !canLaunch}
+                disabled={isLaunching || !isConfirmed || isReadOnly || !canLaunch || isGeneratingTasks}
               >
                 {isLaunching ? (
                   <span className="flex items-center justify-center gap-2">
@@ -696,7 +724,12 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
                 )}
               </Button>
             </div>
-            {!canLaunch && (
+            {isGeneratingTasks && (
+              <p className="text-xs text-center text-amber-600 font-medium">
+                Tasks are being generated. Please wait for generation to complete before launching.
+              </p>
+            )}
+            {!canLaunch && !isGeneratingTasks && (
               <p className="text-xs text-center text-amber-600 font-medium">
                 Only study owners can launch. You have {userRole || 'viewer'} access.
               </p>

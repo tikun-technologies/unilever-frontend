@@ -483,16 +483,33 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
       localStorage.setItem('cs_step6', JSON.stringify(audienceData))
     }
 
-    // Store a preview of tasks (first respondent) and mark step 7 completed.
-    // Do NOT persist the full `tasks` matrix to localStorage because it can be very large.
-    if (studyDetails.tasks) {
-      // Also store task generation completion flag
+    // When jobId is present, tasks are being generated asynchronously. Do NOT store
+    // tasks from the response (they are stale). Clear cached task data and store job
+    // state so Step7 shows generating state and polls for completion.
+    if (studyDetails.jobId || (studyDetails as any).job_id) {
+      // Clear any stale cached task data
+      localStorage.removeItem('cs_step7_matrix')
+      localStorage.removeItem('cs_step7_tasks')
+
+      const jobId = studyDetails.jobId || (studyDetails as any).job_id
+      const startTime = studyDetails.startTime ?? (studyDetails as any).start_time ?? Date.now()
+      const jobState = {
+        jobId,
+        progress: studyDetails.progress || 0,
+        startTime,
+        status: studyDetails.status ?? (studyDetails as any).status ?? { status: 'processing' },
+        studyId: studyId,
+        timestamp: Date.now()
+      }
+      localStorage.setItem('cs_step7_job_state', JSON.stringify(jobState))
+      console.log('[LoadDraft] jobId present - generation in progress, stored job state:', jobState)
+    } else if (studyDetails.tasks) {
+      // No active job - tasks from response are final. Store preview and mark completed.
       localStorage.setItem('cs_step7_tasks', JSON.stringify({
         completed: true,
         timestamp: Date.now(),
       }))
 
-      // Transform and store a lightweight task preview for UI rendering only
       const taskMatrix = {
         metadata: {
           total_respondents: Object.keys(studyDetails.tasks).length,
@@ -504,20 +521,6 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
         total_tasks: studyDetails.tasks['1']?.length || 0,
       }
       localStorage.setItem('cs_step7_matrix', JSON.stringify(taskMatrix))
-    }
-
-    // Store job ID if present in the study details
-    if (studyDetails.jobId) {
-      const jobState = {
-        jobId: studyDetails.jobId,
-        progress: studyDetails.progress || 0,
-        startTime: studyDetails.startTime || Date.now(),
-        status: studyDetails.status || null,
-        studyId: studyId,
-        timestamp: Date.now()
-      }
-      localStorage.setItem('cs_step7_job_state', JSON.stringify(jobState))
-      console.log('[LoadDraft] Stored job state in localStorage:', jobState)
     }
 
     // NEW: Restore the last saved step based on local completion validation
@@ -791,11 +794,14 @@ export default function CreateStudyPage() {
           console.log('[CreateStudy] Loading draft study for study_id:', parsedStudyId)
 
           // Get the previously loaded study ID to check if we're switching studies
-          const previousStudyId = sessionStorage.getItem('cs_previous_study_id')
+          const previousStudyIdRaw = sessionStorage.getItem('cs_previous_study_id')
+          const previousStudyId = previousStudyIdRaw
+            ? (() => { try { const p = JSON.parse(previousStudyIdRaw); return typeof p === 'string' ? p : String(p) } catch { return previousStudyIdRaw } })()
+            : null
 
-          // If we're switching to a different study, clear the old data first
-          if (previousStudyId && previousStudyId !== studyId) {
-            console.log('[CreateStudy] Switching from study', previousStudyId, 'to study', studyId)
+          // If we're switching to a different study, clear the old step data (but preserve job state - see below)
+          if (previousStudyId && parsedStudyId && previousStudyId !== parsedStudyId) {
+            console.log('[CreateStudy] Switching from study', previousStudyId, 'to study', parsedStudyId)
             const keysToRemove = [
               'cs_step1',
               'cs_step2',
@@ -814,7 +820,6 @@ export default function CreateStudyPage() {
               'cs_step6',
               'cs_step7_tasks',
               'cs_step7_matrix',
-              'cs_step7_job_state',
               'cs_step7_timer_state',
               'cs_backup_steps',
               'cs_flash_message',
@@ -825,6 +830,8 @@ export default function CreateStudyPage() {
                 localStorage.removeItem(key)
               } catch { }
             })
+            // Do NOT clear cs_step7_job_state when switching - preserve it so when returning to Study A
+            // after opening Study B, we can resume polling. Step7 and loadDraftStudyData handle the rest.
           }
 
           try {
@@ -836,10 +843,10 @@ export default function CreateStudyPage() {
               throw new Error('Failed to load study data: Basic details not found')
             }
 
-            console.log('[CreateStudy] Successfully loaded draft study data for study_id:', studyId)
+            console.log('[CreateStudy] Successfully loaded draft study data for study_id:', parsedStudyId)
 
-            // Store the current study ID so we can detect switches next time
-            sessionStorage.setItem('cs_previous_study_id', studyId)
+            // Store the current study ID so we can detect switches next time (normalized for comparison)
+            sessionStorage.setItem('cs_previous_study_id', parsedStudyId)
 
             // Clear the flag
             localStorage.removeItem('cs_resuming_draft')
