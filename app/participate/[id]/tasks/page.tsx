@@ -5,6 +5,7 @@ import { useState, useRef, useEffect, useLayoutEffect } from "react"
 import Image from "next/image"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
 import { getRespondentStudyDetails, submitTasksBulk } from "@/lib/api/ResponseAPI"
+import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 
 // Helper function to get cached URLs for display
 const getCachedUrl = (url: string | undefined): string => {
@@ -47,6 +48,7 @@ export default function TasksPage() {
   const [studyType, setStudyType] = useState<"grid" | "layer" | "text" | "hybrid" | undefined>(undefined)
   const [mainQuestion, setMainQuestion] = useState<string>("")
   const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null)
+  const [isSpecialCreator, setIsSpecialCreator] = useState(false)
 
   const hoverCountsRef = useRef<Record<number, number>>({})
   const clickCountsRef = useRef<Record<number, number>>({})
@@ -99,6 +101,12 @@ export default function TasksPage() {
     lastViewTimeRef.current = null
     hoverCountsRef.current = {}
     clickCountsRef.current = {}
+  }, [])
+
+  // Special creator: only from localStorage (show rating scale 1 and 5 only)
+  useEffect(() => {
+    const email = typeof window !== "undefined" ? localStorage.getItem("current_study_creator_email") : null
+    setIsSpecialCreator(checkIsSpecialCreator(email ?? ""))
   }, [])
 
   useEffect(() => {
@@ -212,13 +220,15 @@ export default function TasksPage() {
             const val = content[k]?.url || content[k]?.content || (typeof content[k] === 'string' ? content[k] : undefined)
             if (val) list.push(val)
           })
+          // Shuffle elements within the task (grid/text/hybrid) so display order varies per respondent
+          const displayList = list.length > 0 ? [...list].sort(() => Math.random() - 0.5) : list
 
           return {
             id: String(t.task_id || t.task_index || Math.random()),
             type: activeType === "text" ? "text" : "grid",
-            leftImageUrl: activeType === "text" ? undefined : list[0],
-            rightImageUrl: activeType === "text" ? undefined : list[1],
-            gridUrls: list,
+            leftImageUrl: activeType === "text" ? undefined : displayList[0],
+            rightImageUrl: activeType === "text" ? undefined : displayList[1],
+            gridUrls: displayList,
             _elements_shown: es,
             _elements_shown_content: content
           }
@@ -538,6 +548,7 @@ export default function TasksPage() {
   )
 
   const task = tasks[currentTaskIndex]
+  const ratingScaleValues = isSpecialCreator ? [1, 5] : [1, 2, 3, 4, 5]
 
   return (
     <div
@@ -855,8 +866,8 @@ export default function TasksPage() {
                       style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}
                     >
                       <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center justify-between w-full max-w-[320px] mx-auto">
-                          {[1, 2, 3, 4, 5].map((n) => {
+                        <div className={`flex items-center mx-auto ${ratingScaleValues.length === 2 ? 'justify-center gap-6' : 'justify-between w-full max-w-[320px]'}`}>
+                          {ratingScaleValues.map((n) => {
                             const selected = lastSelected === n
                             return (
                               <button
@@ -1199,7 +1210,7 @@ export default function TasksPage() {
                     <div className="w-full max-w-2xl mx-auto mt-4">
                       <div className="flex items-center justify-center mb-3">
                         <div className="flex items-center justify-center gap-4">
-                          {[1, 2, 3, 4, 5].map((n) => {
+                          {ratingScaleValues.map((n) => {
                             const selected = lastSelected === n
                             return (
                               <button

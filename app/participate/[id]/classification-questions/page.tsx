@@ -56,17 +56,24 @@ export default function ClassificationQuestionsPage() {
         if (studyDetails) {
           const study = JSON.parse(studyDetails)
           if (study.classification_questions && Array.isArray(study.classification_questions)) {
-            let formattedQuestions: ClassificationQuestion[] = study.classification_questions.map((q: any) => ({
-              id: q.question_id || q.id,
-              text: q.question_text || q.text,
-              options: q.answer_options?.map((opt: any) => ({ id: opt.id, text: opt.text })) || [],
-              selected: null,
-              required: q.is_required === "Y" || q.is_required === true || q.is_required === "true"
-            }))
-
-            // Shuffle if enabled
             const studyInfo = study.study_info || study
             const shouldShuffle = studyInfo.toggle_shuffle === true || studyInfo.toggle_shuffle === "true"
+
+            let formattedQuestions: ClassificationQuestion[] = study.classification_questions.map((q: any) => {
+              let opts = q.answer_options?.map((opt: any) => ({ id: opt.id, text: opt.text })) || []
+              if (shouldShuffle && opts.length > 0) {
+                opts = [...opts].sort(() => Math.random() - 0.5)
+              }
+              return {
+                id: q.question_id || q.id,
+                text: q.question_text || q.text,
+                options: opts,
+                selected: null,
+                required: q.is_required === "Y" || q.is_required === true || q.is_required === "true"
+              }
+            })
+
+            // Shuffle questions if enabled
             if (shouldShuffle) {
               formattedQuestions = [...formattedQuestions].sort(() => Math.random() - 0.5)
             }

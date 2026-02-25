@@ -14,6 +14,8 @@ import { Step6AudienceSegmentation } from "@/components/create-study/steps/Step6
 import { Step7TaskGeneration } from "@/components/create-study/steps/Step7TaskGeneration"
 import { Step8LaunchPreview } from "@/components/create-study/steps/Step8LaunchPreview"
 import { getStudyPreview, StudyType } from "@/lib/api/StudyAPI"
+import { useAuth } from "@/lib/auth/AuthContext"
+import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 
 // Type definitions for backend responses
 interface ClassificationQuestion {
@@ -678,6 +680,8 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
 }
 
 export default function CreateStudyPage() {
+  const { user } = useAuth()
+  const isSpecialCreator = checkIsSpecialCreator(user?.email)
   const [currentStep, setCurrentStep] = useState(1)
   const [studyType, setStudyType] = useState<StudyType>("grid")
   const [isLoadingDraft, setIsLoadingDraft] = useState(false)
@@ -1014,7 +1018,7 @@ export default function CreateStudyPage() {
                 />
               </div>
               <div className={currentStep === 3 ? "block" : "hidden"} aria-hidden={currentStep !== 3}>
-                <Step3RatingScale key={`step3-${isLoadingDraft}`} onNext={() => setCurrentStep(4)} onBack={() => setCurrentStep(2)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
+                <Step3RatingScale key={`step3-${isLoadingDraft}`} onNext={() => setCurrentStep(4)} onBack={() => setCurrentStep(2)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} isSpecialCreator={isSpecialCreator} />
               </div>
               <div className={currentStep === 4 ? "block" : "hidden"} aria-hidden={currentStep !== 4}>
                 <Step4ClassificationQuestions key={`step4-${isLoadingDraft}`} onNext={() => setCurrentStep(5)} onBack={() => setCurrentStep(3)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />

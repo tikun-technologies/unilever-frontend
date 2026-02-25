@@ -203,7 +203,7 @@ export function DashboardHeader() {
                   <Share2 className="w-4 h-4" />
                   <span className="hidden sm:inline">Share</span>
                 </Button>
-                <Button
+                {/* <Button
                   onClick={() => canDisposeStudy && setIsDisposeModalOpen(true)}
                   disabled={!studyId || !canDisposeStudy}
                   variant="outline"
@@ -215,7 +215,7 @@ export function DashboardHeader() {
                 >
                   <Trash2 className="w-4 h-4" />
                   <span className="hidden sm:inline">Dispose Study</span>
-                </Button>
+                </Button> */}
               </motion.div>
             )}
 

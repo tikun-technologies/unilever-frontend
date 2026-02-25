@@ -47,6 +47,7 @@ export function StudyGrid({
   const [copyErrorStudyId, setCopyErrorStudyId] = useState<string | null>(null)
   const [copyErrorMessage, setCopyErrorMessage] = useState<string>("")
   const [canCopyStudies, setCanCopyStudies] = useState(true)
+  const [canDeleteInProject, setCanDeleteInProject] = useState(false)
   const [deleteConfirmStudy, setDeleteConfirmStudy] = useState<StudyListItem | null>(null)
   const [deleteLoadingStudyId, setDeleteLoadingStudyId] = useState<string | null>(null)
 
@@ -59,8 +60,10 @@ export function StudyGrid({
     if (projId) {
       const role = typeof window !== "undefined" ? localStorage.getItem(`ps_role_${projId}`) : null
       setCanCopyStudies(role !== "viewer")
+      setCanDeleteInProject(role === "admin" || role === "owner")
     } else {
       setCanCopyStudies(true)
+      setCanDeleteInProject(false)
     }
   }, [projId])
 
@@ -555,7 +558,7 @@ export function StudyGrid({
                   )}
                 </motion.button>
               )}
-              {study.user_role === "admin" && study.status === "draft" && (
+              {study.status === "draft" && (study.user_role === "admin" || canDeleteInProject) && (
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}

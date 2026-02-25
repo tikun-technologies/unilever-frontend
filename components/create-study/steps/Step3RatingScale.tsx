@@ -10,9 +10,10 @@ interface Step3RatingScaleProps {
   onBack: () => void
   onDataChange?: () => void
   isReadOnly?: boolean
+  isSpecialCreator?: boolean
 }
 
-export function Step3RatingScale({ onNext, onBack, onDataChange, isReadOnly = false }: Step3RatingScaleProps) {
+export function Step3RatingScale({ onNext, onBack, onDataChange, isReadOnly = false, isSpecialCreator = false }: Step3RatingScaleProps) {
   const [minLabel, setMinLabel] = useState(() => {
     try {
       const v = localStorage.getItem("cs_step3")
@@ -59,10 +60,11 @@ export function Step3RatingScale({ onNext, onBack, onDataChange, isReadOnly = fa
   }, [minLabel, maxLabel, middleLabel, onDataChange])
 
   const previewValues = useMemo(() => {
+    if (isSpecialCreator) return [1, 5]
     const values: number[] = []
     for (let i = minValue; i <= maxValue; i++) values.push(i)
     return values
-  }, [minValue, maxValue])
+  }, [minValue, maxValue, isSpecialCreator])
 
   const canProceed = minLabel && maxLabel
 
@@ -111,18 +113,20 @@ export function Step3RatingScale({ onNext, onBack, onDataChange, isReadOnly = fa
             <p className="mt-2 text-xs text-gray-500">Label for the maximum value (5) - Max 50 characters</p>
           </div>
 
-          <div className="md:col-span-2">
-            <label className="block text-sm font-semibold text-gray-800 mb-2">Middle Label (Value: 3) - Optional</label>
-            <Input
-              placeholder="e.g., Fairly important"
-              value={middleLabel}
-              onChange={(e) => setMiddleLabel(e.target.value)}
-              maxLength={50}
-              className="rounded-lg"
-              disabled={isReadOnly}
-            />
-            <p className="mt-2 text-xs text-gray-500">Optional label for the middle value (3) - Max 50 characters</p>
-          </div>
+          {!isSpecialCreator && (
+            <div className="md:col-span-2">
+              <label className="block text-sm font-semibold text-gray-800 mb-2">Middle Label (Value: 3) - Optional</label>
+              <Input
+                placeholder="e.g., Fairly important"
+                value={middleLabel}
+                onChange={(e) => setMiddleLabel(e.target.value)}
+                maxLength={50}
+                className="rounded-lg"
+                disabled={isReadOnly}
+              />
+              <p className="mt-2 text-xs text-gray-500">Optional label for the middle value (3) - Max 50 characters</p>
+            </div>
+          )}
         </div>
 
         <div className="border rounded-xl p-5 bg-slate-50">
@@ -138,7 +142,7 @@ export function Step3RatingScale({ onNext, onBack, onDataChange, isReadOnly = fa
                 </div>
                 <span className="text-xs text-gray-600 whitespace-nowrap">{formatLabel(minLabel, "Lowest")}</span>
               </div>
-              {middleLabel && (
+              {!isSpecialCreator && middleLabel && (
                 <div className="flex items-center gap-2">
                   <div className="w-5 h-5 rounded-full border border-gray-400 bg-gray-100 text-gray-600 flex items-center justify-center text-xs font-medium flex-shrink-0" style={{ minWidth: '20px', minHeight: '20px' }}>
                     3
@@ -157,7 +161,7 @@ export function Step3RatingScale({ onNext, onBack, onDataChange, isReadOnly = fa
 
 
             <div className="flex items-center justify-center gap-4 px-2">
-              {[1, 2, 3, 4, 5].map((v) => (
+              {previewValues.map((v) => (
                 <div key={v} className="w-8 h-8 sm:w-10 sm:h-10 rounded-full border-2 border-[rgba(38,116,186,1)] text-[rgba(38,116,186,1)] flex items-center justify-center font-medium text-sm sm:text-base">
                   {v}
                 </div>
@@ -195,7 +199,7 @@ export function Step3RatingScale({ onNext, onBack, onDataChange, isReadOnly = fa
                     max_value: maxValue,
                     min_label: minLabel || "",
                     max_label: maxLabel || "",
-                    middle_label: middleLabel || "",
+                    middle_label: isSpecialCreator ? "" : (middleLabel || ""),
                   }
                 }, 3)
               }
