@@ -12,9 +12,11 @@ interface Step7TaskGenerationProps {
   active?: boolean
   onDataChange?: () => void
   isReadOnly?: boolean
+  /** When Keys step exists (special creator), Task Gen is step 8; otherwise 7 */
+  lastStepNumber?: number
 }
 
-export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChange, isReadOnly = false }: Step7TaskGenerationProps) {
+export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChange, isReadOnly = false, lastStepNumber = 7 }: Step7TaskGenerationProps) {
   const [isGenerating, setIsGenerating] = useState(false)
   const [matrix, setMatrix] = useState<any | null>(null)
   const [isStatsOpen, setIsStatsOpen] = useState(false)
@@ -2362,12 +2364,11 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
               if (studyId) {
                 // Fire-and-forget background PUT update to save last_step
-                // We use type casting or a partial payload to match the signature
-                const payload: any = { last_step: 7 }
+                const payload: any = { last_step: lastStepNumber }
                 import('@/lib/api/StudyAPI').then(({ putUpdateStudyAsync }) => {
                   putUpdateStudyAsync(String(studyId), payload)
                 })
-                console.log('[Step7] Scheduled background PUT update for last_step: 7')
+                console.log('[Step7] Scheduled background PUT update for last_step:', lastStepNumber)
               }
             } catch (err) {
               console.warn('[Step7] Failed to schedule background PUT update', err)

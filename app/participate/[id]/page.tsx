@@ -344,12 +344,20 @@ export default function ParticipateIntroPage() {
         }
       }
 
-      // Navigate only after session and (if present) details are stored
+      // Navigate only after session and (if present) details are stored.
+      // For special-creator studies: skip product-id page and go straight to orientation/start.
       const isProductIdCreator = checkIsSpecialCreator(studyDetails?.creator_email)
+      try {
+        if (isProductIdCreator) {
+          localStorage.setItem('current_study_skip_completed_storage', params.id)
+        } else {
+          localStorage.removeItem('current_study_skip_completed_storage')
+        }
+      } catch { }
       if (isProductIdCreator) {
-        router.push(`/participate/${params.id}/product-id`)
-      } else {
         router.push(startHref)
+      } else {
+        router.push(`/participate/${params.id}/product-id`)
       }
 
       // Background: fetch study details using new API endpoint

@@ -20,9 +20,14 @@ import {
   updateProject as updateProjectApi,
   getProjectStudies as getProjectStudiesApi,
   getProjectMembers as getProjectMembersApi,
+  downloadProjectCsv,
+  downloadProjectZip,
   Project
 } from "@/api/projectApi"
 import { getStudyProjectMapping } from "@/lib/utils/projectUtils"
+import { useAuth } from "@/lib/auth/AuthContext"
+import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
+import { FileDown } from "lucide-react"
 
 function DashboardContent() {
   const router = useRouter()
@@ -60,6 +65,13 @@ function DashboardContent() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
   const [sharingProjectId, setSharingProjectId] = useState<string | null>(null)
   const latestProjectRequestId = useRef<string | null>(null)
+  const [exportingProjectCsv, setExportingProjectCsv] = useState(false)
+  const [exportCsvStatus, setExportCsvStatus] = useState("Getting data...")
+  const [exportingProjectZip, setExportingProjectZip] = useState(false)
+  const [exportZipStatus, setExportZipStatus] = useState("Getting data...")
+
+  const { user } = useAuth()
+  const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
 
   // Check token validity BEFORE rendering anything
   useEffect(() => {
@@ -188,16 +200,15 @@ function DashboardContent() {
     setStudyProjectMapping(getStudyProjectMapping())
   }, [isValidatingToken])
 
-  // Separate sync effect for project selection from URL
+  // Sync project selection from URL only. No query param = All Studies (no project).
   useEffect(() => {
     if (isValidatingToken) return
 
-    // Load last selected project from URL, then session or storage
     if (urlProjId) {
       setSelectedProjectId(urlProjId)
     } else {
-      const lastProject = sessionStorage.getItem('last_selected_project')
-      if (lastProject) setSelectedProjectId(lastProject)
+      // No proj_id in URL: always show All Studies (do not restore from sessionStorage)
+      setSelectedProjectId(null)
     }
   }, [isValidatingToken, urlProjId])
 
@@ -268,6 +279,78 @@ function DashboardContent() {
     setSearchQuery("")
     setSelectedType("All Types")
     setSelectedTime("All Time")
+  }
+
+  useEffect(() => {
+    if (!exportingProjectCsv) return
+    const messages = ["Getting data...", "Cooking your data...", "Almost there...", "Preparing your file..."]
+    const interval = setInterval(() => {
+      setExportCsvStatus((prev) => {
+        const idx = messages.indexOf(prev)
+        return messages[(idx + 1) % messages.length]
+      })
+    }, 1500)
+    return () => clearInterval(interval)
+  }, [exportingProjectCsv])
+
+  useEffect(() => {
+    if (!exportingProjectZip) return
+    const messages = ["Getting data...", "Cooking your data...", "Almost there...", "Preparing your file..."]
+    const interval = setInterval(() => {
+      setExportZipStatus((prev) => {
+        const idx = messages.indexOf(prev)
+        return messages[(idx + 1) % messages.length]
+      })
+    }, 1500)
+    return () => clearInterval(interval)
+  }, [exportingProjectZip])
+
+  const handleExportProjectCsv = async () => {
+    if (!selectedProjectId || exportingProjectCsv) return
+    const project = projects.find((p) => p.id === selectedProjectId)
+    const projectName = project?.name ?? "project"
+    setExportingProjectCsv(true)
+    setExportCsvStatus("Getting data...")
+    try {
+      const blob = await downloadProjectCsv(selectedProjectId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${projectName.replace(/[^a-zA-Z0-9-_]/g, "_")}_studies.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error("Export project CSV failed:", err)
+      alert(err instanceof Error ? err.message : "Failed to export project CSV.")
+    } finally {
+      setExportingProjectCsv(false)
+    }
+  }
+
+  const handleExportProjectZip = async () => {
+    if (!selectedProjectId || exportingProjectZip) return
+    const project = projects.find((p) => p.id === selectedProjectId)
+    const projectName = project?.name ?? "project"
+    setExportingProjectZip(true)
+    setExportZipStatus("Getting data...")
+    try {
+      const blob = await downloadProjectZip(selectedProjectId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${projectName.replace(/[^a-zA-Z0-9-_]/g, "_")}_studies.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error("Export project ZIP failed:", err)
+      alert(err instanceof Error ? err.message : "Failed to export project ZIP.")
+    } finally {
+      setExportingProjectZip(false)
+    }
   }
 
   const handleStudyClickFromSidebar = (study: StudyListItem) => {
@@ -531,6 +614,47 @@ function DashboardContent() {
               onClearFilters={handleClearFilters}
               stats={stats}
             />
+
+            {isSpecialCreator && selectedProjectId && (
+              <div className="mb-6 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleExportProjectCsv}
+                  disabled={exportingProjectCsv}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
+                >
+                  {exportingProjectCsv ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
+                      <span>{exportCsvStatus}</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileDown className="w-4 h-4" />
+                      <span>Export projects CSV</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportProjectZip}
+                  disabled={exportingProjectZip}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
+                >
+                  {exportingProjectZip ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
+                      <span>{exportZipStatus}</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileDown className="w-4 h-4" />
+                      <span>Export ZIP</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
 
             <StudyGrid
               studies={filteredStudies}

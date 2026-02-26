@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation"
 // import { DashboardHeader } from "@/app/home/components/dashboard-header"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { CheckCircle, X } from "lucide-react"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
+import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 
 export default function ThankYouPage() {
   const router = useRouter()
@@ -17,6 +18,7 @@ export default function ThankYouPage() {
   const [countdown, setCountdown] = useState<number | null>(null)
   const [totalTasks, setTotalTasks] = useState<number>(0)
 
+  const completedStorageProcessedRef = useRef(false)
 
   useEffect(() => {
     // Mark as hydrated to prevent hydration mismatches
@@ -24,18 +26,43 @@ export default function ThankYouPage() {
 
     // Get study ID from URL
     const pathParts = window.location.pathname.split('/')
-    // const currentStudyId = pathParts[pathParts.indexOf('participate') + 1]
-    // setStudyId(currentStudyId)
     const currentStudyId = pathParts[pathParts.indexOf('participate') + 1]
 
-    // Mark this study as completed in localStorage
+    // For studies created by special creators: do not store in completed_studies so participants can go back.
+    // Run only once so we don't double-store if effect runs again (e.g. Strict Mode) after removing the flag.
     try {
-      const completedStudies = JSON.parse(localStorage.getItem('completed_studies') || '{}')
-      completedStudies[currentStudyId] = {
-        completedAt: new Date().toISOString(),
-        responseId: Math.random().toString(36).substring(2, 8).toUpperCase()
+      if (completedStorageProcessedRef.current) return
+      completedStorageProcessedRef.current = true
+
+      let isSpecialCreatorStudy = false
+      const skipStorageFlag = localStorage.getItem('current_study_skip_completed_storage')
+      if (skipStorageFlag === currentStudyId) {
+        isSpecialCreatorStudy = true
+      } else {
+        // Fallback: if flag was cleared before we ran (e.g. by another tab or navigation), check creator from storage before we remove it
+        const creatorEmail =
+          localStorage.getItem('current_study_creator_email') ||
+          (() => {
+            try {
+              const raw = localStorage.getItem('current_study_details')
+              const d = raw ? JSON.parse(raw) : {}
+              return d?.study_info?.creator_email || ''
+            } catch { return '' }
+          })()
+        isSpecialCreatorStudy = checkIsSpecialCreator(creatorEmail)
       }
-      localStorage.setItem('completed_studies', JSON.stringify(completedStudies))
+
+      if (isSpecialCreatorStudy) {
+        localStorage.removeItem('current_study_skip_completed_storage')
+      }
+      if (!isSpecialCreatorStudy) {
+        const completedStudies = JSON.parse(localStorage.getItem('completed_studies') || '{}')
+        completedStudies[currentStudyId] = {
+          completedAt: new Date().toISOString(),
+          responseId: Math.random().toString(36).substring(2, 8).toUpperCase()
+        }
+        localStorage.setItem('completed_studies', JSON.stringify(completedStudies))
+      }
       localStorage.removeItem('current_study_creator_email')
     } catch (error) {
       console.error('Error marking study as completed:', error)

@@ -7,10 +7,11 @@ interface StepperProps {
   currentStep?: number
   className?: string
   onStepChange?: (step: number) => void
+  isSpecialCreator?: boolean
 }
 
 // Helper function to check if a step is completed based on localStorage data
-function isStepCompleted(stepId: number): boolean {
+function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
   if (typeof window === 'undefined') return false
 
   try {
@@ -164,18 +165,31 @@ function isStepCompleted(stepId: number): boolean {
         }
       }
       case 6: {
+        // Audience Segmentation (step 6)
         const data = localStorage.getItem('cs_step6')
         if (!data) return false
         const parsed = JSON.parse(data)
         return !!(parsed.respondents && parsed.respondents > 0)
       }
       case 7: {
-        // Step 7 is completed when task generation is successful
+        // Keys step (special creators only): product_id required + at least one key with name
+        if (!isSpecialCreator) return false
+        const data = localStorage.getItem('cs_step_keys')
+        if (!data) return false
+        try {
+          const parsed = JSON.parse(data)
+          const arr = Array.isArray(parsed) ? parsed : (parsed?.keys ?? [])
+          if (!Array.isArray(arr)) return false
+          const withName = arr.filter((k: any) => k && typeof k.name === 'string' && String(k.name).trim().length > 0)
+          const productIdOk = Array.isArray(parsed) ? true : !!(parsed?.productId && String(parsed.productId).trim().length > 0)
+          return withName.length > 0 && productIdOk
+        } catch { return false }
+      }
+      case 8: {
         const data = localStorage.getItem('cs_step7_tasks')
         return !!data
       }
-      case 8: {
-        // Step 8 is completed if cs_step8 flag is set
+      case 9: {
         const data = localStorage.getItem('cs_step8')
         if (!data) return false
         try {
@@ -192,20 +206,33 @@ function isStepCompleted(stepId: number): boolean {
   }
 }
 
-const steps = [
+const stepsWithKeys = [
   { id: 1, label: "Basic Details" },
   { id: 2, label: "Study Type" },
   { id: 3, label: "Rating Scale" },
   { id: 4, label: "Classification Questions" },
   { id: 5, label: "Study Structure" },
   { id: 6, label: "Audience Segmentation" },
-  { id: 7, label: "Task Generation" },
-  { id: 8, label: "Launch Study" },
+  { id: 7, label: "Keys" },
+  { id: 8, label: "Task Generation" },
+  { id: 9, label: "Launch Study" },
 ]
 
-export default function Stepper({ currentStep = 5, className = "", onStepChange }: StepperProps) {
+const stepsWithoutKeys = [
+  { id: 1, label: "Basic Details" },
+  { id: 2, label: "Study Type" },
+  { id: 3, label: "Rating Scale" },
+  { id: 4, label: "Classification Questions" },
+  { id: 5, label: "Study Structure" },
+  { id: 7, label: "Audience Segmentation" },
+  { id: 8, label: "Task Generation" },
+  { id: 9, label: "Launch Study" },
+]
+
+export default function Stepper({ currentStep = 5, className = "", onStepChange, isSpecialCreator = false }: StepperProps) {
   const [refreshKey, setRefreshKey] = useState(0)
   const stepsContainerRef = useRef<HTMLDivElement>(null)
+  const steps = isSpecialCreator ? stepsWithKeys : stepsWithoutKeys
 
   // Listen for localStorage changes to update step completion status
   useEffect(() => {
@@ -226,86 +253,62 @@ export default function Stepper({ currentStep = 5, className = "", onStepChange 
 
   // Force re-evaluation of step completion when refreshKey changes
   const isStepCompletedWithRefresh = (stepId: number): boolean => {
-    // Use refreshKey to force re-evaluation
     refreshKey // This forces the function to re-run when refreshKey changes
-    return isStepCompleted(stepId)
+    return isStepCompleted(stepId, isSpecialCreator)
   }
 
   // Auto-scroll to current step on mobile
   useEffect(() => {
     if (!stepsContainerRef.current) return
-
-    // Small delay to ensure DOM is fully rendered
     const timeoutId = setTimeout(() => {
       const container = stepsContainerRef.current
       if (!container) return
-
-      const currentStepElement = container.children[currentStep - 1] as HTMLElement
-
+      const currentStepIndex = steps.findIndex(s => s.id === currentStep)
+      const currentStepElement = container.children[currentStepIndex] as HTMLElement
       if (currentStepElement) {
         const containerRect = container.getBoundingClientRect()
         const stepRect = currentStepElement.getBoundingClientRect()
-
-        // Calculate if the step is visible in the container
         const isVisible = stepRect.left >= containerRect.left && stepRect.right <= containerRect.right
-
         if (!isVisible) {
-          // Scroll to center the current step
           const scrollLeft = currentStepElement.offsetLeft - (container.offsetWidth / 2) + (currentStepElement.offsetWidth / 2)
-          container.scrollTo({
-            left: Math.max(0, scrollLeft),
-            behavior: 'smooth'
-          })
+          container.scrollTo({ left: Math.max(0, scrollLeft), behavior: 'smooth' })
         }
       }
     }, 100)
-
     return () => clearTimeout(timeoutId)
-  }, [currentStep])
+  }, [currentStep, steps])
 
-  const totalSegments = steps.length - 1
-  const isLast = currentStep >= steps.length
+  const currentStepIndex = steps.findIndex(s => s.id === currentStep)
+  const totalSegments = Math.max(1, steps.length - 1)
+  const isLast = currentStepIndex >= 0 && currentStepIndex === steps.length - 1
+  const progressPct = currentStepIndex >= 0 ? (currentStepIndex / totalSegments) * 100 : 0
   const progressWidth = isLast
     ? `calc(100% - 100px)`
-    : `calc(${((currentStep - 1) / totalSegments) * 100}% - 100px + ${100 / totalSegments}%)`
+    : `calc(${progressPct}% - 100px + ${100 / totalSegments}%)`
   return (
     <div className={`w-full max-w-6xl mx-auto p-2 ${className}`}>
       <div className="relative">
         {/* Progress line background */}
         <div
           className="absolute top-5 left-0 right-0 h-0.5 bg-gray-200 hidden sm:block"
-          style={{
-            left: "calc(50px)",
-            right: "calc(50px)",
-          }}
+          style={{ left: "calc(50px)", right: "calc(50px)" }}
         />
-
         {/* Progress line filled */}
         <div
           className="absolute top-5 left-0 h-0.5 bg-[rgba(38,116,186,0.9)] hidden sm:block transition-all duration-300"
-          style={{
-            left: "calc(50px)",
-            width: progressWidth,
-          }}
+          style={{ left: "calc(50px)", width: progressWidth }}
         />
-
         {/* Steps container */}
-        <div ref={stepsContainerRef} className="relative flex flex-row justify-between items-start gap-2 overflow-x-auto pb-2">
+        <div ref={stepsContainerRef} className="relative flex flex-row justify-between items-start gap-2 overflow-x-auto pb-2 scrollbar-none">
           {steps.map((step, index) => {
             let isCompleted = isStepCompletedWithRefresh(step.id)
             const isCurrent = step.id === currentStep
             const isUpcoming = step.id > currentStep
-
-
-            // Determine if step is clickable
-            // Step 8 should be clickable when all previous steps (1-7) are completed
             const isClickable = isCompleted || isCurrent || step.id < currentStep
-
             return (
               <div
                 key={step.id}
-                className={`flex flex-col items-center text-center flex-shrink-0 min-w-[100px] ${isClickable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
-                  }`}
+                className={`flex flex-col items-center text-center flex-shrink-0 min-w-[100px] ${isClickable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                 onClick={() => {
                   if (isClickable) {
                     onStepChange?.(step.id)
@@ -329,9 +332,8 @@ export default function Stepper({ currentStep = 5, className = "", onStepChange 
                     }
                 `}
                 >
-                  {step.id}
+                  {index + 1}
                 </div>
-
                 {/* Step label */}
                 <div
                   className={`

@@ -102,6 +102,39 @@ export async function getProjectStudies(projectId: string): Promise<any[]> {
 }
 
 /**
+ * Download flattened project CSV (all studies in project).
+ * GET /projects/{project_id}/flattened-project-csv (base URL without /api/v1) 
+ */
+export async function downloadProjectCsv(projectId: string): Promise<Blob> {
+    const base = API_BASE_URL
+    const res = await fetchWithAuth(`${base}/projects/${projectId}/flattened-project-csv`, {
+        method: "POST",
+        headers: { Accept: "text/csv" },
+    });
+    if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        throw new Error(`Failed to export project CSV: ${res.status} ${errorText}`);
+    }
+    return res.blob();
+}
+
+/**
+ * Download project as ZIP
+ * POST /api/v1/projects/{project_id}/export-zip
+ */
+export async function downloadProjectZip(projectId: string): Promise<Blob> {
+    const res = await fetchWithAuth(`${API_BASE_URL}/projects/${projectId}/export-zip`, {
+        method: "POST",
+        headers: { Accept: "application/zip" },
+    });
+    if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        throw new Error(`Failed to export project ZIP: ${res.status} ${errorText}`);
+    }
+    return res.blob();
+}
+
+/**
  * Update a project
  * PUT /api/v1/projects/{project_id}
  */
@@ -190,4 +223,41 @@ export async function removeProjectMember(projectId: string, memberId: string): 
     }
 
     return res.ok;
+}
+
+export interface ValidateProductPayload {
+    study_id?: string;
+    product_id?: string;
+    product_keys: { name: string; percentage: number }[];
+}
+
+export interface ValidateProductResponse {
+    valid: boolean;
+    product_id_taken: boolean;
+    key_combination_taken: boolean;
+}
+
+/**
+ * Validate product ID and key combination for a project
+ * POST /api/v1/projects/{project_id}/validate-product
+ */
+export async function validateProduct(
+    projectId: string,
+    payload: ValidateProductPayload
+): Promise<ValidateProductResponse> {
+    const res = await fetchWithAuth(
+        `${API_BASE_URL}/projects/${projectId}/validate-product`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+        }
+    );
+
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || "Validation request failed");
+    }
+
+    return res.json();
 }

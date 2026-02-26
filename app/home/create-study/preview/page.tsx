@@ -406,8 +406,8 @@ function ParticipateIntroContent() {
     const isSpecial = checkIsSpecialCreator(creatorEmail)
     const canShare = !studyIdParam || isOwner || isAdmin
 
-    // Redirect logic same as participate page
-    const targetHref = isSpecial ? '/home/create-study/preview/product-id' : startHref
+    // For special creators: skip product-id page and go straight to start (participate and preview).
+    const targetHref = isSpecial ? startHref : '/home/create-study/preview/product-id'
     router.push(targetHref)
   }
 

@@ -100,6 +100,7 @@ export interface CreateStudyPayload {
   phase_order?: ("grid" | "text" | "mix")[] // NEW: Phase order for hybrid studies
   toggle_shuffle?: boolean // NEW: Shuffle classification questions
   project_id?: string
+  product_keys?: Array<{ name: string; percentage: number }> // Optional; special creators only
 }
 
 export interface UploadImageResult {
@@ -608,6 +609,22 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
         }
       } catch { }
       return {}
+    })()),
+    ...((() => {
+      try {
+        const keysRaw = typeof window !== 'undefined' ? localStorage.getItem('cs_step_keys') : null
+        if (!keysRaw) return {}
+        const parsed = JSON.parse(keysRaw)
+        const keys = Array.isArray(parsed) ? parsed : (parsed?.keys ?? [])
+        if (!Array.isArray(keys) || keys.length === 0) return {}
+        const valid = keys.filter((k: any) => k && typeof k.name === 'string' && (k.name as string).trim().length > 0)
+        if (valid.length === 0) return {}
+        const out: { product_keys: typeof valid; product_id?: string } = { product_keys: valid }
+        if (!Array.isArray(parsed) && parsed?.productId && String(parsed.productId).trim()) {
+          out.product_id = String(parsed.productId).trim().slice(0, 100)
+        }
+        return out
+      } catch { return {} }
     })())
   }
 
@@ -1484,6 +1501,8 @@ export interface StudyDetails {
   progress?: number
   startTime?: number
   toggle_shuffle?: boolean
+  product_keys?: Array<{ name: string; percentage: number }>
+  product_id?: string
 }
 
 export interface UpdateStudyStatusPayload {
@@ -1507,6 +1526,8 @@ export type UpdateStudyPutPayload = Partial<{
   status: "draft" | "active" | "paused" | "completed"
   toggle_shuffle?: boolean
   project_id?: string
+  product_keys?: Array<{ name: string; percentage: number }>
+  product_id?: string
 }>
 
 // Fetch study details by ID

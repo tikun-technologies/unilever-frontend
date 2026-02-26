@@ -81,6 +81,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         'cs_step5_layer',
         'cs_step5_layer_background',
         'cs_step5_layer_preview_aspect',
+        'cs_step_keys',
         'cs_step6',
         'cs_step7_tasks',
         'cs_step7_matrix',

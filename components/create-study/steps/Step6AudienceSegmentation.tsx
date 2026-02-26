@@ -45,9 +45,11 @@ interface Step6AudienceSegmentationProps {
 	onBack: () => void
 	onDataChange?: () => void
 	isReadOnly?: boolean
+	/** When Keys step exists (special creator), Audience is step 7; otherwise 6 */
+	lastStepNumber?: number
 }
 
-export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isReadOnly = false }: Step6AudienceSegmentationProps) {
+export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isReadOnly = false, lastStepNumber = 6 }: Step6AudienceSegmentationProps) {
 	const [respondents, setRespondents] = useState<number | ''>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); return typeof o.respondents === 'number' ? o.respondents : '' } } catch { }; return '' })
 	const [countryQuery, setCountryQuery] = useState("")
 	const [countries, setCountries] = useState<string[]>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); return Array.isArray(o.countries) ? o.countries : [] } } catch { }; return [] })
@@ -332,7 +334,7 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 							})
 
 							const payload = {
-								last_step: 6,
+								last_step: lastStepNumber,
 								audience_segmentation: {
 
 									number_of_respondents: Number(respondents || 0),
