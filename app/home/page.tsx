@@ -668,6 +668,7 @@ function DashboardContent() {
               onMappingChange={() => setStudyProjectMapping(getStudyProjectMapping())}
               onStudyCopied={refetchStudies}
               onStudyDeleted={refetchStudies}
+              onStudyAssigned={refetchStudies}
             />
           </div>
         </motion.div>

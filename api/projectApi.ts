@@ -238,6 +238,27 @@ export interface ValidateProductResponse {
 }
 
 /**
+ * Assign a study to a project
+ * POST /api/v1/projects/{project_id}/assign-study
+ */
+export async function assignStudyToProject(projectId: string, studyId: string): Promise<void> {
+    const res = await fetchWithAuth(
+        `${API_BASE_URL}/projects/${projectId}/assign-study`,
+        {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ study_id: studyId }),
+        }
+    );
+
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        const message = data?.detail ?? data?.error ?? data?.message ?? "Failed to assign study to project";
+        throw new Error(typeof message === "string" ? message : JSON.stringify(message));
+    }
+}
+
+/**
  * Validate product ID and key combination for a project
  * POST /api/v1/projects/validate-product
  */
