@@ -472,7 +472,7 @@ export function StudyGrid({
                   e.stopPropagation()
                   router.push(`/home?proj_id=${study.project_id}`)
                 }}
-                className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-blue-50 text-[rgba(38,116,186,1)] hover:bg-blue-100 transition-colors mb-2 text-left max-w-full group"
+                className="inline-flex cursor-pointer items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-blue-50 text-[rgba(38,116,186,1)] hover:bg-blue-100 transition-colors mb-2 text-left max-w-full group"
               >
                 <FolderOpen className="w-3.5 h-3.5 shrink-0 text-[rgba(38,116,186,1)]" />
                 <span className="truncate min-w-0" title={projectName}>

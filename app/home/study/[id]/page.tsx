@@ -4,6 +4,8 @@ import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { DashboardHeader } from "../../components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
+import { useAuth } from "@/lib/auth/AuthContext"
+import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { updateStudyStatus, putUpdateStudy, StudyDetails, getStudyBasicDetails } from "@/lib/api/StudyAPI"
 import { StudyAnalytics, downloadStudyResponsesCsv, subscribeStudyAnalytics } from "@/lib/api/ResponseAPI"
 import { Pause, Play, CheckCircle, Share, Download, BarChart3, ArrowLeft, ChevronDown, LineChart } from "lucide-react"
@@ -61,6 +63,8 @@ export default function StudyManagementPage() {
   const params = useParams()
   const router = useRouter()
   const studyId = params.id as string
+  const { user } = useAuth()
+  const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
 
   const [study, setStudy] = useState<StudyDetails | null>(null)
   const [loading, setLoading] = useState(true)
@@ -719,6 +723,41 @@ export default function StudyManagementPage() {
             <AccordionSection title="Orientation Text">
               <div className="bg-white p-4">
                 <p className="text-gray-700 leading-relaxed whitespace-pre-wrap break-words">{study.orientation_text}</p>
+              </div>
+            </AccordionSection>
+          )}
+
+          {/* Product Details - special creator only, when present in API response */}
+          {isSpecialCreator && ((study as any).product_id || ((study as any).product_keys?.length ?? 0) > 0) && (
+            <AccordionSection title="Product Details">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(study as any).product_id != null && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Product ID</label>
+                    <div className="w-full py-2 bg-white text-gray-700 whitespace-pre-wrap break-words">
+                      {(study as any).product_id}
+                    </div>
+                  </div>
+                )}
+                {((study as any).product_keys?.length ?? 0) > 0 && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Product Keys</label>
+                    <div className="space-y-2">
+                      {((study as any).product_keys as { name: string; percentage: number }[]).map((key: { name: string; percentage: number }, idx: number) => (
+                        <div key={idx} className="flex items-center gap-4 py-1">
+                          <span className="text-sm text-gray-600 w-32">{key.name}</span>
+                          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-1000 ease-out"
+                              style={{ width: `${key.percentage}%`, backgroundColor: '#2674BA' }}
+                            />
+                          </div>
+                          <span className="text-sm font-medium text-gray-900 w-10 text-right">{key.percentage}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </AccordionSection>
           )}
