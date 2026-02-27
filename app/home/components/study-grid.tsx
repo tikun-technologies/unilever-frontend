@@ -438,7 +438,7 @@ export function StudyGrid({
                         <button
                           key={project.id}
                           onClick={() => handleMapStudy(study.id, project.id)}
-                          className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center gap-2 ${studyProjectMapping[study.id] === project.id ? 'text-[rgba(38,116,186,1)] font-medium bg-[rgba(38,116,186,0.05)]' : 'text-gray-700'}`}
+                          className={`w-full text-left px-4 py-2 text-sm cursor-pointer hover:bg-gray-50 flex items-center gap-2 ${studyProjectMapping[study.id] === project.id ? 'text-[rgba(38,116,186,1)] font-medium bg-[rgba(38,116,186,0.05)]' : 'text-gray-700'}`}
                         >
                           <Circle className={`w-2 h-2 ${studyProjectMapping[study.id] === project.id ? 'fill-current' : ''}`} />
                           {project.name}
