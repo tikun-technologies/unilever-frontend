@@ -239,14 +239,13 @@ export interface ValidateProductResponse {
 
 /**
  * Validate product ID and key combination for a project
- * POST /api/v1/projects/{project_id}/validate-product
+ * POST /api/v1/projects/validate-product
  */
 export async function validateProduct(
-    projectId: string,
     payload: ValidateProductPayload
 ): Promise<ValidateProductResponse> {
     const res = await fetchWithAuth(
-        `${API_BASE_URL}/projects/${projectId}/validate-product`,
+        `${API_BASE_URL}/projects/validate-product`,
         {
             method: "POST",
             headers: { "Content-Type": "application/json" },

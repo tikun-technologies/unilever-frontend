@@ -1,7 +1,6 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { putUpdateStudyAsync } from "@/lib/api/StudyAPI"
@@ -22,9 +21,6 @@ const PRODUCT_ID_MAX_LENGTH = 100
 const MIN_KEYS = 4
 
 export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: StepKeysProps) {
-  const searchParams = useSearchParams()
-  const projectIdFromUrl = searchParams.get("proj_id")
-
   const [isSaving, setIsSaving] = useState(false)
   const [validateError, setValidateError] = useState<string | null>(null)
 
@@ -131,11 +127,6 @@ export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: S
     setValidateError(null)
     const productIdTrimmed = productId.trim().slice(0, PRODUCT_ID_MAX_LENGTH)
 
-    if (!projectIdFromUrl) {
-      setValidateError("Project context is required. Open create study from a project to validate.")
-      return
-    }
-
     setIsSaving(true)
     try {
       const studyIdRaw = localStorage.getItem("cs_study_id")
@@ -152,7 +143,7 @@ export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: S
         product_id: productIdTrimmed || undefined,
         product_keys: toStoreKeys,
       }
-      const result: ValidateProductResponse = await validateProduct(projectIdFromUrl, validatePayload)
+      const result: ValidateProductResponse = await validateProduct(validatePayload)
 
       if (!result.valid) {
         const messages: string[] = []
