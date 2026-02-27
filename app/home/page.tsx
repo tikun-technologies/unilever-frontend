@@ -73,14 +73,12 @@ function DashboardContent() {
   const { user } = useAuth()
   const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
 
-  // Check token validity BEFORE rendering anything
+  // Check token validity before rendering - prevents error flash on expired token
   useEffect(() => {
-    const validateTokenBeforeRender = async () => {
+    const validateToken = async () => {
       try {
-        // Check if token exists in localStorage
         const storedTokens = localStorage.getItem('tokens')
         if (!storedTokens) {
-          // No token, redirect immediately
           sessionStorage.setItem('auth_redirecting', 'true')
           localStorage.removeItem('user')
           localStorage.removeItem('tokens')
@@ -89,10 +87,8 @@ function DashboardContent() {
           window.location.replace('/login')
           return
         }
-
         const tokens = JSON.parse(storedTokens)
         if (!tokens?.access_token) {
-          // Invalid token format, redirect immediately
           sessionStorage.setItem('auth_redirecting', 'true')
           localStorage.removeItem('user')
           localStorage.removeItem('tokens')
@@ -102,18 +98,17 @@ function DashboardContent() {
           return
         }
 
-        // Make a lightweight API call to verify token is still valid
-        // Use a minimal endpoint that requires auth
-        const response = await fetch(`${API_BASE_URL}/studies?page=1&per_page=1`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${tokens.access_token}`
-          },
+        // Validate token via auth API; redirect on invalid/expired (no error UI)
+        const res = await fetch(`${API_BASE_URL}/auth/validate-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token || undefined,
+          }),
         })
-
-        // If token is invalid (401/403), redirect immediately
-        if (response.status === 401 || response.status === 403) {
+        const data = await res.json().catch(() => ({}))
+        if (data?.valid !== true) {
           sessionStorage.setItem('auth_redirecting', 'true')
           localStorage.removeItem('user')
           localStorage.removeItem('tokens')
@@ -123,11 +118,16 @@ function DashboardContent() {
           return
         }
 
-        // Token is valid, proceed with page rendering
+        // If refresh returned new access_token, update stored tokens
+        if (data.access_token) {
+          try {
+            const newTokens = { ...tokens, access_token: data.access_token }
+            localStorage.setItem('tokens', JSON.stringify(newTokens))
+          } catch { /* ignore */ }
+        }
+
         setIsValidatingToken(false)
-      } catch (error) {
-        // Network error or other issue - redirect to login to be safe
-        console.error('Token validation error:', error)
+      } catch {
         sessionStorage.setItem('auth_redirecting', 'true')
         localStorage.removeItem('user')
         localStorage.removeItem('tokens')
@@ -136,8 +136,7 @@ function DashboardContent() {
         window.location.replace('/login')
       }
     }
-
-    validateTokenBeforeRender()
+    validateToken()
   }, [])
 
   // Hydrate study list from cache for instant render on refresh (only if token is valid)
@@ -273,7 +272,7 @@ function DashboardContent() {
     }
 
     fetchStudies()
-  }, [isValidatingToken, studies.length])
+  }, [isValidatingToken])
 
   const handleClearFilters = () => {
     setSearchQuery("")
@@ -658,6 +657,7 @@ function DashboardContent() {
 
             <StudyGrid
               studies={filteredStudies}
+              isAllStudiesView={!selectedProjectId}
               activeTab={activeTab}
               searchQuery={searchQuery}
               selectedType={selectedType}

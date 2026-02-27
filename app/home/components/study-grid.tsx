@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { Calendar, Share2, Eye, Folder, Circle, FolderPlus, Copy, Trash2 } from "lucide-react"
+import { Calendar, Share2, Eye, Folder, Circle, FolderPlus, Copy, Trash2, FolderOpen } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { StudyListItem, copyStudy, deleteStudy } from "@/lib/api/StudyAPI"
 import { format } from "date-fns"
@@ -12,6 +12,7 @@ import { mapStudyToProject, unmapStudyFromProject, getStudyProjectMapping } from
 
 interface StudyGridProps {
   studies: StudyListItem[]
+  isAllStudiesView?: boolean
   activeTab: string
   searchQuery: string
   selectedType: string
@@ -26,6 +27,7 @@ interface StudyGridProps {
 
 export function StudyGrid({
   studies,
+  isAllStudiesView = true,
   activeTab,
   searchQuery,
   selectedType,
@@ -449,13 +451,36 @@ export function StudyGrid({
             </div>
           </div>
 
-          {/* Project Tag */}
-          {studyProjectMapping[study.id] && (
+          {/* Project Tag (from local mapping) */}
+          {studyProjectMapping[study.id] && !study.project_id && (
             <div className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-50 text-[rgba(38,116,186,1)] mb-2">
-              <Folder className="w-3 h-3 mr-1" />
-              {projects.find(p => p.id === studyProjectMapping[study.id])?.name || 'Project'}
+              <Folder className="w-3 h-3 mr-1 shrink-0" />
+              <span className="truncate max-w-[200px]" title={projects.find(p => p.id === studyProjectMapping[study.id])?.name}>
+                {projects.find(p => p.id === studyProjectMapping[study.id])?.name || 'Project'}
+              </span>
             </div>
           )}
+
+          {/* Project from API (study.project_id) - show in All Studies tab only, clickable */}
+          {isAllStudiesView && study.project_id && (() => {
+            const project = projects.find(p => p.id === study.project_id)
+            const projectName = project?.name ?? 'Project'
+            return (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  router.push(`/home?proj_id=${study.project_id}`)
+                }}
+                className="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium bg-blue-50 text-[rgba(38,116,186,1)] hover:bg-blue-100 transition-colors mb-2 text-left max-w-full group"
+              >
+                <FolderOpen className="w-3.5 h-3.5 shrink-0 text-[rgba(38,116,186,1)]" />
+                <span className="truncate min-w-0" title={projectName}>
+                  {projectName}
+                </span>
+              </button>
+            )
+          })()}
 
           {/* Title */}
           <h3 className="text-lg font-semibold text-gray-900 mb-2">{study.title}</h3>
