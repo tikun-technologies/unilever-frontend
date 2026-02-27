@@ -272,7 +272,7 @@ function DashboardContent() {
     }
 
     fetchStudies()
-  }, [isValidatingToken])
+  }, [isValidatingToken, studies.length])
 
   const handleClearFilters = () => {
     setSearchQuery("")
