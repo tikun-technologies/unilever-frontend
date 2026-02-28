@@ -631,7 +631,14 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
             return !!(parsed.respondents && parsed.respondents > 0)
           }
           case 7: {
-            if (!isSpecialCreator) return false
+            // For non-special creators: step 7 is Audience Segmentation (cs_step6)
+            // For special creators: step 7 is Keys (cs_step_keys)
+            if (!isSpecialCreator) {
+              const data = localStorage.getItem('cs_step6')
+              if (!data) return false
+              const parsed = JSON.parse(data)
+              return !!(parsed.respondents && parsed.respondents > 0)
+            }
             const data = localStorage.getItem('cs_step_keys')
             if (!data) return false
             try {

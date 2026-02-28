@@ -25,18 +25,26 @@ export default function PreviewPersonalInformation() {
   const [calendarOpen, setCalendarOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
 
+  // Only show panelist selection if the STUDY CREATOR is in specialCreators (email or domain).
+  // For "Preview as Participant" from create-study (no studyIdParam), creator email comes from
+  // study API or current_study_details. Fallback to logged-in user - they are the creator.
   useEffect(() => {
     try {
-      const creatorEmail = localStorage.getItem('current_study_creator_email')
-      if (checkIsSpecialCreator(creatorEmail)) {
-        setIsAdmin(true)
-      } else {
-        // Fallback to check logged-in user if explicit creator email is missing
-        const user = JSON.parse(localStorage.getItem('user') || '{}')
-        if (checkIsSpecialCreator(user?.email)) {
-          setIsAdmin(true)
-        }
+      let creatorEmail = localStorage.getItem('current_study_creator_email') || ''
+      if (!creatorEmail) {
+        try {
+          const detailsRaw = localStorage.getItem('current_study_details')
+          const study = detailsRaw ? JSON.parse(detailsRaw) : {}
+          creatorEmail = study?.study_info?.creator_email || study?.creator_email || ''
+        } catch { }
       }
+      if (!creatorEmail) {
+        try {
+          const user = JSON.parse(localStorage.getItem('user') || '{}')
+          creatorEmail = user?.email || ''
+        } catch { }
+      }
+      setIsAdmin(checkIsSpecialCreator(creatorEmail))
     } catch { }
   }, [])
 
@@ -193,11 +201,9 @@ export default function PreviewPersonalInformation() {
 
           <div className="mt-6">
             <div className="text-sm font-semibold text-gray-800 mb-2">Gender</div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Toggle value="male" selected={gender} onSelect={setGender} label="Male" />
               <Toggle value="female" selected={gender} onSelect={setGender} label="Female" />
-              <Toggle value="other" selected={gender} onSelect={setGender} label="Other" />
-              <Toggle value="na" selected={gender} onSelect={setGender} label="Prefer not to say" />
             </div>
           </div>
 
@@ -245,6 +251,7 @@ function PanelistSelection({
   const [isAdding, setIsAdding] = useState(false)
   const [newPanelistId, setNewPanelistId] = useState<string | null>(null)
   const [idError, setIdError] = useState<string>("")
+  const [ageError, setAgeError] = useState<string>("")
   const [copied, setCopied] = useState(false)
 
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
@@ -303,7 +310,15 @@ function PanelistSelection({
       return
     }
 
+    // Age validation: must be >= 13
+    const ageNum = parseInt(newAge, 10)
+    if (isNaN(ageNum) || ageNum < 13) {
+      setAgeError("Age must be at least 13 years.")
+      return
+    }
+
     setIdError("")
+    setAgeError("")
     setIsAdding(true)
     try {
       // Check if ID already exists
@@ -346,6 +361,7 @@ function PanelistSelection({
     setNewGender("male")
     setNewPanelistId(null)
     setIdError("")
+    setAgeError("")
     setShowAddForm(false)
   }
 
@@ -423,14 +439,16 @@ function PanelistSelection({
 
                         <div className="grid grid-cols-2 gap-4">
                           <div className="space-y-1">
-                            <label className="text-xs font-bold text-gray-500 uppercase ml-1 block">Age</label>
+                            <label className="text-xs font-bold text-gray-500 uppercase ml-1 block">Age (min 13)</label>
                             <input
                               type="number"
                               value={newAge}
-                              onChange={(e) => setNewAge(e.target.value)}
+                              onChange={(e) => { setNewAge(e.target.value); if (ageError) setAgeError(""); }}
                               placeholder="25"
+                              min={13}
                               className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-full outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-500/5 transition-all text-sm"
                             />
+                            {ageError && <p className="text-[10px] text-red-500 ml-1 font-medium">{ageError}</p>}
                           </div>
                           <div className="space-y-1">
                             <label className="text-xs font-bold text-gray-500 uppercase ml-1 block">Gender</label>
@@ -442,7 +460,6 @@ function PanelistSelection({
                               >
                                 <option value="male">Male</option>
                                 <option value="female">Female</option>
-                                <option value="other">Other</option>
                               </select>
                               <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
                             </div>
@@ -453,7 +470,7 @@ function PanelistSelection({
                       <div className="flex flex-col gap-2 pt-2">
                         <Button
                           onClick={handleAddPanelist}
-                          disabled={isAdding || !manualId || !newAge || manualId.length > 50}
+                          disabled={isAdding || !manualId || !newAge || manualId.length > 50 || (parseInt(newAge, 10) < 13)}
                           className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-full py-6 h-auto text-sm font-bold shadow-xl shadow-blue-500/20 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center"
                           style={{ backgroundColor: primaryBlue }}
                         >
@@ -577,7 +594,7 @@ function PanelistSelection({
                 }, 500)
               }}
               disabled={!selectedPanelist || isSubmitting}
-              className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-10 h-11 text-sm font-bold transition-all disabled:bg-gray-200 disabled:text-gray-400 shadow-lg shadow-blue-500/10 flex items-center justify-center"
+              className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-10 h-11 text-sm font-bold transition-all disabled:bg-gray-200 disabled:text-gray-400 shadow-lg shadow-blue-500/10 flex items-center justify-center shrink-0"
               style={selectedPanelist ? { backgroundColor: primaryBlue } : {}}
             >
               {isSubmitting ? (

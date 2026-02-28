@@ -619,8 +619,8 @@ function DashboardContent() {
                 <button
                   type="button"
                   onClick={handleExportProjectCsv}
-                  disabled={exportingProjectCsv}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
+                  disabled={exportingProjectCsv || projectStudies.length === 0}
+                  className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
                 >
                   {exportingProjectCsv ? (
                     <>
@@ -637,8 +637,8 @@ function DashboardContent() {
                 <button
                   type="button"
                   onClick={handleExportProjectZip}
-                  disabled={exportingProjectZip}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
+                  disabled={exportingProjectZip || projectStudies.length === 0}
+                  className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
                 >
                   {exportingProjectZip ? (
                     <>

@@ -345,7 +345,7 @@ export default function ParticipateIntroPage() {
       }
 
       // Navigate only after session and (if present) details are stored.
-      // For special-creator studies: skip product-id page and go straight to orientation/start.
+      // Skip product-id page - go straight to personal-information
       const isProductIdCreator = checkIsSpecialCreator(studyDetails?.creator_email)
       try {
         if (isProductIdCreator) {
@@ -354,11 +354,7 @@ export default function ParticipateIntroPage() {
           localStorage.removeItem('current_study_skip_completed_storage')
         }
       } catch { }
-      if (isProductIdCreator) {
-        router.push(startHref)
-      } else {
-        router.push(`/participate/${params.id}/product-id`)
-      }
+      router.push(startHref)
 
       // Background: fetch study details using new API endpoint
       ; (async () => {

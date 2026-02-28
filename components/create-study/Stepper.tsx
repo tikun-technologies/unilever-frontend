@@ -172,8 +172,15 @@ function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
         return !!(parsed.respondents && parsed.respondents > 0)
       }
       case 7: {
+        // For non-special creators: step 7 is Audience Segmentation (stored in cs_step6)
+        // For special creators: step 7 is Keys (stored in cs_step_keys)
+        if (!isSpecialCreator) {
+          const data = localStorage.getItem('cs_step6')
+          if (!data) return false
+          const parsed = JSON.parse(data)
+          return !!(parsed.respondents && parsed.respondents > 0)
+        }
         // Keys step (special creators only): product_id required + at least one key with name
-        if (!isSpecialCreator) return false
         const data = localStorage.getItem('cs_step_keys')
         if (!data) return false
         try {

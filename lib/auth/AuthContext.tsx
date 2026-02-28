@@ -66,6 +66,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const clearCaches = () => {
     try {
+      // Clear study session/creator data (participate/preview flow)
+      localStorage.removeItem('current_study_creator_email')
+      localStorage.removeItem('current_study_details')
+
       // Clear home page caches
       localStorage.removeItem('home_stats_cache')
       localStorage.removeItem('home_studies_cache')

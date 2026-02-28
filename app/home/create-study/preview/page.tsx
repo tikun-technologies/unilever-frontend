@@ -406,8 +406,8 @@ function ParticipateIntroContent() {
     const isSpecial = checkIsSpecialCreator(creatorEmail)
     const canShare = !studyIdParam || isOwner || isAdmin
 
-    // For special creators: skip product-id page and go straight to start (participate and preview).
-    const targetHref = isSpecial ? startHref : '/home/create-study/preview/product-id'
+    // Skip product-id page in preview - go straight to personal-information
+    const targetHref = startHref
     router.push(targetHref)
   }
 
