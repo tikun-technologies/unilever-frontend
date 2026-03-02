@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { updateStudyStatus, putUpdateStudy, StudyDetails, getStudyBasicDetails } from "@/lib/api/StudyAPI"
 import { StudyAnalytics, downloadStudyResponsesCsv, subscribeStudyAnalytics } from "@/lib/api/ResponseAPI"
-import { Pause, Play, CheckCircle, Share, Download, BarChart3, ArrowLeft, ChevronDown, LineChart } from "lucide-react"
+import { Pause, Play, CheckCircle, Share, Download, BarChart3, ArrowLeft, ChevronDown, LineChart, Bot } from "lucide-react"
 import Link from "next/link"
 import { motion, AnimatePresence } from "framer-motion"
 

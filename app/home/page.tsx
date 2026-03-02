@@ -107,7 +107,9 @@ function DashboardContent() {
             refresh_token: tokens.refresh_token || undefined,
           }),
         })
-        const data = await res.json().catch(() => ({}))
+        const text = await res.text().catch(() => '')
+        let data: { valid?: boolean; access_token?: string } = {}
+        try { data = text ? JSON.parse(text) : {} } catch { /* invalid or empty */ }
         if (data?.valid !== true) {
           sessionStorage.setItem('auth_redirecting', 'true')
           localStorage.removeItem('user')
