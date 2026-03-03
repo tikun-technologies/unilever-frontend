@@ -8,7 +8,7 @@ import { OverviewCards } from "./components/overview-cards"
 import { StudyFilters } from "./components/study-filters"
 import { StudyGrid } from "./components/study-grid"
 import { AuthGuardDebug as AuthGuard } from "@/components/auth/AuthGuardDebug"
-import { getStudies, StudyListItem } from "@/lib/api/StudyAPI"
+import { getStudies, StudyListItem, fetchWithAuth } from "@/lib/api/StudyAPI"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
 import { Sidebar } from "./components/sidebar"
 import { CreateProjectModal } from "./components/create-project-modal"
@@ -29,6 +29,25 @@ import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { FileDown } from "lucide-react"
 
+// Redirect to login without showing error when auth fails (token expired, not authenticated, etc.)
+function redirectToLoginOnAuthError() {
+  if (typeof window === 'undefined') return
+  sessionStorage.setItem('auth_redirecting', 'true')
+  localStorage.removeItem('user')
+  localStorage.removeItem('tokens')
+  localStorage.removeItem('auth_user')
+  localStorage.removeItem('token')
+  window.location.replace('/login')
+}
+
+function isAuthRelatedError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  const status = (err as { status?: number })?.status
+  if (status === 401 || status === 403) return true
+  const authTerms = ['not authenticated', 'unauthorized', 'forbidden', 'token expired', 'token invalid', 'authentication required', '401', '403']
+  return authTerms.some((term) => msg.includes(term))
+}
+
 function DashboardContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -43,6 +62,7 @@ function DashboardContent() {
   const [cardsLoading, setCardsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isValidatingToken, setIsValidatingToken] = useState(true)
+  const [isInitialDataLoading, setIsInitialDataLoading] = useState(true)
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
@@ -73,32 +93,22 @@ function DashboardContent() {
   const { user } = useAuth()
   const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
 
-  // Check token validity before rendering - prevents error flash on expired token
+  // Validate token AND fetch initial studies in one flow - redirect before showing any content
   useEffect(() => {
-    const validateToken = async () => {
+    const validateAndLoad = async () => {
       try {
         const storedTokens = localStorage.getItem('tokens')
         if (!storedTokens) {
-          sessionStorage.setItem('auth_redirecting', 'true')
-          localStorage.removeItem('user')
-          localStorage.removeItem('tokens')
-          localStorage.removeItem('auth_user')
-          localStorage.removeItem('token')
-          window.location.replace('/login')
+          redirectToLoginOnAuthError()
           return
         }
         const tokens = JSON.parse(storedTokens)
         if (!tokens?.access_token) {
-          sessionStorage.setItem('auth_redirecting', 'true')
-          localStorage.removeItem('user')
-          localStorage.removeItem('tokens')
-          localStorage.removeItem('auth_user')
-          localStorage.removeItem('token')
-          window.location.replace('/login')
+          redirectToLoginOnAuthError()
           return
         }
 
-        // Validate token via auth API; redirect on invalid/expired (no error UI)
+        // 1. Validate token via auth API
         const res = await fetch(`${API_BASE_URL}/auth/validate-token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -111,16 +121,11 @@ function DashboardContent() {
         let data: { valid?: boolean; access_token?: string } = {}
         try { data = text ? JSON.parse(text) : {} } catch { /* invalid or empty */ }
         if (data?.valid !== true) {
-          sessionStorage.setItem('auth_redirecting', 'true')
-          localStorage.removeItem('user')
-          localStorage.removeItem('tokens')
-          localStorage.removeItem('auth_user')
-          localStorage.removeItem('token')
-          window.location.replace('/login')
+          redirectToLoginOnAuthError()
           return
         }
 
-        // If refresh returned new access_token, update stored tokens
+        // Update tokens if refresh returned new access_token
         if (data.access_token) {
           try {
             const newTokens = { ...tokens, access_token: data.access_token }
@@ -128,33 +133,49 @@ function DashboardContent() {
           } catch { /* ignore */ }
         }
 
+        // 2. Fetch studies to confirm auth works - redirect if 204/401/403 (auth failed)
+        const studiesRes = await fetchWithAuth(`${API_BASE_URL}/studies?page=1&per_page=200`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        })
+        if (studiesRes.status === 204 || studiesRes.status === 401 || studiesRes.status === 403) {
+          redirectToLoginOnAuthError()
+          return
+        }
+        if (!studiesRes.ok) {
+          const errData = await studiesRes.json().catch(() => ({}))
+          throw new Error((errData as { detail?: string })?.detail || `Failed to load studies: ${studiesRes.status}`)
+        }
+        const studiesText = await studiesRes.text().catch(() => '')
+        let studiesData: unknown = []
+        try { studiesData = studiesText?.trim() ? JSON.parse(studiesText) : [] } catch { }
+        const safeStudiesArray = Array.isArray(studiesData) ? studiesData as StudyListItem[]
+          : (studiesData && typeof studiesData === 'object' && 'studies' in studiesData && Array.isArray((studiesData as { studies: unknown }).studies))
+            ? ((studiesData as { studies: StudyListItem[] }).studies) : []
+        setStudies(safeStudiesArray)
+        try { localStorage.setItem('home_studies_cache', JSON.stringify(safeStudiesArray)) } catch { }
+        setCardsLoading(false)
+
         setIsValidatingToken(false)
-      } catch {
-        sessionStorage.setItem('auth_redirecting', 'true')
-        localStorage.removeItem('user')
-        localStorage.removeItem('tokens')
-        localStorage.removeItem('auth_user')
-        localStorage.removeItem('token')
-        window.location.replace('/login')
+        setIsInitialDataLoading(false)
+      } catch (err) {
+        if (isAuthRelatedError(err)) {
+          redirectToLoginOnAuthError()
+          return
+        }
+        setError(err instanceof Error ? err.message : 'Failed to load')
+        setIsValidatingToken(false)
+        setIsInitialDataLoading(false)
+      } finally {
+        setLoading(false)
       }
     }
-    validateToken()
+    validateAndLoad()
   }, [])
 
-  // Hydrate study list from cache for instant render on refresh (only if token is valid)
+  // Load projects and mappings (don't hydrate studies from cache - keep spinner until API confirms auth)
   useEffect(() => {
     if (isValidatingToken) return // Wait for token validation
-
-    try {
-      const cached = localStorage.getItem('home_studies_cache')
-      if (cached) {
-        const parsed = JSON.parse(cached)
-        if (Array.isArray(parsed)) {
-          setStudies(parsed as StudyListItem[])
-          setLoading(false)
-        }
-      }
-    } catch { }
 
     // Load projects and mappings
     const fetchProjects = async () => {
@@ -192,6 +213,10 @@ function DashboardContent() {
           }
         });
       } catch (err) {
+        if (isAuthRelatedError(err)) {
+          redirectToLoginOnAuthError()
+          return
+        }
         console.error("Failed to fetch projects:", err);
       } finally {
         setProjectsLoading(false)
@@ -233,48 +258,6 @@ function DashboardContent() {
       }
     } catch { }
   }, [isValidatingToken])
-
-  // Fetch studies data (only if token is valid)
-  useEffect(() => {
-    if (isValidatingToken) return // Wait for token validation
-
-    const fetchStudies = async () => {
-      try {
-        setLoading((prev) => prev && studies.length === 0)
-        setError(null)
-        const studiesArray = await getStudies(1, 200) // Get more studies for filtering
-
-        // Ensure we have an array
-        const safeStudiesArray = Array.isArray(studiesArray) ? studiesArray : []
-        setStudies(safeStudiesArray)
-        // Cache list for next load
-        try { localStorage.setItem('home_studies_cache', JSON.stringify(safeStudiesArray)) } catch { }
-
-        setCardsLoading(false)
-
-        // Log for debugging
-        // console.log(`Loaded ${total} studies: ${active} active, ${draft} draft, ${completed} completed`)
-      } catch (err) {
-        // Check if error is due to redirect (token expired)
-        const errorMessage = err instanceof Error ? err.message : 'Failed to fetch studies'
-        const isRedirecting = typeof window !== 'undefined' && (
-          sessionStorage.getItem('auth_redirecting') === 'true' ||
-          window.location.pathname === '/login' ||
-          errorMessage === 'REDIRECTING' ||
-          errorMessage.includes('204')
-        )
-
-        if (!isRedirecting) {
-          console.error('Failed to fetch studies:', err)
-          setError(errorMessage)
-        }
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchStudies()
-  }, [isValidatingToken, studies.length])
 
   const handleClearFilters = () => {
     setSearchQuery("")
@@ -389,6 +372,7 @@ function DashboardContent() {
       setStudies(safeStudiesArray)
       try { localStorage.setItem('home_studies_cache', JSON.stringify(safeStudiesArray)) } catch { }
     } catch (err) {
+      if (isAuthRelatedError(err)) { redirectToLoginOnAuthError(); return }
       console.error("Failed to refetch studies:", err)
     }
     if (selectedProjectId) {
@@ -397,6 +381,7 @@ function DashboardContent() {
         setProjectStudies(data)
         try { localStorage.setItem(`ps_cache_${selectedProjectId}`, JSON.stringify(data)) } catch { }
       } catch (err) {
+        if (isAuthRelatedError(err)) { redirectToLoginOnAuthError(); return }
         console.error("Failed to refetch project studies:", err)
       }
     }
@@ -519,6 +504,10 @@ function DashboardContent() {
             localStorage.setItem(`ps_cache_${currentProjectId}`, JSON.stringify(data))
           } catch { }
         } catch (err) {
+          if (isAuthRelatedError(err)) {
+            redirectToLoginOnAuthError()
+            return
+          }
           console.error("Failed to fetch project studies:", err);
           if (latestProjectRequestId.current === currentProjectId) {
             setProjectStudies([]);
@@ -557,8 +546,8 @@ function DashboardContent() {
     }
   }, [filteredStudies, selectedProjectId])
 
-  // Don't render anything until token is validated
-  if (isValidatingToken) {
+  // Keep loading spinner until token is validated AND initial data fetch completes (or redirects)
+  if (isValidatingToken || isInitialDataLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>

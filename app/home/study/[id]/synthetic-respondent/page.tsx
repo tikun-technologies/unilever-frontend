@@ -26,6 +26,14 @@ import { CountUp } from "../analytics/components/CountUp"
 
 const BRAND = "#2674BA"
 
+const STORAGE_KEY = (studyId: string) => `synthetic_respondent_job_${studyId}`
+
+interface StoredJob {
+  jobId: string
+  respondentCount: number
+  studyId: string
+}
+
 const container = {
   hidden: { opacity: 0 },
   show: {
@@ -106,6 +114,22 @@ export default function SyntheticRespondentPage() {
     getStudyBasicDetails2(studyId)
       .then(setStudyBasic2)
       .catch(() => {})
+  }, [studyId])
+
+  // Restore in-progress job from localStorage on mount (keyed by studyId so other studies don't show this)
+  useEffect(() => {
+    if (!studyId || typeof window === "undefined") return
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY(studyId))
+      if (!raw) return
+      const data = JSON.parse(raw) as StoredJob
+      if (data?.jobId && typeof data.respondentCount === "number" && data.studyId === studyId) {
+        setRespondentCountInput(String(data.respondentCount))
+        setSimulateJobId(data.jobId)
+        setIsRunning(true)
+        setCompletedCount(0)
+      }
+    } catch { /* ignore */ }
   }, [studyId])
 
   const maxPanelists = studyBasic2 ? (() => {
@@ -197,6 +221,10 @@ export default function SyntheticRespondentPage() {
             setIsRunning(false)
             if (data.status === "completed") setShowSuccess(true)
           }
+          // Remove from localStorage when job finishes so refresh won't restore this study's job
+          try {
+            localStorage.removeItem(STORAGE_KEY(studyId))
+          } catch { /* ignore */ }
         }
       } catch {
         // ignore poll errors
@@ -236,6 +264,12 @@ export default function SyntheticRespondentPage() {
       setShowSuccess(false)
       setSimulateJobId(jobId)
       setIsRunning(true)
+      try {
+        localStorage.setItem(
+          STORAGE_KEY(studyId),
+          JSON.stringify({ jobId, respondentCount, studyId })
+        )
+      } catch { /* ignore */ }
     } catch (e) {
       setSimulateError((e as Error)?.message ?? "Failed to start AI simulation")
     } finally {
