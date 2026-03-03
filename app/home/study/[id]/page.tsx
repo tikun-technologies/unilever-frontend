@@ -459,7 +459,7 @@ export default function StudyManagementPage() {
             {/* Top row: title + actions */}
             <div className="px-6 pt-4 pb-3 flex items-center justify-between">
               <div className="text-[16px] font-semibold" style={{ color: '#2674BA' }}>
-                {study.study_type === "layer" ? "Layer Study" : study.study_type === "text" ? "Text Study" : "Grid Study"}
+                {study.study_type === "layer" ? "Layer Study" : study.study_type === "text" ? "Text Study" : study.study_type === "hybrid" ? "Hybrid Study" : "Grid Study"}
               </div>
               <div className="flex items-center gap-5 text-sm" style={{ color: '#2674BA' }}>
                 <div className="relative group">
@@ -504,6 +504,22 @@ export default function StudyManagementPage() {
                 <span className="text-gray-700">{createdDisplay}</span>
               </div>
             </div>
+            {/* AI agentic respondents CTA */}
+            <Link
+              href={`/home/study/${studyId}/synthetic-respondent`}
+              className="mx-6 mb-4 block rounded-xl p-4 cursor-pointer transition-all duration-300 border hover:scale-[1.01] hover:shadow-md border-[#2674BA]/20 bg-gradient-to-br from-[#2674BA]/10 to-[#2674BA]/5 hover:border-[#2674BA]/50 hover:from-[#2674BA]/18 hover:to-[#2674BA]/10"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(38,116,186,0.15)' }}>
+                  <Bot className="w-5 h-5" style={{ color: '#2674BA' }} />
+                </div>
+                <div>
+                  <p className="font-medium text-gray-800 text-sm">Don&apos;t have respondents? We&apos;ve got you.</p>
+                  <p className="text-gray-600 text-xs mt-0.5">AI agentic respondents can complete your study at scale — no waiting for real users.</p>
+                </div>
+                <ChevronDown className="w-4 h-4 text-gray-400 ml-auto -rotate-90 shrink-0" aria-hidden />
+              </div>
+            </Link>
           </div>
 
           {/* Response Statistics */}
