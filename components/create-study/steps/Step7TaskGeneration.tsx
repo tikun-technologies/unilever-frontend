@@ -1420,6 +1420,8 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       console.log('[CSV] First task sample:', tasks[Object.keys(tasks)[0]]?.[0])
       let elementColumns: string[] = []
       let elementKeyMapping: { [key: string]: string } = {}
+      // For hybrid: column → apiKey (avoids overwrite when grid/text share category names)
+      let elementColumnToApiKey: { [col: string]: string } = {}
 
       if (studyType === 'grid') {
         // For grid studies, try to get element names from localStorage first
@@ -1588,6 +1590,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
         elementColumns = []
         elementKeyMapping = {}
+        elementColumnToApiKey = {}
 
         phaseOrder.forEach(phase => {
           if (phase === 'grid' && hybridGridData) {
@@ -1598,12 +1601,11 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
                   category.elements.forEach((element: any, elIdx: number) => {
                     const categoryName = category.title || `Category_${catIdx + 1}`
                     const elementName = element.name || `Element_${elIdx + 1}`
-                    // Prefix with 'Grid:' to distinguish in CSV
                     const columnName = `Grid: ${categoryName}-${elementName}`
-                    elementColumns.push(columnName)
-
                     const apiKey = `${categoryName}_${elIdx + 1}`
+                    elementColumns.push(columnName)
                     elementKeyMapping[apiKey] = columnName
+                    elementColumnToApiKey[columnName] = apiKey
                   })
                 }
               })
@@ -1618,12 +1620,11 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
                   category.elements.forEach((element: any, elIdx: number) => {
                     const categoryName = category.title || `Category_${catIdx + 1}`
                     const statementContent = element.name || `Statement_${elIdx + 1}`
-                    // Prefix with 'Text:' to distinguish in CSV
                     const columnName = `Text: ${categoryName}-${statementContent}`
-                    elementColumns.push(columnName)
-
                     const apiKey = `${categoryName}_${elIdx + 1}`
+                    elementColumns.push(columnName)
                     elementKeyMapping[apiKey] = columnName
+                    elementColumnToApiKey[columnName] = apiKey
                   })
                 }
               })
@@ -1746,14 +1747,10 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
             parseInt(respondentId),
             taskIndex + 1,
             ...elementColumns.map(col => {
-              // Find the corresponding API key for this column
-              const apiKey = Object.keys(elementKeyMapping).find(key => elementKeyMapping[key] === col)
-              if (apiKey) {
-                return task.elements_shown[apiKey] || 0
-              } else {
-                // Fallback: try using the column name directly
-                return task.elements_shown[col] || 0
-              }
+              const elementsShown = task?.elements_shown || {}
+              // Prefer column→apiKey map (hybrid) to avoid overwrite when grid/text share category names
+              const apiKey = elementColumnToApiKey[col] ?? Object.keys(elementKeyMapping).find(key => elementKeyMapping[key] === col) ?? col
+              return elementsShown[apiKey] ?? elementsShown[col] ?? 0
             })
           ]
           csvRows.push(row.map(escapeCsvVal).join(','))
