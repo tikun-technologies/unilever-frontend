@@ -91,6 +91,7 @@ export default function SyntheticRespondentPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [respondentCountInput, setRespondentCountInput] = useState("")
+  const [randomizeRespondent, setRandomizeRespondent] = useState(false)
   const [apiAttached, setApiAttached] = useState(false)
   const [isRunning, setIsRunning] = useState(false)
   const [completedCount, setCompletedCount] = useState(0)
@@ -254,6 +255,7 @@ export default function SyntheticRespondentPage() {
       const res = await simulateAIRespondents(studyId, {
         max_respondents: respondentCount,
         is_special_creator: isSpecialCreator,
+        randomize: randomizeRespondent,
       })
       const jobId = res?.job_id
       if (!jobId) {
@@ -524,6 +526,23 @@ export default function SyntheticRespondentPage() {
                             {n}
                           </motion.button>
                         ))}
+                      </div>
+                    </div>
+
+                    {/* Randomize respondent toggle */}
+                    <div className="flex items-start gap-3 p-4 rounded-xl border border-[#dce8f4] bg-[#f7fafd]">
+                      <input
+                        type="checkbox"
+                        id="randomize-respondent"
+                        checked={randomizeRespondent}
+                        onChange={(e) => setRandomizeRespondent(e.target.checked)}
+                        className="mt-1 w-4 h-4 rounded border-gray-300 cursor-pointer accent-[#2674BA]"
+                      />
+                      <div className="flex-1">
+                        <label htmlFor="randomize-respondent" className="cursor-pointer block">
+                          <span className="font-medium text-gray-700 text-sm">Randomize respondent</span>
+                        </label>
+                        
                       </div>
                     </div>
 

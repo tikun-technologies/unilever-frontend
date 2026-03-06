@@ -2059,6 +2059,8 @@ export async function getStudyBasicDetails2(studyId: string): Promise<StudyBasic
 export interface SimulateAIRespondentsPayload {
   max_respondents: number
   is_special_creator: boolean
+  /** If true, use fallback (random) ratings instead of ChatGPT API. */
+  randomize?: boolean
 }
 
 /**
