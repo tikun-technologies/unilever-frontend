@@ -26,22 +26,13 @@ export default function StudyResponsesPage() {
   const [exportStage, setExportStage] = useState(0)
   const [study, setStudy] = useState<StudyDetails | null>(null)
 
-  const [totalCount, setTotalCount] = useState<number | null>(null)
-
-  const fetchResponses = async (pageNum: number) => {
+  const fetchAllResponses = async () => {
     try {
       setLoading(true)
       setError(null)
-      const offset = (pageNum - 1) * PAGE_SIZE
-      const res = await getStudyResponses(studyId, PAGE_SIZE, offset)
+      const res = await getStudyResponses(studyId, 10000, 0)
       const list = res.results || []
       setItems(list)
-      if (typeof res.count === "number") {
-        setTotalCount(res.count)
-      } else if (list.length < PAGE_SIZE) {
-        setTotalCount(offset + list.length)
-      }
-      // If API doesn't return count and we got a full page, leave totalCount so "Next" still works
     } catch (e: unknown) {
       setError((e as Error)?.message || "Failed to load responses")
     } finally {
@@ -63,40 +54,31 @@ export default function StudyResponsesPage() {
   }, [studyId])
 
   const prevStudyIdRef = useRef<string | null>(null)
-  const lastFetchedRef = useRef<{ studyId: string; page: number } | null>(null)
   useEffect(() => {
     if (!studyId) return
-    const studyJustChanged = prevStudyIdRef.current !== studyId
+    const studyJustChanged = prevStudyIdRef.current !== null && prevStudyIdRef.current !== studyId
+    prevStudyIdRef.current = studyId
     if (studyJustChanged) {
-      prevStudyIdRef.current = studyId
-      setTotalCount(null)
       setPage(1)
       const usp = new URLSearchParams(searchParams.toString())
       usp.set("page", "1")
       router.replace(`?${usp.toString()}`)
-      lastFetchedRef.current = { studyId, page: 1 }
-      fetchResponses(1)
-      return
     }
-    if (lastFetchedRef.current?.studyId === studyId && lastFetchedRef.current?.page === page) return
-    lastFetchedRef.current = { studyId, page }
-    fetchResponses(page)
-  }, [studyId, page])
+    fetchAllResponses()
+  }, [studyId])
 
-  // Fallback: if first attempt loaded no items (e.g., auth not ready), retry once on visibility/focus
   useEffect(() => {
-    const onFocus = () => { if (!loading && items.length === 0) fetchResponses(page) }
-    const onVisibility = () => { if (document.visibilityState === 'visible' && !loading && items.length === 0) fetchResponses(page) }
+    const onFocus = () => { if (!loading && items.length === 0) fetchAllResponses() }
+    const onVisibility = () => { if (document.visibilityState === 'visible' && !loading && items.length === 0) fetchAllResponses() }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [loading, items.length, studyId, page])
+  }, [loading, items.length, studyId])
 
-  // Filter and sort current page by respondent_id (ascending)
-  const pageItems = useMemo(() => {
+  const filteredAndSorted = useMemo(() => {
     let list = items
     if (statusFilter !== "all") {
       if (statusFilter === "completed") list = list.filter(i => i.is_completed)
@@ -109,8 +91,12 @@ export default function StudyResponsesPage() {
     })
   }, [items, statusFilter])
 
-  const totalPages = totalCount != null ? Math.max(1, Math.ceil(totalCount / PAGE_SIZE)) : Math.max(1, page)
+  const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / PAGE_SIZE))
   const currentPage = Math.min(Math.max(1, page), totalPages)
+  const pageItems = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE
+    return filteredAndSorted.slice(start, start + PAGE_SIZE)
+  }, [filteredAndSorted, currentPage])
 
   const goToPage = (p: number) => {
     const next = Math.min(Math.max(1, p), totalPages)
@@ -250,10 +236,16 @@ export default function StudyResponsesPage() {
           <div className="flex flex-col sm:flex-row gap-3 mb-4">
             <div className="flex items-center gap-2">
               <div className="text-sm text-gray-600">Total Responses</div>
-              <span className="px-3 py-1 rounded-full text-white text-sm" style={{ backgroundColor: '#2674BA' }}>{totalCount ?? items.length}</span>
+              <span className="px-3 py-1 rounded-full text-white text-sm" style={{ backgroundColor: '#2674BA' }}>{items.length}</span>
             </div>
             <div className="flex gap-2">
-              <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }} className="px-3 py-2 border rounded-md bg-white flex-1 sm:flex-none">
+              <select value={statusFilter} onChange={e => {
+                setStatusFilter(e.target.value)
+                setPage(1)
+                const usp = new URLSearchParams(searchParams.toString())
+                usp.set("page", "1")
+                router.replace(`?${usp.toString()}`)
+              }} className="px-3 py-2 border rounded-md bg-white flex-1 sm:flex-none">
                 <option value="all">All Status</option>
                 <option value="completed">Completed</option>
                 <option value="abandoned">Abandoned</option>
