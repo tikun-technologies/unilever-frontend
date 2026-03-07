@@ -442,6 +442,10 @@ function DashboardContent() {
   }
 
   const handleSelectProject = (id: string | null) => {
+    // If clicking the same project again, do nothing — avoids infinite loading
+    // (we would set loading true but the fetch effect wouldn't re-run to clear it).
+    if (id === selectedProjectId) return
+
     setSelectedProjectId(id)
 
     // Immediately show a loading state when switching projects so we don't briefly

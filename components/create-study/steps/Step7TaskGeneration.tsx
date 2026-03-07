@@ -1732,6 +1732,24 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
 
 
+      // Limit to respondent count from audience segmentation (Step 6)
+      const step6Data = (() => {
+        try {
+          const raw = localStorage.getItem('cs_step6')
+          return raw ? JSON.parse(raw) : {}
+        } catch { return {} }
+      })()
+      const metadataRespondents = metadata?.number_of_respondents
+      const targetRespondentCount = typeof metadataRespondents === 'number' && metadataRespondents > 0
+        ? metadataRespondents
+        : typeof step6Data?.respondents === 'number' && step6Data.respondents > 0
+          ? step6Data.respondents
+          : null
+      const respondentKeys = Object.keys(tasks).sort((a, b) => Number(a) - Number(b))
+      const respondentKeysToInclude = targetRespondentCount != null
+        ? respondentKeys.slice(0, targetRespondentCount)
+        : respondentKeys
+
       // Generate CSV content
       const csvRows: string[] = []
 
@@ -1739,16 +1757,22 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       const headers = ['Responder', 'Task', ...elementColumns]
       csvRows.push(headers.map(escapeCsvVal).join(','))
 
-      // Add data rows
-      Object.keys(tasks).forEach(respondentId => {
+      // Add data rows — only for respondents up to audience segmentation count
+      respondentKeysToInclude.forEach(respondentId => {
         const respondentTasks = tasks[respondentId]
         respondentTasks.forEach((task: any, taskIndex: number) => {
+          const taskPhase = task?.task_type ?? task?.phase_type
           const row = [
             parseInt(respondentId),
             taskIndex + 1,
             ...elementColumns.map(col => {
+              if (studyType === 'hybrid' && taskPhase) {
+                const isGridCol = col.startsWith('Grid: ')
+                const isTextCol = col.startsWith('Text: ')
+                if (isGridCol && taskPhase !== 'grid') return 0
+                if (isTextCol && taskPhase !== 'text') return 0
+              }
               const elementsShown = task?.elements_shown || {}
-              // Prefer column→apiKey map (hybrid) to avoid overwrite when grid/text share category names
               const apiKey = elementColumnToApiKey[col] ?? Object.keys(elementKeyMapping).find(key => elementKeyMapping[key] === col) ?? col
               return elementsShown[apiKey] ?? elementsShown[col] ?? 0
             })

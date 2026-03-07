@@ -1088,9 +1088,25 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                                   input.onchange = (e) => { const files = (e.target as HTMLInputElement).files; if (files) handleCategoryFiles(category.id, files, p) };
                                   input.click()
                                 }}
+                                onDrop={(e) => {
+                                  e.preventDefault()
+                                  handleCategoryFiles(category.id, e.dataTransfer.files, p)
+                                }}
+                                onDragOver={(e) => {
+                                  e.preventDefault()
+                                  e.dataTransfer.dropEffect = 'copy'
+                                }}
+                                onDragEnter={(e) => {
+                                  e.preventDefault()
+                                  e.currentTarget.classList.add('bg-blue-50', 'border-blue-300')
+                                }}
+                                onDragLeave={(e) => {
+                                  e.preventDefault()
+                                  e.currentTarget.classList.remove('bg-blue-50', 'border-blue-300')
+                                }}
                               >
                                 <div className="text-gray-400 text-2xl mb-1">+</div>
-                                <div className="text-xs text-gray-500 text-center">Click to add more</div>
+                                <div className="text-xs text-gray-500 text-center">Drag and drop or click to add</div>
                               </div>
                             </div>
                           )
@@ -1107,9 +1123,25 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                                 input.onchange = (e) => { const files = (e.target as HTMLInputElement).files; if (files) handleCategoryFiles(category.id, files, p) };
                                 input.click()
                               }}
+                              onDrop={(e) => {
+                                e.preventDefault()
+                                handleCategoryFiles(category.id, e.dataTransfer.files, p)
+                              }}
+                              onDragOver={(e) => {
+                                e.preventDefault()
+                                e.dataTransfer.dropEffect = 'copy'
+                              }}
+                              onDragEnter={(e) => {
+                                e.preventDefault()
+                                e.currentTarget.classList.add('bg-blue-50', 'border-blue-300')
+                              }}
+                              onDragLeave={(e) => {
+                                e.preventDefault()
+                                e.currentTarget.classList.remove('bg-blue-50', 'border-blue-300')
+                              }}
                             >
                               <div className="text-sm">No elements added yet</div>
-                              <div className="text-xs">Click anywhere to upload images</div>
+                              <div className="text-xs">Drag and drop or click to upload images</div>
                             </div>
                           )
                         )}

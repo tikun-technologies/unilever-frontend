@@ -25,14 +25,23 @@ export default function StudyResponsesPage() {
   const [exporting, setExporting] = useState(false)
   const [exportStage, setExportStage] = useState(0)
   const [study, setStudy] = useState<StudyDetails | null>(null)
-  const hasFetchedRef = useRef(false)
 
-  const fetchResponses = async () => {
+  const [totalCount, setTotalCount] = useState<number | null>(null)
+
+  const fetchResponses = async (pageNum: number) => {
     try {
       setLoading(true)
       setError(null)
-      const res = await getStudyResponses(studyId, 100, 0)
-      setItems(res.results || [])
+      const offset = (pageNum - 1) * PAGE_SIZE
+      const res = await getStudyResponses(studyId, PAGE_SIZE, offset)
+      const list = res.results || []
+      setItems(list)
+      if (typeof res.count === "number") {
+        setTotalCount(res.count)
+      } else if (list.length < PAGE_SIZE) {
+        setTotalCount(offset + list.length)
+      }
+      // If API doesn't return count and we got a full page, leave totalCount so "Next" still works
     } catch (e: unknown) {
       setError((e as Error)?.message || "Failed to load responses")
     } finally {
@@ -41,12 +50,7 @@ export default function StudyResponsesPage() {
   }
 
   useEffect(() => {
-    if (!studyId || hasFetchedRef.current) return
-    hasFetchedRef.current = true
-
-    // Fetch both responses and study details
-    fetchResponses()
-
+    if (!studyId) return
     const fetchStudy = async () => {
       try {
         const data = await getStudyBasicDetails(studyId)
@@ -58,26 +62,46 @@ export default function StudyResponsesPage() {
     fetchStudy()
   }, [studyId])
 
+  const prevStudyIdRef = useRef<string | null>(null)
+  const lastFetchedRef = useRef<{ studyId: string; page: number } | null>(null)
+  useEffect(() => {
+    if (!studyId) return
+    const studyJustChanged = prevStudyIdRef.current !== studyId
+    if (studyJustChanged) {
+      prevStudyIdRef.current = studyId
+      setTotalCount(null)
+      setPage(1)
+      const usp = new URLSearchParams(searchParams.toString())
+      usp.set("page", "1")
+      router.replace(`?${usp.toString()}`)
+      lastFetchedRef.current = { studyId, page: 1 }
+      fetchResponses(1)
+      return
+    }
+    if (lastFetchedRef.current?.studyId === studyId && lastFetchedRef.current?.page === page) return
+    lastFetchedRef.current = { studyId, page }
+    fetchResponses(page)
+  }, [studyId, page])
+
   // Fallback: if first attempt loaded no items (e.g., auth not ready), retry once on visibility/focus
   useEffect(() => {
-    const onFocus = () => { if (!loading && items.length === 0) fetchResponses() }
-    const onVisibility = () => { if (document.visibilityState === 'visible' && !loading && items.length === 0) fetchResponses() }
+    const onFocus = () => { if (!loading && items.length === 0) fetchResponses(page) }
+    const onVisibility = () => { if (document.visibilityState === 'visible' && !loading && items.length === 0) fetchResponses(page) }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
     return () => {
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
     }
-  }, [loading, items.length, studyId])
+  }, [loading, items.length, studyId, page])
 
-  // Filter in-memory for snappy UX
-  const filtered = useMemo(() => {
+  // Filter and sort current page by respondent_id (ascending)
+  const pageItems = useMemo(() => {
     let list = items
     if (statusFilter !== "all") {
       if (statusFilter === "completed") list = list.filter(i => i.is_completed)
       if (statusFilter === "abandoned") list = list.filter(i => i.is_abandoned)
     }
-    // sort by respondent_id (ascending)
     return [...list].sort((a, b) => {
       const ar = typeof a.respondent_id === 'number' ? a.respondent_id : Number(a.respondent_id || 0)
       const br = typeof b.respondent_id === 'number' ? b.respondent_id : Number(b.respondent_id || 0)
@@ -85,9 +109,8 @@ export default function StudyResponsesPage() {
     })
   }, [items, statusFilter])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
+  const totalPages = totalCount != null ? Math.max(1, Math.ceil(totalCount / PAGE_SIZE)) : Math.max(1, page)
   const currentPage = Math.min(Math.max(1, page), totalPages)
-  const pageItems = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE)
 
   const goToPage = (p: number) => {
     const next = Math.min(Math.max(1, p), totalPages)
@@ -158,9 +181,9 @@ export default function StudyResponsesPage() {
       a.href = url
       // Use study name for filename, fallback to studyId if not available
       const studyName = study?.title || `study-${studyId}`
-      // Sanitize filename by replacing invalid characters
+      // Sanitize filename by replacing invalid characters (match home/study/[id] page)
       const safeStudyName = studyName.replace(/[<>:"/\\|?*]/g, '-')
-      a.download = `${safeStudyName}-response.csv`
+      a.download = `${safeStudyName}-responses.csv`
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {
@@ -227,7 +250,7 @@ export default function StudyResponsesPage() {
           <div className="flex flex-col sm:flex-row gap-3 mb-4">
             <div className="flex items-center gap-2">
               <div className="text-sm text-gray-600">Total Responses</div>
-              <span className="px-3 py-1 rounded-full text-white text-sm" style={{ backgroundColor: '#2674BA' }}>{items.length}</span>
+              <span className="px-3 py-1 rounded-full text-white text-sm" style={{ backgroundColor: '#2674BA' }}>{totalCount ?? items.length}</span>
             </div>
             <div className="flex gap-2">
               <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(1) }} className="px-3 py-2 border rounded-md bg-white flex-1 sm:flex-none">
@@ -305,19 +328,28 @@ export default function StudyResponsesPage() {
               </table>
             </div>
 
-            {/* Pagination */}
-            <div className="flex items-center justify-center gap-2 p-4 border-t">
+            {/* Pagination — show window around current page so any number of pages works */}
+            <div className="flex flex-wrap items-center justify-center gap-2 p-4 border-t">
               <button onClick={() => goToPage(currentPage - 1)} disabled={currentPage === 1} className="px-2 py-1 rounded border disabled:opacity-50">Prev</button>
-              {Array.from({ length: totalPages }).slice(0, 5).map((_, idx) => {
-                const p = idx + 1
-                return (
-                  <button key={p} onClick={() => goToPage(p)} className={`px-3 py-1 rounded border ${p === currentPage ? 'bg-[#2674BA] text-white border-[#2674BA]' : ''}`}>{p}</button>
+              {(() => {
+                const pad = 2
+                let start = Math.max(1, currentPage - pad)
+                let end = Math.min(totalPages, currentPage + pad)
+                if (end - start < pad * 2) {
+                  if (start === 1) end = Math.min(totalPages, start + pad * 2)
+                  else end = Math.min(totalPages, currentPage + pad)
+                  start = Math.max(1, end - pad * 2)
+                }
+                const pages: (number | 'ellipsis')[] = []
+                if (start > 1) { pages.push(1); if (start > 2) pages.push('ellipsis') }
+                for (let p = start; p <= end; p++) pages.push(p)
+                if (end < totalPages) { if (end < totalPages - 1) pages.push('ellipsis'); pages.push(totalPages) }
+                return pages.map((p, i) =>
+                  p === 'ellipsis' ? <span key={`e-${i}`} className="px-2">…</span> : (
+                    <button key={p} onClick={() => goToPage(p)} className={`px-3 py-1 rounded border ${p === currentPage ? 'bg-[#2674BA] text-white border-[#2674BA]' : ''}`}>{p}</button>
+                  )
                 )
-              })}
-              {totalPages > 5 && <span className="px-2">…</span>}
-              {totalPages > 5 && (
-                <button onClick={() => goToPage(totalPages)} className={`px-3 py-1 rounded border ${currentPage === totalPages ? 'bg-[#2674BA] text-white border-[#2674BA]' : ''}`}>{totalPages}</button>
-              )}
+              })()}
               <button onClick={() => goToPage(currentPage + 1)} disabled={currentPage === totalPages} className="px-2 py-1 rounded border disabled:opacity-50">Next</button>
             </div>
           </div>
