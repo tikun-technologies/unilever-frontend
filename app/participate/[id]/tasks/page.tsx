@@ -1045,7 +1045,7 @@ export default function TasksPage() {
 
                         if (urls.length <= 2) {
                           return (
-                            <div className="grid grid-cols-2 gap-4 relative max-w-lg mx-auto w-full min-w-0">
+                            <div className="flex justify-center items-center w-full aspect-square max-w-lg mx-auto relative">
                               {backgroundUrl && (
                                 <img
                                   src={getCachedUrl(backgroundUrl) || "/placeholder.svg"}
@@ -1053,35 +1053,37 @@ export default function TasksPage() {
                                   decoding="async"
                                   loading="eager"
                                   fetchPriority="high"
-                                  className="absolute inset-0 w-full h-full object-cover rounded-xl"
+                                  className="absolute inset-0 w-full h-full object-cover"
                                   style={{ zIndex: 0 }}
                                 />
                               )}
-                              <div className="aspect-square w-full min-w-0 overflow-hidden rounded-lg" style={{ zIndex: 1 }}>
-                                {urls[0] && (
-                                  <Image
-                                    src={getCachedUrl(urls[0]) || "/placeholder.svg"}
-                                    alt="left"
-                                    width={300}
-                                    height={300}
-                                    className="h-full w-full object-contain"
-                                    loading="eager"
-                                    unoptimized={urls[0]?.includes("blob.core.windows.net")}
-                                  />
-                                )}
-                              </div>
-                              <div className="aspect-square w-full min-w-0 overflow-hidden rounded-lg" style={{ zIndex: 1 }}>
-                                {urls[1] && (
-                                  <Image
-                                    src={getCachedUrl(urls[1]) || "/placeholder.svg"}
-                                    alt="right"
-                                    width={300}
-                                    height={300}
-                                    className="h-full w-full object-contain"
-                                    loading="eager"
-                                    unoptimized={urls[1]?.includes("blob.core.windows.net")}
-                                  />
-                                )}
+                              <div className="grid grid-cols-2 gap-4 w-full relative" style={{ zIndex: 1 }}>
+                                <div className="aspect-square w-full min-w-0 overflow-hidden">
+                                  {urls[0] && (
+                                    <Image
+                                      src={getCachedUrl(urls[0]) || "/placeholder.svg"}
+                                      alt="left"
+                                      width={300}
+                                      height={300}
+                                      className="h-full w-full object-contain"
+                                      loading="eager"
+                                      unoptimized={urls[0]?.includes("blob.core.windows.net")}
+                                    />
+                                  )}
+                                </div>
+                                <div className="aspect-square w-full min-w-0 overflow-hidden">
+                                  {urls[1] && (
+                                    <Image
+                                      src={getCachedUrl(urls[1]) || "/placeholder.svg"}
+                                      alt="right"
+                                      width={300}
+                                      height={300}
+                                      className="h-full w-full object-contain"
+                                      loading="eager"
+                                      unoptimized={urls[1]?.includes("blob.core.windows.net")}
+                                    />
+                                  )}
+                                </div>
                               </div>
                             </div>
                           )
