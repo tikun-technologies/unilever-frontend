@@ -132,11 +132,27 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 		setQuestions((prev) => prev.map(q => q.id === qid ? { ...q, required: !q.required } : q))
 	}
 
+	const normalizeText = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim()
+
+	const duplicateTitles = new Set<string>()
+	const seenTitles = new Set<string>()
+	questions.forEach(q => {
+		const normalized = normalizeText(q.title)
+		if (normalized) {
+			if (seenTitles.has(normalized)) {
+				duplicateTitles.add(normalized)
+			}
+			seenTitles.add(normalized)
+		}
+	})
+
+	const hasDuplicates = duplicateTitles.size > 0
+
 	const canProceed = questions.every(q =>
 		q.title.trim().length > 0 &&
 		q.options.length >= 2 &&
 		q.options.every(o => o.text.trim().length > 0)
-	)
+	) && !hasDuplicates
 
 	return (
 		<div>
@@ -230,6 +246,9 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 									</div>
 									<div className="truncate font-medium text-gray-800">
 										Question {idx + 1}: {q.title || <span className="text-gray-400 italic">Untitled Question</span>}
+										{!q.isOpen && duplicateTitles.has(normalizeText(q.title)) && (
+											<span className="text-red-500 text-xs ml-2 font-normal">(Duplicate)</span>
+										)}
 									</div>
 								</div>
 								<div className="flex items-center gap-2">
@@ -274,12 +293,19 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 									<div className="mb-4">
 										<label className="block text-sm font-semibold text-gray-800 mb-2">Question Title <span className="text-red-500">*</span></label>
 										<input
-											className="w-full rounded-lg border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[rgba(38,116,186,0.3)] disabled:bg-gray-50 disabled:text-gray-500"
+											className={`w-full rounded-lg border px-3 py-2 focus:outline-none focus:ring-2 disabled:bg-gray-50 disabled:text-gray-500 ${
+												duplicateTitles.has(normalizeText(q.title))
+													? "border-red-500 focus:ring-red-200"
+													: "border-gray-200 focus:ring-[rgba(38,116,186,0.3)]"
+											}`}
 											placeholder="e.g., Do you like deo?"
 											value={q.title}
 											onChange={(e) => updateQuestionTitle(q.id, e.target.value)}
 											disabled={isReadOnly}
 										/>
+										{duplicateTitles.has(normalizeText(q.title)) && (
+											<p className="text-red-500 text-xs mt-1">This question is a duplicate.</p>
+										)}
 									</div>
 
 									<div className="mt-6">
