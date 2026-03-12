@@ -390,9 +390,9 @@ export default function StudyManagementPage() {
             </nav>
 
             {/* Title and Actions */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <h1 className="text-2xl font-bold min-w-0 break-words">{study.title}</h1>
-              <div className="flex items-center gap-2 flex-shrink-0 flex-wrap sm:flex-nowrap">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <h1 className="text-2xl font-bold min-w-0 break-words flex-1">{study.title}</h1>
+              <div className="flex items-center gap-2 flex-wrap lg:justify-end">
                 <button
                   onClick={() => (typeof window !== 'undefined' && window.history.length > 1) ? router.back() : router.push('/home')}
                   className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-md border rounded-md hover:opacity-80 shrink-0"
