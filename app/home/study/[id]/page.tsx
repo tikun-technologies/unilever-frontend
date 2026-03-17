@@ -504,6 +504,7 @@ export default function StudyManagementPage() {
                 <span className="text-gray-700">{createdDisplay}</span>
               </div>
             </div>
+          </div>
             {/* AI agentic respondents CTA */}
 
           {/* Response Statistics */}
