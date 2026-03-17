@@ -66,6 +66,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const clearCaches = () => {
     try {
+      // Clear study session/creator data (participate/preview flow)
+      localStorage.removeItem('current_study_creator_email')
+      localStorage.removeItem('current_study_details')
+
       // Clear home page caches
       localStorage.removeItem('home_stats_cache')
       localStorage.removeItem('home_studies_cache')
@@ -81,6 +85,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         'cs_step5_layer',
         'cs_step5_layer_background',
         'cs_step5_layer_preview_aspect',
+        'cs_step_keys',
         'cs_step6',
         'cs_step7_tasks',
         'cs_step7_matrix',

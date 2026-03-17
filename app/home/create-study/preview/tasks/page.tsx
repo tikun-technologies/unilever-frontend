@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
+import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 
 // Helper function to get cached URLs for display
 const getCachedUrl = (url: string | undefined): string => {
@@ -44,6 +45,7 @@ export default function TasksPage() {
   const [studyType, setStudyType] = useState<"grid" | "layer" | "text" | "hybrid" | undefined>(undefined)
   const [mainQuestion, setMainQuestion] = useState<string>("")
   const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null)
+  const [isSpecialCreator, setIsSpecialCreator] = useState(false)
 
   const hoverCountsRef = useRef<Record<number, number>>({})
   const clickCountsRef = useRef<Record<number, number>>({})
@@ -95,6 +97,15 @@ export default function TasksPage() {
     clickCountsRef.current = {}
   }, [])
 
+  // Special creator: only from localStorage (show rating scale 1 and 5 only)
+  useEffect(() => {
+    const email =
+      (typeof window !== "undefined" ? localStorage.getItem("current_study_creator_email") : null) ||
+      (typeof window !== "undefined" ? JSON.parse(localStorage.getItem("user") || "{}")?.email : null) ||
+      ""
+    setIsSpecialCreator(checkIsSpecialCreator(email))
+  }, [])
+
   useEffect(() => {
     try {
       setIsFetching(true)
@@ -107,6 +118,12 @@ export default function TasksPage() {
       const step5layerRaw = typeof window !== "undefined" ? localStorage.getItem("cs_step5_layer") : null
 
       if (!step7matrixRaw) throw new Error("Missing tasks in localStorage (cs_step7_matrix)")
+
+      const creatorEmail =
+        (typeof window !== "undefined" ? localStorage.getItem("current_study_creator_email") : null) ||
+        (typeof window !== "undefined" ? JSON.parse(localStorage.getItem("user") || "{}")?.email : null) ||
+        ""
+      const isSpecialCreator = checkIsSpecialCreator(creatorEmail)
 
       const s2 = step2Raw ? JSON.parse(step2Raw) : {}
       const s3 = step3Raw ? JSON.parse(step3Raw) : {}
@@ -304,14 +321,17 @@ export default function TasksPage() {
           } catch { }
         }
 
+        const displayList =
+          isSpecialCreator && list.length > 0 ? [...list].sort(() => Math.random() - 0.5) : list
+
         return {
           id: String(t?.task_id ?? t?.task_index ?? Math.random()),
           type: isTextTask ? "text" : "grid",
-          leftImageUrl: isTextTask ? undefined : list[0],
-          rightImageUrl: isTextTask ? undefined : list[1],
+          leftImageUrl: isTextTask ? undefined : displayList[0],
+          rightImageUrl: isTextTask ? undefined : displayList[1],
           leftLabel: "",
           rightLabel: "",
-          gridUrls: list,
+          gridUrls: displayList,
           _elements_shown: es,
           _elements_shown_content: content,
         }
@@ -585,6 +605,7 @@ export default function TasksPage() {
   )
 
   const task = tasks[currentTaskIndex]
+  const ratingScaleValues = isSpecialCreator ? [1, 5] : [1, 2, 3, 4, 5]
 
   return (
     <div
@@ -902,8 +923,8 @@ export default function TasksPage() {
                       style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}
                     >
                       <div className="flex items-center justify-center mb-2">
-                        <div className="flex items-center justify-between w-full max-w-[320px] mx-auto">
-                          {[1, 2, 3, 4, 5].map((n) => {
+                        <div className={`flex items-center mx-auto ${ratingScaleValues.length === 2 ? 'justify-center gap-6' : 'justify-between w-full max-w-[320px]'}`}>
+                          {ratingScaleValues.map((n) => {
                             const selected = lastSelected === n
                             return (
                               <button
@@ -1081,7 +1102,7 @@ export default function TasksPage() {
 
                         if (urls.length <= 2) {
                           return (
-                            <div className="grid grid-cols-2 gap-4 relative max-w-lg mx-auto w-full min-w-0">
+                            <div className="flex justify-center items-center w-full aspect-square max-w-lg mx-auto relative">
                               {backgroundUrl && (
                                 <img
                                   src={getCachedUrl(backgroundUrl) || "/placeholder.svg"}
@@ -1089,35 +1110,37 @@ export default function TasksPage() {
                                   decoding="async"
                                   loading="eager"
                                   fetchPriority="high"
-                                  className="absolute inset-0 w-full h-full object-cover rounded-xl"
+                                  className="absolute inset-0 w-full h-full object-cover"
                                   style={{ zIndex: 0 }}
                                 />
                               )}
-                              <div className="aspect-square w-full min-w-0 overflow-hidden rounded-lg" style={{ zIndex: 1 }}>
-                                {urls[0] && (
-                                  <Image
-                                    src={getCachedUrl(urls[0]) || "/placeholder.svg"}
-                                    alt="left"
-                                    width={300}
-                                    height={300}
-                                    className="h-full w-full object-contain"
-                                    loading="eager"
-                                    unoptimized={urls[0]?.includes("blob.core.windows.net")}
-                                  />
-                                )}
-                              </div>
-                              <div className="aspect-square w-full min-w-0 overflow-hidden rounded-lg" style={{ zIndex: 1 }}>
-                                {urls[1] && (
-                                  <Image
-                                    src={getCachedUrl(urls[1]) || "/placeholder.svg"}
-                                    alt="right"
-                                    width={300}
-                                    height={300}
-                                    className="h-full w-full object-contain"
-                                    loading="eager"
-                                    unoptimized={urls[1]?.includes("blob.core.windows.net")}
-                                  />
-                                )}
+                              <div className="grid grid-cols-2 gap-4 w-full relative" style={{ zIndex: 1 }}>
+                                <div className="aspect-square w-full min-w-0 overflow-hidden">
+                                  {urls[0] && (
+                                    <Image
+                                      src={getCachedUrl(urls[0]) || "/placeholder.svg"}
+                                      alt="left"
+                                      width={300}
+                                      height={300}
+                                      className="h-full w-full object-contain"
+                                      loading="eager"
+                                      unoptimized={urls[0]?.includes("blob.core.windows.net")}
+                                    />
+                                  )}
+                                </div>
+                                <div className="aspect-square w-full min-w-0 overflow-hidden">
+                                  {urls[1] && (
+                                    <Image
+                                      src={getCachedUrl(urls[1]) || "/placeholder.svg"}
+                                      alt="right"
+                                      width={300}
+                                      height={300}
+                                      className="h-full w-full object-contain"
+                                      loading="eager"
+                                      unoptimized={urls[1]?.includes("blob.core.windows.net")}
+                                    />
+                                  )}
+                                </div>
                               </div>
                             </div>
                           )
@@ -1246,7 +1269,7 @@ export default function TasksPage() {
                     <div className="w-full max-w-2xl mx-auto mt-4">
                       <div className="flex items-center justify-center mb-3">
                         <div className="flex items-center justify-center gap-4">
-                          {[1, 2, 3, 4, 5].map((n) => {
+                          {ratingScaleValues.map((n) => {
                             const selected = lastSelected === n
                             return (
                               <button

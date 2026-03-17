@@ -100,6 +100,7 @@ export interface CreateStudyPayload {
   phase_order?: ("grid" | "text" | "mix")[] // NEW: Phase order for hybrid studies
   toggle_shuffle?: boolean // NEW: Shuffle classification questions
   project_id?: string
+  product_keys?: Array<{ name: string; percentage: number }> // Optional; special creators only
 }
 
 export interface UploadImageResult {
@@ -608,6 +609,22 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
         }
       } catch { }
       return {}
+    })()),
+    ...((() => {
+      try {
+        const keysRaw = typeof window !== 'undefined' ? localStorage.getItem('cs_step_keys') : null
+        if (!keysRaw) return {}
+        const parsed = JSON.parse(keysRaw)
+        const keys = Array.isArray(parsed) ? parsed : (parsed?.keys ?? [])
+        if (!Array.isArray(keys) || keys.length === 0) return {}
+        const valid = keys.filter((k: any) => k && typeof k.name === 'string' && (k.name as string).trim().length > 0)
+        if (valid.length === 0) return {}
+        const out: { product_keys: typeof valid; product_id?: string } = { product_keys: valid }
+        if (!Array.isArray(parsed) && parsed?.productId && String(parsed.productId).trim()) {
+          out.product_id = String(parsed.productId).trim().slice(0, 100)
+        }
+        return out
+      } catch { return {} }
     })())
   }
 
@@ -1208,10 +1225,12 @@ export async function cancelTaskGeneration(jobId: string): Promise<any> {
 }
 
 // Poll job status with adaptive intervals - faster when close to completion
+// Optional signal allows cancellation when component unmounts (stops lingering polling)
 export async function pollJobStatus(
   jobId: string,
   onProgress?: (status: JobStatus) => void,
-  baseIntervalDelay: number = 5000
+  baseIntervalDelay: number = 5000,
+  signal?: AbortSignal
 ): Promise<JobStatus> {
   console.log(`🔄 Starting adaptive job polling for job ${jobId} (base interval: ${baseIntervalDelay}ms)`)
 
@@ -1219,7 +1238,26 @@ export async function pollJobStatus(
   let lastProgress = 0
   let consecutiveHighProgressChecks = 0
 
+  const throwIfAborted = () => {
+    if (signal?.aborted) {
+      console.log('🛑 Polling aborted (component unmounted or navigation)')
+      throw new DOMException('Aborted', 'AbortError')
+    }
+  }
+
+  const waitWithAbort = (ms: number): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const id = setTimeout(resolve, ms)
+      if (signal) {
+        signal.addEventListener('abort', () => {
+          clearTimeout(id)
+          reject(new DOMException('Aborted', 'AbortError'))
+        }, { once: true })
+      }
+    })
+
   while (true) {
+    throwIfAborted()
     try {
       const status = await getTaskGenerationStatus(jobId)
       const currentProgress = typeof status?.progress === 'number' ? status.progress : 0
@@ -1304,15 +1342,16 @@ export async function pollJobStatus(
 
       // Wait with adaptive delay before next check
       console.log(`⏳ Waiting ${intervalDelay}ms before next check...`)
-      await new Promise(resolve => setTimeout(resolve, intervalDelay))
+      await waitWithAbort(intervalDelay)
       attempt++
 
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error
       console.error(`❌ Error checking job status (attempt ${attempt}):`, error)
 
       // Wait before retry (use base interval for errors)
       console.log(`⏳ Retrying in ${baseIntervalDelay}ms...`)
-      await new Promise(resolve => setTimeout(resolve, baseIntervalDelay))
+      await waitWithAbort(baseIntervalDelay)
       attempt++
       consecutiveHighProgressChecks = 0 // Reset on error
     }
@@ -1320,9 +1359,11 @@ export async function pollJobStatus(
 }
 
 // Enhanced task generation with background job support
+// Optional signal allows cancellation when component unmounts
 export async function generateTasksWithPolling(
   payload: TaskGenerationPayload,
-  onProgress?: (status: JobStatus) => void
+  onProgress?: (status: JobStatus) => void,
+  signal?: AbortSignal
 ): Promise<any> {
   console.log('=== TASK GENERATION WITH BACKGROUND JOB SUPPORT ===')
 
@@ -1357,7 +1398,7 @@ export async function generateTasksWithPolling(
       }
 
       console.log('🔄 Background job started, polling for completion...')
-      const finalStatus = await pollJobStatus(effectiveJobId, onProgress, 5000) // 5 second interval
+      const finalStatus = await pollJobStatus(effectiveJobId, onProgress, 5000, signal) // 5 second interval
       if (finalStatus.status === 'completed') {
         // Fetch the final result from result endpoint
         console.log('🔄 Job completed, fetching final result...')
@@ -1460,6 +1501,8 @@ export interface StudyDetails {
   progress?: number
   startTime?: number
   toggle_shuffle?: boolean
+  product_keys?: Array<{ name: string; percentage: number }>
+  product_id?: string
 }
 
 export interface UpdateStudyStatusPayload {
@@ -1483,6 +1526,8 @@ export type UpdateStudyPutPayload = Partial<{
   status: "draft" | "active" | "paused" | "completed"
   toggle_shuffle?: boolean
   project_id?: string
+  product_keys?: Array<{ name: string; percentage: number }>
+  product_id?: string
 }>
 
 // Fetch study details by ID
@@ -1902,23 +1947,31 @@ export async function getStudies(page: number = 1, per_page: number = 1000): Pro
     },
   })
 
+  // 204 = auth redirect in progress (fetchWithAuth returned no-content); don't parse body
+  if (response.status === 204) return []
+
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}))
+    const text = await response.text().catch(() => '')
+    let errorData: unknown = {}
+    try { errorData = text ? JSON.parse(text) : {} } catch { /* empty or invalid JSON */ }
     throw new Error(`Failed to get studies: ${response.status} ${JSON.stringify(errorData)}`)
   }
 
-  const data = await response.json()
-
-  // Debug: Log the response structure
-
+  const text = await response.text().catch(() => '')
+  if (!text.trim()) return []
+  let data: unknown
+  try {
+    data = JSON.parse(text)
+  } catch {
+    return []
+  }
 
   // Handle different response structures
   if (Array.isArray(data)) {
     return data
-  } else if (data.studies && Array.isArray(data.studies)) {
-    return data.studies
+  } else if (data && typeof data === 'object' && 'studies' in data && Array.isArray((data as { studies: unknown }).studies)) {
+    return (data as { studies: StudyListItem[] }).studies
   } else if (data === null || data === undefined) {
-    // console.log('API returned null/undefined, returning empty array')
     return []
   } else {
     console.warn('Unexpected API response structure:', data)
@@ -1944,6 +1997,211 @@ export async function getStudyBasicDetails(studyId: string): Promise<any> {
   } catch (error) {
     console.error('Error fetching study basic details:', error)
     throw error
+  }
+}
+
+/** Study basic-2 response (includes classification_questions, study_config, total_responses) */
+export interface StudyBasicDetails2 {
+  id: string
+  title: string
+  status: string
+  study_type: string
+  created_at: string
+  background?: string
+  main_question?: string
+  orientation_text?: string
+  rating_scale?: { min_value: number; max_value: number; min_label: string; max_label: string; middle_label?: string }
+  study_config?: {
+    country?: string
+    aspect_ratio?: string
+    number_of_respondents?: number
+    age_distribution?: Record<string, number>
+    gender_distribution?: Record<string, number>
+  }
+  classification_questions?: Array<{
+    question_id?: string
+    question_text?: string
+    question_type?: string
+    is_required?: boolean
+    order?: number
+    answer_options?: Array<{ id: string; text: string; order?: number }>
+    config?: Record<string, unknown>
+    id?: string
+  }>
+  element_count?: number
+  toggle_shuffle?: boolean
+  product_keys?: Array<{ name: string; percentage: number }>
+  product_id?: string
+  total_responses?: number
+}
+
+/**
+ * Fetch study details for synthetic respondent page (basic-2).
+ * Returns classification_questions, study_config, total_responses.
+ * Run in background — no blocking UI.
+ */
+export async function getStudyBasicDetails2(studyId: string): Promise<StudyBasicDetails2> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/basic-2`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  })
+  const text = await res.text().catch(() => '')
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+  if (!res.ok) {
+    const msg = (data?.detail ?? data?.message ?? text) || `Failed to fetch study details (${res.status})`
+    throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+  return data as StudyBasicDetails2
+}
+
+export interface SimulateAIRespondentsPayload {
+  max_respondents: number
+  is_special_creator: boolean
+  /** If true, use fallback (random) ratings instead of ChatGPT API. */
+  randomize?: boolean
+}
+
+/**
+ * Simulate AI respondents for a study.
+ * POST /studies/{study_id}/simulate-ai-respondents
+ */
+export async function simulateAIRespondents(
+  studyId: string,
+  payload: SimulateAIRespondentsPayload
+): Promise<any> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/simulate-ai-respondents`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  const text = await res.text().catch(() => '')
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+  if (!res.ok) {
+    const msg = (data?.detail ?? data?.message ?? text) || `Simulate AI respondents failed (${res.status})`
+    throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+  return data
+}
+
+export interface SimulateAIRespondentsResponse {
+  job_id: string
+  message?: string
+  study_id?: string
+  respondents_requested?: number
+  stream_url?: string
+}
+
+export interface SimulateAIStatusResponse {
+  job_id: string
+  study_id?: string
+  status: "pending" | "started" | "processing" | "completed" | "failed" | "cancelled"
+  progress: number
+  message?: string
+  respondents_requested?: number
+  created_at?: string
+  started_at?: string
+  completed_at?: string | null
+  error?: string | null
+  result?: unknown
+}
+
+/**
+ * Get simulate AI respondents job status.
+ * GET /studies/simulate-ai-respondents/status/{job_id}
+ */
+export async function getSimulateAIStatus(jobId: string): Promise<SimulateAIStatusResponse> {
+  const url = `${API_BASE_URL}/studies/simulate-ai-respondents/status/${encodeURIComponent(jobId)}`
+  const res = await fetchWithAuth(url, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  })
+  const text = await res.text().catch(() => "")
+  let data: any = {}
+  try {
+    data = text ? JSON.parse(text) : {}
+  } catch {
+    data = { detail: text }
+  }
+  if (!res.ok) {
+    const msg = (data?.detail ?? data?.message ?? text) || `Get simulate status failed (${res.status})`
+    throw Object.assign(new Error(typeof msg === "string" ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+  return data as SimulateAIStatusResponse
+}
+
+/**
+ * Subscribe to simulate AI respondents stream via SSE.
+ * GET /studies/simulate-ai-respondents/stream/{job_id}
+ * Uses fetch with Authorization header (EventSource doesn't support custom headers).
+ * Events may contain: { completed: number } or { respondents_completed: number }
+ */
+export function subscribeSimulateAIStream(
+  jobId: string,
+  onData: (completed: number) => void,
+  onError?: (err: unknown) => void
+): () => void {
+  let stopped = false
+  const abortController = new AbortController()
+
+  const run = async () => {
+    try {
+      const url = `${API_BASE_URL}/studies/simulate-ai-respondents/stream/${encodeURIComponent(jobId)}`
+      const res = await fetchWithAuth(url, {
+        method: "GET",
+        headers: { Accept: "text/event-stream" },
+        signal: abortController.signal,
+      })
+
+      if (!res.ok || !res.body) {
+        if (!stopped) onError?.(new Error(`Stream failed: ${res.status}`))
+        return
+      }
+
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+
+      while (!stopped) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+        for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              const json = line.slice(6).trim()
+              if (!json || json === "[DONE]") continue
+              try {
+                const data = JSON.parse(json) as Record<string, unknown>
+                const requested = typeof data.respondents_requested === "number" ? data.respondents_requested : 0
+                const progressPct = typeof data.progress === "number" ? data.progress : 0
+                const completed = requested > 0
+                  ? Math.round((progressPct / 100) * requested)
+                  : (typeof data.completed === "number" ? data.completed : null) ??
+                    (typeof data.respondents_completed === "number" ? data.respondents_completed : null) ??
+                    (typeof data.count === "number" ? data.count : 0) ??
+                    0
+                if (typeof completed === "number" && completed >= 0 && !stopped) onData(completed)
+              } catch {
+                // ignore parse errors
+              }
+            }
+        }
+      }
+    } catch (e) {
+      if (!stopped && (e as Error)?.name !== "AbortError") onError?.(e)
+    }
+  }
+
+  run()
+
+  return () => {
+    stopped = true
+    abortController.abort()
   }
 }
 

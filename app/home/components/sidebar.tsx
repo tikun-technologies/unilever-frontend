@@ -155,8 +155,7 @@ export function Sidebar({
                 `}
             >
                 {/* Header */}
-                <div className="p-4 flex items-center justify-between border-b border-[rgba(209,223,235,1)] min-h-[64px]">
-                    <AnimatePresence mode="wait">
+                <div className="p-4 flex items-center justify-between border-b border-[rgba(209,223,235,1)] h-[65px]">                    <AnimatePresence mode="wait">
                         {!isCollapsed && (
                             <motion.div
                                 initial={{ opacity: 0, x: -10 }}
@@ -179,7 +178,7 @@ export function Sidebar({
                         onClick={() => setIsCollapsed(!isCollapsed)}
                         className="hover:bg-gray-100 rounded-full text-gray-500 hover:text-[rgba(38,116,186,1)] transition-colors"
                     >
-                        {isCollapsed ? <Menu className="w-5 h-5 transition-transform" /> : <X className="w-5 h-5 transition-transform hover:rotate-90" />}
+                        {isCollapsed ? <Menu className="w-10 h-10 transition-transform" /> : <X className="w-5 h-5 transition-transform hover:rotate-90" />}
                     </Button>
                 </div>
 

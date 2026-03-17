@@ -4,9 +4,11 @@ import { useEffect, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { DashboardHeader } from "../../components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
+import { useAuth } from "@/lib/auth/AuthContext"
+import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { updateStudyStatus, putUpdateStudy, StudyDetails, getStudyBasicDetails } from "@/lib/api/StudyAPI"
 import { StudyAnalytics, downloadStudyResponsesCsv, subscribeStudyAnalytics } from "@/lib/api/ResponseAPI"
-import { Pause, Play, CheckCircle, Share, Download, BarChart3, ArrowLeft, ChevronDown, LineChart } from "lucide-react"
+import { Pause, Play, CheckCircle, Share, Download, BarChart3, ArrowLeft, ChevronDown, LineChart, Bot } from "lucide-react"
 import Link from "next/link"
 import { motion, AnimatePresence } from "framer-motion"
 
@@ -61,6 +63,8 @@ export default function StudyManagementPage() {
   const params = useParams()
   const router = useRouter()
   const studyId = params.id as string
+  const { user } = useAuth()
+  const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
 
   const [study, setStudy] = useState<StudyDetails | null>(null)
   const [loading, setLoading] = useState(true)
@@ -386,9 +390,9 @@ export default function StudyManagementPage() {
             </nav>
 
             {/* Title and Actions */}
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <h1 className="text-2xl font-bold min-w-0 break-words">{study.title}</h1>
-              <div className="flex items-center gap-2 flex-shrink-0 flex-wrap sm:flex-nowrap">
+            <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+              <h1 className="text-2xl font-bold min-w-0 break-words flex-1">{study.title}</h1>
+              <div className="flex items-center gap-2 flex-wrap lg:justify-end">
                 <button
                   onClick={() => (typeof window !== 'undefined' && window.history.length > 1) ? router.back() : router.push('/home')}
                   className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-md border rounded-md hover:opacity-80 shrink-0"
@@ -455,7 +459,7 @@ export default function StudyManagementPage() {
             {/* Top row: title + actions */}
             <div className="px-6 pt-4 pb-3 flex items-center justify-between">
               <div className="text-[16px] font-semibold" style={{ color: '#2674BA' }}>
-                {study.study_type === "layer" ? "Layer Study" : study.study_type === "text" ? "Text Study" : "Grid Study"}
+                {study.study_type === "layer" ? "Layer Study" : study.study_type === "text" ? "Text Study" : study.study_type === "hybrid" ? "Hybrid Study" : "Grid Study"}
               </div>
               <div className="flex items-center gap-5 text-sm" style={{ color: '#2674BA' }}>
                 <div className="relative group">
@@ -500,6 +504,40 @@ export default function StudyManagementPage() {
                 <span className="text-gray-700">{createdDisplay}</span>
               </div>
             </div>
+            {/* AI agentic respondents CTA */}
+            {study.status === "completed" ? (
+              <div
+                className="mx-6 mb-4 block rounded-xl p-4 transition-all duration-300 border border-gray-200 bg-gray-50 opacity-70 cursor-not-allowed"
+                aria-disabled="true"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-gray-200">
+                    <Bot className="w-5 h-5 text-gray-400" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-500 text-sm">Don&apos;t have respondents? We&apos;ve got you.</p>
+                    <p className="text-gray-400 text-xs mt-0.5">AI agentic respondents — not available for completed studies.</p>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-gray-300 ml-auto -rotate-90 shrink-0" aria-hidden />
+                </div>
+              </div>
+            ) : (
+              <Link
+                href={`/home/study/${studyId}/synthetic-respondent`}
+                className="mx-6 mb-4 block rounded-xl p-4 cursor-pointer transition-all duration-300 border hover:scale-[1.01] hover:shadow-md border-[#2674BA]/20 bg-gradient-to-br from-[#2674BA]/10 to-[#2674BA]/5 hover:border-[#2674BA]/50 hover:from-[#2674BA]/18 hover:to-[#2674BA]/10"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(38,116,186,0.15)' }}>
+                    <Bot className="w-5 h-5" style={{ color: '#2674BA' }} />
+                  </div>
+                  <div>
+                    <p className="font-medium text-gray-800 text-sm">Don&apos;t have respondents? We&apos;ve got you.</p>
+                    <p className="text-gray-600 text-xs mt-0.5">AI agentic respondents can complete your study at scale — no waiting for real users.</p>
+                  </div>
+                  <ChevronDown className="w-4 h-4 text-gray-400 ml-auto -rotate-90 shrink-0" aria-hidden />
+                </div>
+              </Link>
+            )}
           </div>
 
           {/* Response Statistics */}
@@ -719,6 +757,41 @@ export default function StudyManagementPage() {
             <AccordionSection title="Orientation Text">
               <div className="bg-white p-4">
                 <p className="text-gray-700 leading-relaxed whitespace-pre-wrap break-words">{study.orientation_text}</p>
+              </div>
+            </AccordionSection>
+          )}
+
+          {/* Product Details - special creator only, when present in API response */}
+          {isSpecialCreator && ((study as any).product_id || ((study as any).product_keys?.length ?? 0) > 0) && (
+            <AccordionSection title="Product Details">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {(study as any).product_id != null && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Product ID</label>
+                    <div className="w-full py-2 bg-white text-gray-700 whitespace-pre-wrap break-words">
+                      {(study as any).product_id}
+                    </div>
+                  </div>
+                )}
+                {((study as any).product_keys?.length ?? 0) > 0 && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Product Keys</label>
+                    <div className="space-y-2">
+                      {((study as any).product_keys as { name: string; percentage: number }[]).map((key: { name: string; percentage: number }, idx: number) => (
+                        <div key={idx} className="flex items-center gap-4 py-1">
+                          <span className="text-sm text-gray-600 w-32">{key.name}</span>
+                          <div className="flex-1 h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-1000 ease-out"
+                              style={{ width: `${key.percentage}%`, backgroundColor: '#2674BA' }}
+                            />
+                          </div>
+                          <span className="text-sm font-medium text-gray-900 w-10 text-right">{key.percentage}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </AccordionSection>
           )}

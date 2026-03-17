@@ -1,11 +1,10 @@
 "use client"
 
 import React, { useEffect, useState } from "react"
-import { useMotionValue, useSpring, useMotionValueEvent } from "framer-motion"
+import { useSpring, useMotionValueEvent } from "framer-motion"
 
 interface CountUpProps {
     value: number
-    duration?: number
     decimals?: number
     suffix?: string
     prefix?: string
@@ -15,7 +14,6 @@ interface CountUpProps {
 /** Animates a number from 0 to the target value. */
 export function CountUp({
     value,
-    duration = 1,
     decimals = 0,
     suffix = "",
     prefix = "",

@@ -10,6 +10,29 @@ function get<T>(key: string, fallback: T): T {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) as T : fallback } catch { return fallback }
 }
 
+/** Map language code (e.g. "en") to full display name (e.g. "ENGLISH") for everyone. */
+function getLanguageDisplayName(code: string): string {
+  if (!code || !String(code).trim()) return '-'
+  const c = String(code).trim().toLowerCase()
+  const map: Record<string, string> = {
+    en: 'ENGLISH',
+    es: 'SPANISH',
+    fr: 'FRENCH',
+    de: 'GERMAN',
+    it: 'ITALIAN',
+    pt: 'PORTUGUESE',
+    nl: 'DUTCH',
+    pl: 'POLISH',
+    ru: 'RUSSIAN',
+    ja: 'JAPANESE',
+    zh: 'CHINESE',
+    ar: 'ARABIC',
+    hi: 'HINDI',
+    ko: 'KOREAN',
+  }
+  return map[c] || map[c.slice(0, 2)] || c.toUpperCase()
+}
+
 // Remove stored study id used for fast launch
 function clearStoredStudyId() {
   try {
@@ -20,12 +43,26 @@ function clearStoredStudyId() {
   }
 }
 
-export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, userRole = 'viewer' }: { onBack: () => void; onDataChange?: () => void; isReadOnly?: boolean; userRole?: string }) {
+function isJobStateActive(): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const raw = localStorage.getItem('cs_step7_job_state')
+    if (!raw) return false
+    const job = JSON.parse(raw) as { status?: { status?: string } }
+    const s = job?.status?.status
+    return s === 'processing' || s === 'pending'
+  } catch {
+    return false
+  }
+}
+
+export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, userRole = 'viewer', lastStepNumber = 8, isSpecialCreator = false }: { onBack: () => void; onDataChange?: () => void; isReadOnly?: boolean; userRole?: string; /** When Keys step exists (special creator), Launch is step 9; otherwise 8 */ lastStepNumber?: number; /** Show Keys section only for special creators */ isSpecialCreator?: boolean }) {
   const canLaunch = userRole === 'admin'
   const [isLaunching, setIsLaunching] = useState(false)
   const [launchStage, setLaunchStage] = useState(0)
   const [launchError, setLaunchError] = useState<string | null>(null)
   const [isConfirmed, setIsConfirmed] = useState(false)
+  const [isGeneratingTasks, setIsGeneratingTasks] = useState(false)
 
   const step1 = get('cs_step1', { title: '', description: '', language: '' })
   const step2 = get('cs_step2', { type: 'grid', mainQuestion: '', orientationText: '' })
@@ -37,6 +74,18 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const textData = get<any>(isHybrid ? 'cs_step5_hybrid_text' : 'cs_step5_text', [])
   const layerData = get<any>('cs_step5_layer', [])
   const step6 = get('cs_step6', { respondents: 0, countries: [], genderMale: 0, genderFemale: 0, ageSelections: {} })
+  const stepKeysRaw = get<any>('cs_step_keys', null)
+  const stepKeysList: { name?: string; percentage?: number }[] = !stepKeysRaw
+    ? []
+    : Array.isArray(stepKeysRaw)
+      ? stepKeysRaw
+      : Array.isArray(stepKeysRaw?.keys)
+        ? stepKeysRaw.keys
+        : []
+  const stepKeysProductId: string =
+    stepKeysRaw && typeof stepKeysRaw === 'object' && !Array.isArray(stepKeysRaw)
+      ? String(stepKeysRaw.productId ?? '').trim()
+      : ''
 
   // Handle both legacy array format and new object format {elements: [...], categories: [...]}
   const grid = Array.isArray(gridData)
@@ -56,7 +105,20 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const hasLayer = step2.type === 'layer'
   const hasText = step2.type === 'text'
 
-  // Update last_step to 8 on mount so resuming brings user here
+  // Sync isGeneratingTasks from cs_step7_job_state (on mount, poll, and stepDataChanged)
+  useEffect(() => {
+    const update = () => setIsGeneratingTasks(isJobStateActive())
+    update()
+    const poll = setInterval(update, 2000)
+    const handler = () => update()
+    window.addEventListener('stepDataChanged', handler)
+    return () => {
+      clearInterval(poll)
+      window.removeEventListener('stepDataChanged', handler)
+    }
+  }, [])
+
+  // Update last_step on mount so resuming brings user here
   useEffect(() => {
     try {
       if (typeof window === 'undefined') return
@@ -66,8 +128,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
         try { studyId = JSON.parse(raw) } catch { studyId = raw }
       }
       if (studyId && !isReadOnly) {
-        // Fire-and-forget
-        putUpdateStudyAsync(String(studyId), { last_step: 8 })
+        putUpdateStudyAsync(String(studyId), { last_step: lastStepNumber })
       }
 
       // Check if steps 1-7 are completed to mark step 8 as complete
@@ -90,6 +151,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
 
   const handleLaunchStudy = async () => {
     if (!canLaunch || isReadOnly) return
+    if (isGeneratingTasks) return
     if (!isConfirmed) {
       setLaunchError('Please confirm you are ready to launch this study')
       return
@@ -267,7 +329,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
         const keysToRemove = [
           'cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step5_grid', 'cs_step5_text', 'cs_step5_hybrid', 'cs_step5_layer', 'cs_step5_layer_background',
           'cs_step5_hybrid_grid', 'cs_step5_hybrid_text', 'cs_step5_hybrid_phase_order',
-          'cs_step6', 'cs_step7', 'cs_step7_tasks', 'cs_step7_matrix', 'cs_step7_meta', 'cs_step7_signature',
+          'cs_step_keys', 'cs_step6', 'cs_step7', 'cs_step7_tasks', 'cs_step7_matrix', 'cs_step7_meta', 'cs_step7_signature',
           'cs_step8', 'cs_current_step', 'cs_backup_steps', 'cs_study_id', 'cs_flash_message'
         ]
 
@@ -337,7 +399,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
             </div>
             <div>
               <div className="text-gray-500">Language</div>
-              <div className="font-medium">{step1.language || '-'}</div>
+              <div className="font-medium">{getLanguageDisplayName(step1.language || '')}</div>
             </div>
             <div className="md:col-span-2">
               <div className="text-gray-500">Study Description</div>
@@ -636,6 +698,28 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
           </div>
         </section>
 
+        {isSpecialCreator && (stepKeysList.length > 0 || stepKeysProductId) && (
+          <section className="rounded-lg border bg-white p-4">
+            {stepKeysProductId && (
+              <>
+                <div className="text-sm font-semibold mb-1">Product ID</div>
+                <div className="mb-3 rounded-lg border bg-gray-50 px-3 py-2 text-sm text-gray-800">
+                  {stepKeysProductId}
+                </div>
+              </>
+            )}
+            <div className="text-sm font-semibold mb-2">Keys</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+              {stepKeysList.map((k: { name?: string; percentage?: number }, idx: number) => (
+                <div key={idx} className="flex items-center justify-between border rounded-lg px-3 py-2 bg-gray-50">
+                  <span className="font-medium">{k.name ?? '-'}</span>
+                  <span className="text-gray-600">{k.percentage != null ? `${k.percentage}%` : '-'}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section className={`rounded-lg border-2 border-[rgba(38,116,186,1)] bg-white`} style={{ borderTopWidth: '4px' }}>
           <div className="p-6 space-y-4">
             <h3 className="text-lg font-bold text-[rgba(38,116,186,1)] text-center">Launch Study</h3>
@@ -681,7 +765,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
               <Button
                 className="flex-1 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white rounded-full disabled:opacity-50 cursor-pointer"
                 onClick={handleLaunchStudy}
-                disabled={isLaunching || !isConfirmed || isReadOnly || !canLaunch}
+                disabled={isLaunching || !isConfirmed || isReadOnly || !canLaunch || isGeneratingTasks}
               >
                 {isLaunching ? (
                   <span className="flex items-center justify-center gap-2">
@@ -696,7 +780,12 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
                 )}
               </Button>
             </div>
-            {!canLaunch && (
+            {isGeneratingTasks && (
+              <p className="text-xs text-center text-amber-600 font-medium">
+                Tasks are being generated. Please wait for generation to complete before launching.
+              </p>
+            )}
+            {!canLaunch && !isGeneratingTasks && (
               <p className="text-xs text-center text-amber-600 font-medium">
                 Only study owners can launch. You have {userRole || 'viewer'} access.
               </p>

@@ -106,6 +106,12 @@ export default function StudyAnalyticsPage() {
     const [activeMetric, setActiveMetric] = useState("Top Down")
     const [activeTab, setActiveTab] = useState("Overall")
 
+    // Smooth scroll to top when switching tabs to prevent jarring layout shift
+    useEffect(() => {
+        if (!analysisData) return
+        window.scrollTo({ top: 0, behavior: "smooth" })
+    }, [analyticsView, analysisData])
+
     const loadingMessages = useMemo(
         () => [
             "Getting your responses...",
@@ -290,7 +296,6 @@ export default function StudyAnalyticsPage() {
                                 </div>
                             )}
 
-                            {/* Min-height prevents jarring layout collapse when switching from scrollable Overview/Detail to shorter Filter */}
                             <div className="min-h-[50vh]">
                             <AnimatePresence mode="wait">
                                 {analyticsView === "overview" && analysisData && (
@@ -302,40 +307,19 @@ export default function StudyAnalyticsPage() {
                                         transition={{ duration: 0.25 }}
                                         className="space-y-0"
                                     >
-                                        <motion.div
-                                            initial={{ opacity: 0, y: 24 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ delay: 0, duration: 0.4 }}
-                                        >
+                                        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0, duration: 0.4 }}>
                                             <AnalyticsKPICards analysisData={analysisData} studyType={studyType} />
                                         </motion.div>
-                                        <motion.div
-                                            initial={{ opacity: 0, y: 24 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ delay: 0.08, duration: 0.4 }}
-                                        >
+                                        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08, duration: 0.4 }}>
                                             <AnalyticsResponseTimeSection analysisData={analysisData} />
                                         </motion.div>
-                                        <motion.div
-                                            initial={{ opacity: 0, y: 24 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ delay: 0.16, duration: 0.4 }}
-                                        >
+                                        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.16, duration: 0.4 }}>
                                             <AnalyticsPieCharts analysisData={analysisData} />
                                         </motion.div>
-                                        <motion.div
-                                            initial={{ opacity: 0, y: 24 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ delay: 0.24, duration: 0.4 }}
-                                        >
+                                        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24, duration: 0.4 }}>
                                             <AnalyticsTopBottomPerformers analysisData={analysisData} studyType={studyType} />
                                         </motion.div>
-                                        <motion.div
-                                            initial={{ opacity: 0, y: 24 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            transition={{ delay: 0.32, duration: 0.4 }}
-                                            className="mt-10"
-                                        >
+                                        <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32, duration: 0.4 }} className="mt-10">
                                             <AnalyticsPersonaBlueprints
                                                 analysisData={analysisData}
                                                 studyType={studyType as "text" | "grid" | "layer" | "hybrid"}

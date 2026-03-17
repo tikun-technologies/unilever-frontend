@@ -169,8 +169,8 @@ export function DashboardHeader() {
       >
         <div className="max-w-7xl mx-auto flex items-center justify-between h-16">
 
-          <Link href={projId ? `/home?proj_id=${projId}` : "/home"}>
-            {/* Logo */}
+          <Link href="/home">
+            {/* Logo: always go to All Studies (no project selected) */}
             <div className="flex items-center">
               <motion.div whileHover={{ scale: 1.05 }} className="text-2xl font-bold">
                 <span className="text-green-600">Mind</span>
@@ -203,7 +203,7 @@ export function DashboardHeader() {
                   <Share2 className="w-4 h-4" />
                   <span className="hidden sm:inline">Share</span>
                 </Button>
-                <Button
+                {/* <Button
                   onClick={() => canDisposeStudy && setIsDisposeModalOpen(true)}
                   disabled={!studyId || !canDisposeStudy}
                   variant="outline"
@@ -215,7 +215,7 @@ export function DashboardHeader() {
                 >
                   <Trash2 className="w-4 h-4" />
                   <span className="hidden sm:inline">Dispose Study</span>
-                </Button>
+                </Button> */}
               </motion.div>
             )}
 

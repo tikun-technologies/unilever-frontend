@@ -8,7 +8,7 @@ import { OverviewCards } from "./components/overview-cards"
 import { StudyFilters } from "./components/study-filters"
 import { StudyGrid } from "./components/study-grid"
 import { AuthGuardDebug as AuthGuard } from "@/components/auth/AuthGuardDebug"
-import { getStudies, StudyListItem } from "@/lib/api/StudyAPI"
+import { getStudies, StudyListItem, fetchWithAuth } from "@/lib/api/StudyAPI"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
 import { Sidebar } from "./components/sidebar"
 import { CreateProjectModal } from "./components/create-project-modal"
@@ -20,9 +20,33 @@ import {
   updateProject as updateProjectApi,
   getProjectStudies as getProjectStudiesApi,
   getProjectMembers as getProjectMembersApi,
+  downloadProjectCsv,
+  downloadProjectZip,
   Project
 } from "@/api/projectApi"
 import { getStudyProjectMapping } from "@/lib/utils/projectUtils"
+import { useAuth } from "@/lib/auth/AuthContext"
+import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
+import { FileDown } from "lucide-react"
+
+// Redirect to login without showing error when auth fails (token expired, not authenticated, etc.)
+function redirectToLoginOnAuthError() {
+  if (typeof window === 'undefined') return
+  sessionStorage.setItem('auth_redirecting', 'true')
+  localStorage.removeItem('user')
+  localStorage.removeItem('tokens')
+  localStorage.removeItem('auth_user')
+  localStorage.removeItem('token')
+  window.location.replace('/login')
+}
+
+function isAuthRelatedError(err: unknown): boolean {
+  const msg = (err instanceof Error ? err.message : String(err)).toLowerCase()
+  const status = (err as { status?: number })?.status
+  if (status === 401 || status === 403) return true
+  const authTerms = ['not authenticated', 'unauthorized', 'forbidden', 'token expired', 'token invalid', 'authentication required', '401', '403']
+  return authTerms.some((term) => msg.includes(term))
+}
 
 function DashboardContent() {
   const router = useRouter()
@@ -38,6 +62,7 @@ function DashboardContent() {
   const [cardsLoading, setCardsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isValidatingToken, setIsValidatingToken] = useState(true)
+  const [isInitialDataLoading, setIsInitialDataLoading] = useState(true)
   const [stats, setStats] = useState({
     total: 0,
     active: 0,
@@ -60,88 +85,97 @@ function DashboardContent() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
   const [sharingProjectId, setSharingProjectId] = useState<string | null>(null)
   const latestProjectRequestId = useRef<string | null>(null)
+  const [exportingProjectCsv, setExportingProjectCsv] = useState(false)
+  const [exportCsvStatus, setExportCsvStatus] = useState("Getting data...")
+  const [exportingProjectZip, setExportingProjectZip] = useState(false)
+  const [exportZipStatus, setExportZipStatus] = useState("Getting data...")
 
-  // Check token validity BEFORE rendering anything
+  const { user } = useAuth()
+  const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
+
+  // Validate token AND fetch initial studies in one flow - redirect before showing any content
   useEffect(() => {
-    const validateTokenBeforeRender = async () => {
+    const validateAndLoad = async () => {
       try {
-        // Check if token exists in localStorage
         const storedTokens = localStorage.getItem('tokens')
         if (!storedTokens) {
-          // No token, redirect immediately
-          sessionStorage.setItem('auth_redirecting', 'true')
-          localStorage.removeItem('user')
-          localStorage.removeItem('tokens')
-          localStorage.removeItem('auth_user')
-          localStorage.removeItem('token')
-          window.location.replace('/login')
+          redirectToLoginOnAuthError()
           return
         }
-
         const tokens = JSON.parse(storedTokens)
         if (!tokens?.access_token) {
-          // Invalid token format, redirect immediately
-          sessionStorage.setItem('auth_redirecting', 'true')
-          localStorage.removeItem('user')
-          localStorage.removeItem('tokens')
-          localStorage.removeItem('auth_user')
-          localStorage.removeItem('token')
-          window.location.replace('/login')
+          redirectToLoginOnAuthError()
           return
         }
 
-        // Make a lightweight API call to verify token is still valid
-        // Use a minimal endpoint that requires auth
-        const response = await fetch(`${API_BASE_URL}/studies?page=1&per_page=1`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${tokens.access_token}`
-          },
+        // 1. Validate token via auth API
+        const res = await fetch(`${API_BASE_URL}/auth/validate-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token || undefined,
+          }),
         })
-
-        // If token is invalid (401/403), redirect immediately
-        if (response.status === 401 || response.status === 403) {
-          sessionStorage.setItem('auth_redirecting', 'true')
-          localStorage.removeItem('user')
-          localStorage.removeItem('tokens')
-          localStorage.removeItem('auth_user')
-          localStorage.removeItem('token')
-          window.location.replace('/login')
+        const text = await res.text().catch(() => '')
+        let data: { valid?: boolean; access_token?: string } = {}
+        try { data = text ? JSON.parse(text) : {} } catch { /* invalid or empty */ }
+        if (data?.valid !== true) {
+          redirectToLoginOnAuthError()
           return
         }
 
-        // Token is valid, proceed with page rendering
+        // Update tokens if refresh returned new access_token
+        if (data.access_token) {
+          try {
+            const newTokens = { ...tokens, access_token: data.access_token }
+            localStorage.setItem('tokens', JSON.stringify(newTokens))
+          } catch { /* ignore */ }
+        }
+
+        // 2. Fetch studies to confirm auth works - redirect if 204/401/403 (auth failed)
+        const studiesRes = await fetchWithAuth(`${API_BASE_URL}/studies?page=1&per_page=200`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        })
+        if (studiesRes.status === 204 || studiesRes.status === 401 || studiesRes.status === 403) {
+          redirectToLoginOnAuthError()
+          return
+        }
+        if (!studiesRes.ok) {
+          const errData = await studiesRes.json().catch(() => ({}))
+          throw new Error((errData as { detail?: string })?.detail || `Failed to load studies: ${studiesRes.status}`)
+        }
+        const studiesText = await studiesRes.text().catch(() => '')
+        let studiesData: unknown = []
+        try { studiesData = studiesText?.trim() ? JSON.parse(studiesText) : [] } catch { }
+        const safeStudiesArray = Array.isArray(studiesData) ? studiesData as StudyListItem[]
+          : (studiesData && typeof studiesData === 'object' && 'studies' in studiesData && Array.isArray((studiesData as { studies: unknown }).studies))
+            ? ((studiesData as { studies: StudyListItem[] }).studies) : []
+        setStudies(safeStudiesArray)
+        try { localStorage.setItem('home_studies_cache', JSON.stringify(safeStudiesArray)) } catch { }
+        setCardsLoading(false)
+
         setIsValidatingToken(false)
-      } catch (error) {
-        // Network error or other issue - redirect to login to be safe
-        console.error('Token validation error:', error)
-        sessionStorage.setItem('auth_redirecting', 'true')
-        localStorage.removeItem('user')
-        localStorage.removeItem('tokens')
-        localStorage.removeItem('auth_user')
-        localStorage.removeItem('token')
-        window.location.replace('/login')
+        setIsInitialDataLoading(false)
+      } catch (err) {
+        if (isAuthRelatedError(err)) {
+          redirectToLoginOnAuthError()
+          return
+        }
+        setError(err instanceof Error ? err.message : 'Failed to load')
+        setIsValidatingToken(false)
+        setIsInitialDataLoading(false)
+      } finally {
+        setLoading(false)
       }
     }
-
-    validateTokenBeforeRender()
+    validateAndLoad()
   }, [])
 
-  // Hydrate studies list from cache for instant render on refresh (only if token is valid)
+  // Load projects and mappings (don't hydrate studies from cache - keep spinner until API confirms auth)
   useEffect(() => {
     if (isValidatingToken) return // Wait for token validation
-
-    try {
-      const cached = localStorage.getItem('home_studies_cache')
-      if (cached) {
-        const parsed = JSON.parse(cached)
-        if (Array.isArray(parsed)) {
-          setStudies(parsed as StudyListItem[])
-          setLoading(false)
-        }
-      }
-    } catch { }
 
     // Load projects and mappings
     const fetchProjects = async () => {
@@ -179,6 +213,10 @@ function DashboardContent() {
           }
         });
       } catch (err) {
+        if (isAuthRelatedError(err)) {
+          redirectToLoginOnAuthError()
+          return
+        }
         console.error("Failed to fetch projects:", err);
       } finally {
         setProjectsLoading(false)
@@ -188,16 +226,15 @@ function DashboardContent() {
     setStudyProjectMapping(getStudyProjectMapping())
   }, [isValidatingToken])
 
-  // Separate sync effect for project selection from URL
+  // Sync project selection from URL only. No query param = All Studies (no project).
   useEffect(() => {
     if (isValidatingToken) return
 
-    // Load last selected project from URL, then session or storage
     if (urlProjId) {
       setSelectedProjectId(urlProjId)
     } else {
-      const lastProject = sessionStorage.getItem('last_selected_project')
-      if (lastProject) setSelectedProjectId(lastProject)
+      // No proj_id in URL: always show All Studies (do not restore from sessionStorage)
+      setSelectedProjectId(null)
     }
   }, [isValidatingToken, urlProjId])
 
@@ -222,52 +259,82 @@ function DashboardContent() {
     } catch { }
   }, [isValidatingToken])
 
-  // Fetch studies data (only if token is valid)
-  useEffect(() => {
-    if (isValidatingToken) return // Wait for token validation
-
-    const fetchStudies = async () => {
-      try {
-        setLoading((prev) => prev && studies.length === 0)
-        setError(null)
-        const studiesArray = await getStudies(1, 200) // Get more studies for filtering
-
-        // Ensure we have an array
-        const safeStudiesArray = Array.isArray(studiesArray) ? studiesArray : []
-        setStudies(safeStudiesArray)
-        // Cache list for next load
-        try { localStorage.setItem('home_studies_cache', JSON.stringify(safeStudiesArray)) } catch { }
-
-        setCardsLoading(false)
-
-        // Log for debugging
-        // console.log(`Loaded ${total} studies: ${active} active, ${draft} draft, ${completed} completed`)
-      } catch (err) {
-        // Check if error is due to redirect (token expired)
-        const errorMessage = err instanceof Error ? err.message : 'Failed to fetch studies'
-        const isRedirecting = typeof window !== 'undefined' && (
-          sessionStorage.getItem('auth_redirecting') === 'true' ||
-          window.location.pathname === '/login' ||
-          errorMessage === 'REDIRECTING' ||
-          errorMessage.includes('204')
-        )
-
-        if (!isRedirecting) {
-          console.error('Failed to fetch studies:', err)
-          setError(errorMessage)
-        }
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchStudies()
-  }, [isValidatingToken, studies.length])
-
   const handleClearFilters = () => {
     setSearchQuery("")
     setSelectedType("All Types")
     setSelectedTime("All Time")
+  }
+
+  useEffect(() => {
+    if (!exportingProjectCsv) return
+    const messages = ["Getting data...", "Cooking your data...", "Almost there...", "Preparing your file..."]
+    const interval = setInterval(() => {
+      setExportCsvStatus((prev) => {
+        const idx = messages.indexOf(prev)
+        return messages[(idx + 1) % messages.length]
+      })
+    }, 1500)
+    return () => clearInterval(interval)
+  }, [exportingProjectCsv])
+
+  useEffect(() => {
+    if (!exportingProjectZip) return
+    const messages = ["Getting data...", "Cooking your data...", "Almost there...", "Preparing your file..."]
+    const interval = setInterval(() => {
+      setExportZipStatus((prev) => {
+        const idx = messages.indexOf(prev)
+        return messages[(idx + 1) % messages.length]
+      })
+    }, 1500)
+    return () => clearInterval(interval)
+  }, [exportingProjectZip])
+
+  const handleExportProjectCsv = async () => {
+    if (!selectedProjectId || exportingProjectCsv) return
+    const project = projects.find((p) => p.id === selectedProjectId)
+    const projectName = project?.name ?? "project"
+    setExportingProjectCsv(true)
+    setExportCsvStatus("Getting data...")
+    try {
+      const blob = await downloadProjectCsv(selectedProjectId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${projectName.replace(/[^a-zA-Z0-9-_]/g, "_")}_studies.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error("Export project CSV failed:", err)
+      alert(err instanceof Error ? err.message : "Failed to export project CSV.")
+    } finally {
+      setExportingProjectCsv(false)
+    }
+  }
+
+  const handleExportProjectZip = async () => {
+    if (!selectedProjectId || exportingProjectZip) return
+    const project = projects.find((p) => p.id === selectedProjectId)
+    const projectName = project?.name ?? "project"
+    setExportingProjectZip(true)
+    setExportZipStatus("Getting data...")
+    try {
+      const blob = await downloadProjectZip(selectedProjectId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${projectName.replace(/[^a-zA-Z0-9-_]/g, "_")}_studies.zip`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error("Export project ZIP failed:", err)
+      alert(err instanceof Error ? err.message : "Failed to export project ZIP.")
+    } finally {
+      setExportingProjectZip(false)
+    }
   }
 
   const handleStudyClickFromSidebar = (study: StudyListItem) => {
@@ -305,6 +372,7 @@ function DashboardContent() {
       setStudies(safeStudiesArray)
       try { localStorage.setItem('home_studies_cache', JSON.stringify(safeStudiesArray)) } catch { }
     } catch (err) {
+      if (isAuthRelatedError(err)) { redirectToLoginOnAuthError(); return }
       console.error("Failed to refetch studies:", err)
     }
     if (selectedProjectId) {
@@ -313,6 +381,7 @@ function DashboardContent() {
         setProjectStudies(data)
         try { localStorage.setItem(`ps_cache_${selectedProjectId}`, JSON.stringify(data)) } catch { }
       } catch (err) {
+        if (isAuthRelatedError(err)) { redirectToLoginOnAuthError(); return }
         console.error("Failed to refetch project studies:", err)
       }
     }
@@ -373,6 +442,10 @@ function DashboardContent() {
   }
 
   const handleSelectProject = (id: string | null) => {
+    // If clicking the same project again, do nothing — avoids infinite loading
+    // (we would set loading true but the fetch effect wouldn't re-run to clear it).
+    if (id === selectedProjectId) return
+
     setSelectedProjectId(id)
 
     // Immediately show a loading state when switching projects so we don't briefly
@@ -435,6 +508,10 @@ function DashboardContent() {
             localStorage.setItem(`ps_cache_${currentProjectId}`, JSON.stringify(data))
           } catch { }
         } catch (err) {
+          if (isAuthRelatedError(err)) {
+            redirectToLoginOnAuthError()
+            return
+          }
           console.error("Failed to fetch project studies:", err);
           if (latestProjectRequestId.current === currentProjectId) {
             setProjectStudies([]);
@@ -473,8 +550,8 @@ function DashboardContent() {
     }
   }, [filteredStudies, selectedProjectId])
 
-  // Don't render anything until token is validated
-  if (isValidatingToken) {
+  // Keep loading spinner until token is validated AND initial data fetch completes (or redirects)
+  if (isValidatingToken || isInitialDataLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-100">
         <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600"></div>
@@ -532,8 +609,50 @@ function DashboardContent() {
               stats={stats}
             />
 
+            {isSpecialCreator && selectedProjectId && (
+              <div className="mb-6 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleExportProjectCsv}
+                  disabled={exportingProjectCsv || projectStudies.length === 0}
+                  className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
+                >
+                  {exportingProjectCsv ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
+                      <span>{exportCsvStatus}</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileDown className="w-4 h-4" />
+                      <span>Export projects CSV</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportProjectZip}
+                  disabled={exportingProjectZip || projectStudies.length === 0}
+                  className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
+                >
+                  {exportingProjectZip ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
+                      <span>{exportZipStatus}</span>
+                    </>
+                  ) : (
+                    <>
+                      <FileDown className="w-4 h-4" />
+                      <span>Export ZIP</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
+
             <StudyGrid
               studies={filteredStudies}
+              isAllStudiesView={!selectedProjectId}
               activeTab={activeTab}
               searchQuery={searchQuery}
               selectedType={selectedType}
@@ -544,6 +663,7 @@ function DashboardContent() {
               onMappingChange={() => setStudyProjectMapping(getStudyProjectMapping())}
               onStudyCopied={refetchStudies}
               onStudyDeleted={refetchStudies}
+              onStudyAssigned={refetchStudies}
             />
           </div>
         </motion.div>

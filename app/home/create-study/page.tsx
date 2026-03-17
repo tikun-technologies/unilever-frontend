@@ -10,10 +10,13 @@ import { Step2StudyType } from "@/components/create-study/steps/Step2StudyType"
 import { Step3RatingScale } from "@/components/create-study/steps/Step3RatingScale"
 import { Step4ClassificationQuestions } from "@/components/create-study/steps/Step4ClassificationQuestions"
 import { Step5StudyStructure } from "@/components/create-study/steps/Step5StudyStructure"
+import { StepKeys } from "@/components/create-study/steps/StepKeys"
 import { Step6AudienceSegmentation } from "@/components/create-study/steps/Step6AudienceSegmentation"
 import { Step7TaskGeneration } from "@/components/create-study/steps/Step7TaskGeneration"
 import { Step8LaunchPreview } from "@/components/create-study/steps/Step8LaunchPreview"
 import { getStudyPreview, StudyType } from "@/lib/api/StudyAPI"
+import { useAuth } from "@/lib/auth/AuthContext"
+import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 
 // Type definitions for backend responses
 interface ClassificationQuestion {
@@ -110,7 +113,7 @@ const notifyStepDataChanged = () => {
 }
 
 // Utility function to load draft study data from backend
-const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = true) => {
+const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = true, isSpecialCreator: boolean = false) => {
   try {
     console.log('Loading draft study data for ID:', studyId)
     const studyDetails = await getStudyPreview(studyId)
@@ -454,7 +457,17 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
       }
     }
 
-    // Populate Step 6 - Audience Segmentation
+    // Populate Keys (step 7 for special creators) from product_keys and product_id
+    if (studyDetails.product_keys && Array.isArray(studyDetails.product_keys) && studyDetails.product_keys.length > 0) {
+      const keysPayload = { productId: studyDetails.product_id ?? '', keys: studyDetails.product_keys }
+      localStorage.setItem('cs_step_keys', JSON.stringify(keysPayload))
+    } else if (studyDetails.product_id) {
+      localStorage.setItem('cs_step_keys', JSON.stringify({ productId: studyDetails.product_id, keys: [] }))
+    } else {
+      localStorage.removeItem('cs_step_keys')
+    }
+
+    // Populate Step 6 - Audience Segmentation (step 7 in flow when Keys step exists)
     if (studyDetails.audience_segmentation) {
       const ageSelections: Record<string, { checked: boolean; percent: string }> = {}
       if (studyDetails.audience_segmentation.age_distribution) {
@@ -483,16 +496,33 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
       localStorage.setItem('cs_step6', JSON.stringify(audienceData))
     }
 
-    // Store a preview of tasks (first respondent) and mark step 7 completed.
-    // Do NOT persist the full `tasks` matrix to localStorage because it can be very large.
-    if (studyDetails.tasks) {
-      // Also store task generation completion flag
+    // When jobId is present, tasks are being generated asynchronously. Do NOT store
+    // tasks from the response (they are stale). Clear cached task data and store job
+    // state so Step7 shows generating state and polls for completion.
+    if (studyDetails.jobId || (studyDetails as any).job_id) {
+      // Clear any stale cached task data
+      localStorage.removeItem('cs_step7_matrix')
+      localStorage.removeItem('cs_step7_tasks')
+
+      const jobId = studyDetails.jobId || (studyDetails as any).job_id
+      const startTime = studyDetails.startTime ?? (studyDetails as any).start_time ?? Date.now()
+      const jobState = {
+        jobId,
+        progress: studyDetails.progress || 0,
+        startTime,
+        status: studyDetails.status ?? (studyDetails as any).status ?? { status: 'processing' },
+        studyId: studyId,
+        timestamp: Date.now()
+      }
+      localStorage.setItem('cs_step7_job_state', JSON.stringify(jobState))
+      console.log('[LoadDraft] jobId present - generation in progress, stored job state:', jobState)
+    } else if (studyDetails.tasks) {
+      // No active job - tasks from response are final. Store preview and mark completed.
       localStorage.setItem('cs_step7_tasks', JSON.stringify({
         completed: true,
         timestamp: Date.now(),
       }))
 
-      // Transform and store a lightweight task preview for UI rendering only
       const taskMatrix = {
         metadata: {
           total_respondents: Object.keys(studyDetails.tasks).length,
@@ -506,25 +536,11 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
       localStorage.setItem('cs_step7_matrix', JSON.stringify(taskMatrix))
     }
 
-    // Store job ID if present in the study details
-    if (studyDetails.jobId) {
-      const jobState = {
-        jobId: studyDetails.jobId,
-        progress: studyDetails.progress || 0,
-        startTime: studyDetails.startTime || Date.now(),
-        status: studyDetails.status || null,
-        studyId: studyId,
-        timestamp: Date.now()
-      }
-      localStorage.setItem('cs_step7_job_state', JSON.stringify(jobState))
-      console.log('[LoadDraft] Stored job state in localStorage:', jobState)
-    }
-
     // NEW: Restore the last saved step based on local completion validation
     // This honors "open the last step which shows completed" request
     let targetStep = 1
 
-    // Helper validation logic mirrored from Stepper.tsx
+    // Helper validation logic mirrored from Stepper.tsx (supports steps 1-9; step 6 = Keys for special creators)
     const isStepCompleted = (stepId: number): boolean => {
       try {
         switch (stepId) {
@@ -615,10 +631,30 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
             return !!(parsed.respondents && parsed.respondents > 0)
           }
           case 7: {
+            // For non-special creators: step 7 is Audience Segmentation (cs_step6)
+            // For special creators: step 7 is Keys (cs_step_keys)
+            if (!isSpecialCreator) {
+              const data = localStorage.getItem('cs_step6')
+              if (!data) return false
+              const parsed = JSON.parse(data)
+              return !!(parsed.respondents && parsed.respondents > 0)
+            }
+            const data = localStorage.getItem('cs_step_keys')
+            if (!data) return false
+            try {
+              const parsed = JSON.parse(data)
+              const arr = Array.isArray(parsed) ? parsed : (parsed?.keys ?? [])
+              if (!Array.isArray(arr)) return false
+              const withName = arr.filter((k: any) => k && typeof k.name === 'string' && String(k.name).trim().length > 0)
+              const productIdOk = Array.isArray(parsed) ? true : !!(parsed?.productId && String(parsed.productId).trim().length > 0)
+              return withName.length > 0 && productIdOk
+            } catch { return false }
+          }
+          case 8: {
             const data = localStorage.getItem('cs_step7_tasks')
             return !!data
           }
-          case 8: {
+          case 9: {
             const data = localStorage.getItem('cs_step8')
             if (!data) return false
             try {
@@ -631,20 +667,18 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
       } catch { return false }
     }
 
-    // Find the highest step where all previous steps are completed
+    // Find the highest step where all previous steps are completed (1-9 for special, 1-5 then 7-9 for non-special)
     // If Step 1 is done, check 2. If 2 is done, check 3. etc.
     // We want the last one that IS completed, OR the next one?
     // User said: "last step which shows completed just open that"
     // So if 1, 2, 3 are done. 4 is not. Open 3.
 
-    // First, verify up to where we have continuous completion
+    const stepOrder = isSpecialCreator ? [1, 2, 3, 4, 5, 6, 7, 8, 9] : [1, 2, 3, 4, 5, 7, 8, 9]
     let maxCompleted = 0
-    for (let i = 1; i <= 8; i++) {
+    for (const i of stepOrder) {
       if (isStepCompleted(i)) {
         maxCompleted = i
       } else {
-        // Gap found, stop checking? 
-        // Usually wizard flow implies sequential completion.
         break
       }
     }
@@ -675,6 +709,8 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
 }
 
 export default function CreateStudyPage() {
+  const { user } = useAuth()
+  const isSpecialCreator = checkIsSpecialCreator(user?.email)
   const [currentStep, setCurrentStep] = useState(1)
   const [studyType, setStudyType] = useState<StudyType>("grid")
   const [isLoadingDraft, setIsLoadingDraft] = useState(false)
@@ -708,7 +744,7 @@ export default function CreateStudyPage() {
         const backupRaw = localStorage.getItem('cs_backup_steps')
         if (backupRaw) {
           const backup = JSON.parse(backupRaw) as Record<string, unknown>
-          const stepKeys = ['cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step5_grid', 'cs_step5_text', 'cs_step5_layer', 'cs_step6']
+          const stepKeys = ['cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step5_grid', 'cs_step5_text', 'cs_step5_layer', 'cs_step_keys', 'cs_step6']
           stepKeys.forEach((k) => {
             if (!localStorage.getItem(k) && backup && Object.prototype.hasOwnProperty.call(backup, k)) {
               const v = backup[k]
@@ -737,6 +773,7 @@ export default function CreateStudyPage() {
             'cs_step5_layer',
             'cs_step5_layer_background',
             'cs_step5_layer_preview_aspect',
+            'cs_step_keys',
             'cs_step6',
             'cs_step7_tasks',
             'cs_step7_matrix',
@@ -791,44 +828,49 @@ export default function CreateStudyPage() {
           console.log('[CreateStudy] Loading draft study for study_id:', parsedStudyId)
 
           // Get the previously loaded study ID to check if we're switching studies
-          const previousStudyId = sessionStorage.getItem('cs_previous_study_id')
+          const previousStudyIdRaw = sessionStorage.getItem('cs_previous_study_id')
+          const previousStudyId = previousStudyIdRaw
+            ? (() => { try { const p = JSON.parse(previousStudyIdRaw); return typeof p === 'string' ? p : String(p) } catch { return previousStudyIdRaw } })()
+            : null
 
-          // If we're switching to a different study, clear the old data first
-          if (previousStudyId && previousStudyId !== studyId) {
-            console.log('[CreateStudy] Switching from study', previousStudyId, 'to study', studyId)
-            const keysToRemove = [
-              'cs_step1',
-              'cs_step2',
-              'cs_step3',
-              'cs_step4',
-              'cs_step4_shuffle',
-              'cs_step5_grid',
-              'cs_step5_text',
-              'cs_step5_hybrid',
-              'cs_step5_hybrid_grid',
-              'cs_step5_hybrid_text',
-              'cs_step5_hybrid_phase_order',
-              'cs_step5_layer',
-              'cs_step5_layer_background',
-              'cs_step5_layer_preview_aspect',
-              'cs_step6',
-              'cs_step7_tasks',
-              'cs_step7_matrix',
-              'cs_step7_job_state',
-              'cs_step7_timer_state',
-              'cs_backup_steps',
-              'cs_flash_message',
-              'cs_step8'
-            ]
+          // If we're switching to a different study, clear the old step data (but preserve job state - see below)
+          if (previousStudyId && parsedStudyId && previousStudyId !== parsedStudyId) {
+            console.log('[CreateStudy] Switching from study', previousStudyId, 'to study', parsedStudyId)
+          const keysToRemove = [
+            'cs_step1',
+            'cs_step2',
+            'cs_step3',
+            'cs_step4',
+            'cs_step4_shuffle',
+            'cs_step5_grid',
+            'cs_step5_text',
+            'cs_step5_hybrid',
+            'cs_step5_hybrid_grid',
+            'cs_step5_hybrid_text',
+            'cs_step5_hybrid_phase_order',
+            'cs_step5_layer',
+            'cs_step5_layer_background',
+            'cs_step5_layer_preview_aspect',
+            'cs_step_keys',
+            'cs_step6',
+            'cs_step7_tasks',
+            'cs_step7_matrix',
+            'cs_step7_timer_state',
+            'cs_backup_steps',
+            'cs_flash_message',
+            'cs_step8'
+          ]
             keysToRemove.forEach(key => {
               try {
                 localStorage.removeItem(key)
               } catch { }
             })
+            // Do NOT clear cs_step7_job_state when switching - preserve it so when returning to Study A
+            // after opening Study B, we can resume polling. Step7 and loadDraftStudyData handle the rest.
           }
 
           try {
-            await loadDraftStudyData(parsedStudyId, isResumingDraft)
+            await loadDraftStudyData(parsedStudyId, isResumingDraft, isSpecialCreator)
 
             // Verify that key data was actually written to localStorage
             const step1Data = localStorage.getItem('cs_step1')
@@ -836,10 +878,10 @@ export default function CreateStudyPage() {
               throw new Error('Failed to load study data: Basic details not found')
             }
 
-            console.log('[CreateStudy] Successfully loaded draft study data for study_id:', studyId)
+            console.log('[CreateStudy] Successfully loaded draft study data for study_id:', parsedStudyId)
 
-            // Store the current study ID so we can detect switches next time
-            sessionStorage.setItem('cs_previous_study_id', studyId)
+            // Store the current study ID so we can detect switches next time (normalized for comparison)
+            sessionStorage.setItem('cs_previous_study_id', parsedStudyId)
 
             // Clear the flag
             localStorage.removeItem('cs_resuming_draft')
@@ -874,6 +916,7 @@ export default function CreateStudyPage() {
             'cs_step5_layer',
             'cs_step5_layer_background',
             'cs_step5_layer_preview_aspect',
+            'cs_step_keys',
             'cs_step6',
             'cs_step7_tasks',
             'cs_step7_matrix',
@@ -909,11 +952,14 @@ export default function CreateStudyPage() {
             if (v?.type === 'layer' || v?.type === 'grid' || v?.type === 'text' || v?.type === 'hybrid') setStudyType(v.type)
           }
 
-          // Hydrate current step
+          // Hydrate current step (1-9 for special creator, 1-5 or 7-9 for non-special)
           const savedStep = localStorage.getItem('cs_current_step')
           if (savedStep) {
             const stepNum = Number(savedStep)
-            if (!Number.isNaN(stepNum) && stepNum >= 1 && stepNum <= 8) setCurrentStep(stepNum)
+            if (!Number.isNaN(stepNum) && stepNum >= 1 && stepNum <= 9) {
+              if (stepNum === 6 && !isSpecialCreator) setCurrentStep(7)
+              else setCurrentStep(stepNum)
+            }
           }
         }
       } catch (error) {
@@ -931,10 +977,15 @@ export default function CreateStudyPage() {
     try { localStorage.setItem('cs_current_step', String(currentStep)) } catch { }
   }, [currentStep])
 
+  // Non-special creators must not land on step 6 (Keys)
+  useEffect(() => {
+    if (!isSpecialCreator && currentStep === 6) setCurrentStep(7)
+  }, [isSpecialCreator, currentStep])
+
   // Periodically snapshot all step keys into a backup to survive accidental clears
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const stepKeys = ['cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step5_grid', 'cs_step5_text', 'cs_step5_layer', 'cs_step6']
+    const stepKeys = ['cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step5_grid', 'cs_step5_text', 'cs_step5_layer', 'cs_step_keys', 'cs_step6']
     const writeBackup = () => {
       try {
         const snapshot: Record<string, unknown> = {}
@@ -989,7 +1040,7 @@ export default function CreateStudyPage() {
                   )
                 } catch { return null }
               })()}
-              <Stepper currentStep={currentStep} onStepChange={setCurrentStep} />
+              <Stepper currentStep={currentStep} onStepChange={setCurrentStep} isSpecialCreator={isSpecialCreator} />
             </div>
 
             <div className="px-4 sm:px-6 lg:px-8 py-6">
@@ -1007,22 +1058,29 @@ export default function CreateStudyPage() {
                 />
               </div>
               <div className={currentStep === 3 ? "block" : "hidden"} aria-hidden={currentStep !== 3}>
-                <Step3RatingScale key={`step3-${isLoadingDraft}`} onNext={() => setCurrentStep(4)} onBack={() => setCurrentStep(2)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
+                <Step3RatingScale key={`step3-${isLoadingDraft}`} onNext={() => setCurrentStep(4)} onBack={() => setCurrentStep(2)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} isSpecialCreator={isSpecialCreator} />
               </div>
               <div className={currentStep === 4 ? "block" : "hidden"} aria-hidden={currentStep !== 4}>
                 <Step4ClassificationQuestions key={`step4-${isLoadingDraft}`} onNext={() => setCurrentStep(5)} onBack={() => setCurrentStep(3)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
               </div>
               <div className={currentStep === 5 ? "block" : "hidden"} aria-hidden={currentStep !== 5}>
-                <Step5StudyStructure key={`step5-${isLoadingDraft}`} onNext={() => setCurrentStep(6)} onBack={() => setCurrentStep(4)} mode={studyType} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
+                <Step5StudyStructure key={`step5-${isLoadingDraft}`} onNext={() => setCurrentStep(isSpecialCreator ? 6 : 7)} onBack={() => setCurrentStep(4)} mode={studyType} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
               </div>
               <div className={currentStep === 6 ? "block" : "hidden"} aria-hidden={currentStep !== 6}>
-                <Step6AudienceSegmentation key={`step6-${isLoadingDraft}`} onNext={() => setCurrentStep(7)} onBack={() => setCurrentStep(5)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
+                <Step6AudienceSegmentation key={`step6-audience-${isLoadingDraft}`} onNext={() => setCurrentStep(isSpecialCreator ? 7 : 8)} onBack={() => setCurrentStep(5)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} lastStepNumber={6} />
               </div>
               <div className={currentStep === 7 ? "block" : "hidden"} aria-hidden={currentStep !== 7}>
-                <Step7TaskGeneration key={`step7-${isLoadingDraft}`} active={currentStep === 7} onNext={() => setCurrentStep(8)} onBack={() => setCurrentStep(6)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
+                {isSpecialCreator ? (
+                  <StepKeys key={`step7-keys-${isLoadingDraft}`} onNext={() => setCurrentStep(8)} onBack={() => setCurrentStep(6)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
+                ) : (
+                  <Step6AudienceSegmentation key={`step7-audience-${isLoadingDraft}`} onNext={() => setCurrentStep(8)} onBack={() => setCurrentStep(5)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} lastStepNumber={6} />
+                )}
               </div>
               <div className={currentStep === 8 ? "block" : "hidden"} aria-hidden={currentStep !== 8}>
-                <Step8LaunchPreview key={`step8-${isLoadingDraft}`} onBack={() => setCurrentStep(7)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} userRole={userRole} />
+                <Step7TaskGeneration key={`step7-${isLoadingDraft}`} active={currentStep === 8} onNext={() => setCurrentStep(9)} onBack={() => setCurrentStep(7)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} lastStepNumber={isSpecialCreator ? 8 : 7} />
+              </div>
+              <div className={currentStep === 9 ? "block" : "hidden"} aria-hidden={currentStep !== 9}>
+                <Step8LaunchPreview key={`step8-${isLoadingDraft}`} onBack={() => setCurrentStep(8)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} userRole={userRole} lastStepNumber={isSpecialCreator ? 9 : 8} isSpecialCreator={isSpecialCreator} />
               </div>
             </div>
           </div>

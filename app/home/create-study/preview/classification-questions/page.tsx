@@ -22,18 +22,24 @@ export default function PreviewClassificationQuestions() {
       try {
         const raw = localStorage.getItem('cs_step4')
         const arr = raw ? JSON.parse(raw) : []
+        const shouldShuffle = localStorage.getItem('cs_step4_shuffle') === 'true'
+
         let mapped: ClassificationQuestion[] = Array.isArray(arr)
-          ? arr.map((q: any) => ({
-            id: q.id,
-            text: q.title || q.text,
-            required: q.required !== false,
-            options: (q.options || []).map((o: any) => ({ id: o.id, text: o.text })),
-            selected: null
-          }))
+          ? arr.map((q: any) => {
+              let opts = (q.options || []).map((o: any) => ({ id: o.id, text: o.text }))
+              if (shouldShuffle && opts.length > 0) {
+                opts = [...opts].sort(() => Math.random() - 0.5)
+              }
+              return {
+                id: q.id,
+                text: q.title || q.text,
+                required: q.required !== false,
+                options: opts,
+                selected: null
+              }
+            })
           : []
 
-        // Shuffle if enabled in localStorage
-        const shouldShuffle = localStorage.getItem('cs_step4_shuffle') === 'true'
         if (shouldShuffle) {
           mapped = [...mapped].sort(() => Math.random() - 0.5)
         }
