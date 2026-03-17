@@ -50,7 +50,7 @@ interface Step6AudienceSegmentationProps {
 }
 
 export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isReadOnly = false, lastStepNumber = 6 }: Step6AudienceSegmentationProps) {
-	const [respondents, setRespondents] = useState<number | ''>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); return typeof o.respondents === 'number' ? o.respondents : '' } } catch { }; return '' })
+	const [respondents, setRespondents] = useState<number | ''>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); if (typeof o.respondents === 'number') return Math.min(1500, Math.max(1, o.respondents)); return '' } } catch { }; return '' })
 	const [countryQuery, setCountryQuery] = useState("")
 	const [countries, setCountries] = useState<string[]>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); return Array.isArray(o.countries) ? o.countries : [] } } catch { }; return [] })
 	const [genderMale, setGenderMale] = useState<number | ''>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); return typeof o.genderMale === 'number' ? o.genderMale : 50 } } catch { }; return 50 })
@@ -201,16 +201,17 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 					<Input
 						type="number"
 						min={1}
+						max={1500}
 						value={respondents}
 						onChange={(e) => {
 							const v = e.target.value
 							if (v === '') { setRespondents(''); return }
-							const n = Math.max(1, Number(v))
+							const n = Math.max(1, Math.min(1500, Number(v)))
 							setRespondents(Number.isNaN(n) ? 1 : n)
 						}}
 						className="rounded-lg"
 					/>
-					<div className="mt-1 text-xs text-gray-500">Minimum 1 respondent.</div>
+					<div className="mt-1 text-xs text-gray-500">Between 1 and 1500 respondents.</div>
 				</div>
 
 				<div>
@@ -337,7 +338,7 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 								last_step: lastStepNumber,
 								audience_segmentation: {
 
-									number_of_respondents: Number(respondents || 0),
+									number_of_respondents: Math.min(1500, Math.max(1, Number(respondents || 0))),
 									country: Array.isArray(countries) ? countries.join(', ') : String(countries || ''),
 									gender_distribution: { male: Number(genderMale || 0), female: Number(genderFemale || 0) },
 									age_distribution,
