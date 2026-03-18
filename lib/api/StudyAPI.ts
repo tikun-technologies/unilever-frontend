@@ -1358,7 +1358,173 @@ export async function pollJobStatus(
   }
 }
 
+/**
+ * Get WebSocket URL from API base URL.
+ * Converts https:// to wss:// and http:// to ws://
+ */
+function getWebSocketUrl(): string | null {
+  if (!API_BASE_URL) return null
+  try {
+    const url = new URL(API_BASE_URL)
+    const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${wsProtocol}//${url.host}${url.pathname}`
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get access token from localStorage for WebSocket auth.
+ */
+function getAccessTokenForWS(): string | null {
+  try {
+    if (typeof window === 'undefined') return null
+    const raw = localStorage.getItem('tokens')
+    if (!raw) return null
+    const tokens = JSON.parse(raw)
+    return tokens?.access_token || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Subscribe to task generation progress via WebSocket with fallback to polling.
+ * 
+ * @param jobId - The job ID to subscribe to
+ * @param onProgress - Callback for progress updates (progress: 0-100, message: string)
+ * @param onComplete - Callback when job completes successfully
+ * @param onError - Callback when job fails
+ * @param signal - Optional AbortSignal to cancel the subscription
+ * @returns Unsubscribe function
+ */
+export function subscribeTaskGenerationStatus(
+  jobId: string,
+  onProgress: (status: JobStatus) => void,
+  onComplete: () => void,
+  onError: (error: string) => void,
+  signal?: AbortSignal
+): () => void {
+  let stopped = false
+  let ws: WebSocket | null = null
+  let fallbackPolling = false
+
+  const cleanup = () => {
+    stopped = true
+    if (ws) {
+      try { ws.close() } catch { /* ignore */ }
+      ws = null
+    }
+  }
+
+  // Handle abort signal
+  if (signal) {
+    signal.addEventListener('abort', cleanup, { once: true })
+  }
+
+  const startPollingFallback = async () => {
+    if (stopped || fallbackPolling) return
+    fallbackPolling = true
+    console.log('[WS] Falling back to polling for job:', jobId)
+    
+    try {
+      const finalStatus = await pollJobStatus(jobId, onProgress, 5000, signal)
+      if (stopped) return
+      
+      if (finalStatus.status === 'completed') {
+        onComplete()
+      } else if (finalStatus.status === 'failed') {
+        onError(finalStatus.error || 'Job failed')
+      }
+    } catch (e) {
+      if (stopped) return
+      if (e instanceof DOMException && e.name === 'AbortError') return
+      onError((e as Error).message || 'Polling failed')
+    }
+  }
+
+  const startWebSocket = () => {
+    if (stopped) return
+
+    const wsBaseUrl = getWebSocketUrl()
+    const token = getAccessTokenForWS()
+
+    if (!wsBaseUrl || !token) {
+      console.log('[WS] No WebSocket URL or token, falling back to polling')
+      startPollingFallback()
+      return
+    }
+
+    try {
+      const wsUrl = `${wsBaseUrl}/ws/task-generation/${encodeURIComponent(jobId)}?token=${encodeURIComponent(token)}`
+      console.log('[WS] Connecting to:', wsUrl.replace(token, '***'))
+      ws = new WebSocket(wsUrl)
+
+      ws.onopen = () => {
+        console.log('[WS] Connected for job:', jobId)
+      }
+
+      ws.onmessage = (ev) => {
+        try {
+          const message = JSON.parse(ev.data)
+          
+          if (message.type === 'progress') {
+            onProgress({
+              job_id: jobId,
+              status: 'processing',
+              progress: message.progress,
+              message: message.message
+            })
+          } else if (message.type === 'completed') {
+            console.log('[WS] Job completed:', jobId)
+            onProgress({
+              job_id: jobId,
+              status: 'completed',
+              progress: 100,
+              message: message.message || 'Task generation completed'
+            })
+            onComplete()
+            cleanup()
+          } else if (message.type === 'failed') {
+            console.log('[WS] Job failed:', jobId, message.error)
+            onError(message.error || message.message || 'Job failed')
+            cleanup()
+          }
+          // Ignore ping messages
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      ws.onerror = (e) => {
+        console.log('[WS] Error, falling back to polling:', e)
+        cleanup()
+        if (!stopped) startPollingFallback()
+      }
+
+      ws.onclose = (event) => {
+        console.log('[WS] Connection closed:', event.code, event.reason)
+        ws = null
+        
+        // If connection was rejected (auth error or not found), fall back to polling
+        if (!stopped && !fallbackPolling && event.code !== 1000) {
+          startPollingFallback()
+        }
+      }
+    } catch (e) {
+      console.error('[WS] Failed to create WebSocket:', e)
+      startPollingFallback()
+    }
+  }
+
+  // Start with WebSocket (preferred), will fall back automatically
+  startWebSocket()
+
+  return cleanup
+}
+
 // Enhanced task generation with background job support
+// Uses WebSocket for real-time progress updates with automatic fallback to polling
 // Optional signal allows cancellation when component unmounts
 export async function generateTasksWithPolling(
   payload: TaskGenerationPayload,
@@ -1397,34 +1563,60 @@ export async function generateTasksWithPolling(
         }
       }
 
-      console.log('🔄 Background job started, polling for completion...')
-      const finalStatus = await pollJobStatus(effectiveJobId, onProgress, 5000, signal) // 5 second interval
-      if (finalStatus.status === 'completed') {
-        // Fetch the final result from result endpoint
-        console.log('🔄 Job completed, fetching final result...')
-        const result = await getTaskGenerationResult(effectiveJobId)
-        console.log('✅ Final result received:', {
-          hasTasks: !!(result?.tasks),
-          hasMetadata: !!(result?.metadata),
-          taskCount: result?.tasks ? Object.keys(result.tasks).length : 0,
-          respondents: result?.metadata?.number_of_respondents,
-          study_id: result?.study_id || result?.metadata?.study_id
-        })
+      console.log('🔄 Background job started, using WebSocket for progress updates...')
+      
+      // Use WebSocket subscription (with automatic fallback to polling)
+      return new Promise((resolve, reject) => {
+        const unsubscribe = subscribeTaskGenerationStatus(
+          effectiveJobId,
+          (status) => {
+            // Forward progress updates to the caller
+            if (onProgress) onProgress(status)
+          },
+          async () => {
+            // Job completed - fetch the final result
+            try {
+              console.log('🔄 Job completed, fetching final result...')
+              const result = await getTaskGenerationResult(effectiveJobId)
+              console.log('✅ Final result received:', {
+                hasTasks: !!(result?.tasks),
+                hasMetadata: !!(result?.metadata),
+                taskCount: result?.tasks ? Object.keys(result.tasks).length : 0,
+                respondents: result?.metadata?.number_of_respondents,
+                study_id: result?.study_id || result?.metadata?.study_id
+              })
 
-        // Store study_id from result if available
-        const studyId = result?.study_id || result?.metadata?.study_id
-        if (studyId) {
-          console.log('[API] Storing study_id from task generation result:', studyId)
-          try {
-            localStorage.setItem('cs_study_id', JSON.stringify(studyId))
-          } catch (storageError) {
-            console.warn('Failed to store study_id:', storageError)
-          }
+              // Store study_id from result if available
+              const studyId = result?.study_id || result?.metadata?.study_id
+              if (studyId) {
+                console.log('[API] Storing study_id from task generation result:', studyId)
+                try {
+                  localStorage.setItem('cs_study_id', JSON.stringify(studyId))
+                } catch (storageError) {
+                  console.warn('Failed to store study_id:', storageError)
+                }
+              }
+
+              resolve(result)
+            } catch (e) {
+              reject(e)
+            }
+          },
+          (error) => {
+            // Job failed
+            reject(new Error(error))
+          },
+          signal
+        )
+
+        // Handle abort signal
+        if (signal) {
+          signal.addEventListener('abort', () => {
+            unsubscribe()
+            reject(new DOMException('Aborted', 'AbortError'))
+          }, { once: true })
         }
-
-        return result
-      }
-      return finalStatus
+      })
     }
 
     // If no job_id, return immediate result
