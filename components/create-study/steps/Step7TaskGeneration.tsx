@@ -837,6 +837,90 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     }
   }, [])
 
+  // Handle page visibility change - reconnect WebSocket when tab becomes visible
+  useEffect(() => {
+    if (!active) return
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return
+      
+      console.log('[Step7] Tab became visible, checking if reconnection needed...')
+      
+      // Check if we have an active job that should be polling
+      const existingJobState = loadJobState()
+      if (!existingJobState) {
+        console.log('[Step7] No active job state found')
+        return
+      }
+      
+      const jobId = existingJobState.jobId || existingJobState.status?.job_id
+      if (!jobId) {
+        console.log('[Step7] No job ID in state')
+        return
+      }
+      
+      // Verify job belongs to current study
+      const jobStudyId = existingJobState.studyId
+      let currentStudyId: string | null = null
+      try {
+        const raw = localStorage.getItem('cs_study_id')
+        currentStudyId = raw ? (() => { try { const p = JSON.parse(raw); return typeof p === 'string' ? p : String(p) } catch { return raw } })() : null
+      } catch { /* ignore */ }
+      
+      if (jobStudyId && currentStudyId && jobStudyId !== currentStudyId) {
+        console.log('[Step7] Job belongs to different study, skipping reconnect')
+        return
+      }
+      
+      // If not already polling/resuming and job is still active, check and resume
+      if (!isPolling && !isResuming.current) {
+        const status = existingJobState.status?.status || existingJobState.status
+        const isActiveJob = status === 'processing' || status === 'pending'
+        
+        if (isActiveJob) {
+          console.log('[Step7] Tab visible with active job, checking completion and resuming if needed...')
+          
+          // First check if job completed while tab was hidden
+          checkAndFetchCompletedJob(jobId).then((isCompleted) => {
+            if (isCompleted) {
+              console.log('[Step7] Job completed while tab was hidden')
+              return
+            }
+            
+            // Job still running, resume polling
+            if (!isPolling && !isResuming.current) {
+              console.log('[Step7] Resuming job polling after tab visibility change')
+              setJobStatus(existingJobState.status)
+              setJobStartTime(existingJobState.startTime)
+              setHighestProgress(existingJobState.status?.progress ?? existingJobState.progress ?? 0)
+              setIsPolling(true)
+              
+              const ac = new AbortController()
+              abortControllerRef.current = ac
+              
+              const savedTimer = loadTimerState()
+              if (savedTimer) {
+                setCountdownSeconds(savedTimer.seconds)
+                countdownRef.current = savedTimer.seconds
+                timerInitialized.current = true
+              }
+              
+              resumeJobPolling(jobId, ac.signal)
+            }
+          }).catch((err) => {
+            console.log('[Step7] Error checking job on visibility change:', err)
+          })
+        }
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [active, isPolling])
+
   // Show timer after 1 second delay to prevent flickering
   useEffect(() => {
     if (!active) {
