@@ -504,8 +504,8 @@ export default function StudyManagementPage() {
                 <span className="text-gray-700">{createdDisplay}</span>
               </div>
             </div>
-            {/* AI agentic respondents CTA */}
-            {study.status === "completed" ? (
+            {/* AI agentic respondents CTA — only enabled when study is active */}
+            {study.status !== "active" ? (
               <div
                 className="mx-6 mb-4 block rounded-xl p-4 transition-all duration-300 border border-gray-200 bg-gray-50 opacity-70 cursor-not-allowed"
                 aria-disabled="true"
@@ -516,7 +516,7 @@ export default function StudyManagementPage() {
                   </div>
                   <div>
                     <p className="font-medium text-gray-500 text-sm">Don&apos;t have respondents? We&apos;ve got you.</p>
-                    <p className="text-gray-400 text-xs mt-0.5">AI agentic respondents — not available for completed studies.</p>
+                    <p className="text-gray-400 text-xs mt-0.5">AI agentic respondents — available for active studies only.</p>
                   </div>
                   <ChevronDown className="w-4 h-4 text-gray-300 ml-auto -rotate-90 shrink-0" aria-hidden />
                 </div>

@@ -13,7 +13,7 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import { DateCalendar } from '@mui/x-date-pickers/DateCalendar'
 import dayjs from 'dayjs'
-import { updateUserPersonalInfo } from "@/lib/api/ResponseAPI"
+import { updateUserPersonalInfo, checkPanelistParticipation } from "@/lib/api/ResponseAPI"
 import { getPanelists, searchPanelists, addPanelist, assignPanelistToSession, Panelist } from "@/lib/api/PanelistAPI"
 import { cn } from "@/lib/utils"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
@@ -263,8 +263,11 @@ export default function PersonalInformationPage() {
       // Update user personal info via API
       updateUserPersonalInfo(sid, personalInfo).catch(() => { })
 
-      // Navigate to next page
-      router.push(`/participate/${params?.id}/classification-questions`)
+      // Special creator (e.g. Unilever): show fragrance question page before classification
+      const nextPath = isSpecialCreator
+        ? `/participate/${params?.id}/fragrance-like`
+        : `/participate/${params?.id}/classification-questions`
+      router.push(nextPath)
     } catch (error) {
       alert('Failed to save personal information. Please try again.')
       setIsSubmitting(false)
@@ -443,6 +446,8 @@ function PanelistSelection({
   const [isSearching, setIsSearching] = useState(false)
   const [selectedPanelist, setSelectedPanelist] = useState<Panelist | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [participationChecking, setParticipationChecking] = useState(false)
+  const [participationError, setParticipationError] = useState<string | null>(null)
 
   // Inline Add form state
   const [showAddForm, setShowAddForm] = useState(false)
@@ -462,6 +467,34 @@ function PanelistSelection({
   useEffect(() => {
     fetchInitialPanelists(creatorEmail)
   }, [creatorEmail])
+
+  // When user selects a panelist, check if they have already participated in this study (main participate only)
+  useEffect(() => {
+    if (!selectedPanelist || !studyId) {
+      setParticipationError(null)
+      return
+    }
+    let cancelled = false
+    setParticipationError(null)
+    setParticipationChecking(true)
+    checkPanelistParticipation(studyId, selectedPanelist.id)
+      .then((data) => {
+        if (cancelled) return
+        if (data.participated && data.message) {
+          setParticipationError(data.message)
+        } else {
+          setParticipationError(null)
+        }
+      })
+      .catch(() => {
+        if (cancelled) return
+        setParticipationError("Could not verify panelist. Please try again.")
+      })
+      .finally(() => {
+        if (!cancelled) setParticipationChecking(false)
+      })
+    return () => { cancelled = true }
+  }, [studyId, selectedPanelist?.id])
 
   const fetchInitialPanelists = async (email: string) => {
     setLoading(true)
@@ -558,11 +591,13 @@ function PanelistSelection({
 
   const handleNext = async () => {
     if (!selectedPanelist || !sessionId) return
+    if (participationError) return
 
     try {
       setIsSubmitting(true)
       await assignPanelistToSession(sessionId, selectedPanelist.id)
-      router.push(`/participate/${studyId}/classification-questions`)
+      // Special creator: fragrance question page before classification
+      router.push(`/participate/${studyId}/fragrance-like`)
     } catch (error) {
       console.error("Failed to assign panelist:", error)
       alert("Failed to assign panelist. Please try again.")
@@ -792,6 +827,13 @@ function PanelistSelection({
             )}
           </div>
 
+          {/* Panelist already participated message (main participate only) */}
+          {participationError && (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {participationError}
+            </div>
+          )}
+
           {/* Footer Actions */}
           <div className="pt-6 border-t border-gray-100 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
             <p className="text-[11px] text-gray-400 font-medium min-w-0 flex-1 break-words">
@@ -803,16 +845,23 @@ function PanelistSelection({
             </p>
             <Button
               onClick={handleNext}
-              disabled={!selectedPanelist || isSubmitting}
+              disabled={!selectedPanelist || isSubmitting || participationChecking || !!participationError}
               className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-10 h-11 text-sm font-bold transition-all disabled:bg-gray-200 disabled:text-gray-400 shadow-lg shadow-blue-500/10 flex items-center justify-center shrink-0"
-              style={selectedPanelist ? { backgroundColor: primaryBlue } : {}}
+              style={selectedPanelist && !participationError ? { backgroundColor: primaryBlue } : {}}
             >
               {isSubmitting ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                   Continuing...
                 </>
-              ) : "Continue Study"}
+              ) : participationChecking ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                  Checking...
+                </>
+              ) : (
+                "Continue Study"
+              )}
             </Button>
           </div>
         </div>

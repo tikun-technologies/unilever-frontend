@@ -1,3 +1,7 @@
+/** Reserved classification question_id for "Do you like this fragrance?" (special creator / Unilever). Shown on its own page before classification; exclude from main classification list. */
+export const FRAGRANCE_QUESTION_ID = "Q0"
+export const FRAGRANCE_QUESTION_TEXT = "Do you like this fragrance?"
+
 export const SPECIAL_CREATOR_EMAILS = [
     
     'dlovej009@gmail.com',

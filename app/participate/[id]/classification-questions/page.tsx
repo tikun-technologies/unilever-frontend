@@ -5,6 +5,7 @@ import { DashboardHeader } from "@/app/home/components/dashboard-header"
 import { useState, useEffect, useRef } from "react"
 import { submitClassificationAnswers } from "@/lib/api/ResponseAPI"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
+import { FRAGRANCE_QUESTION_ID } from "@/lib/config/specialCreators"
 
 interface ClassificationQuestion {
   id: string
@@ -58,8 +59,12 @@ export default function ClassificationQuestionsPage() {
           if (study.classification_questions && Array.isArray(study.classification_questions)) {
             const studyInfo = study.study_info || study
             const shouldShuffle = studyInfo.toggle_shuffle === true || studyInfo.toggle_shuffle === "true"
+            // Exclude fragrance question (Q0) — shown on its own page for special creators
+            const classificationOnly = study.classification_questions.filter(
+              (q: any) => (q.question_id || q.id) !== FRAGRANCE_QUESTION_ID
+            )
 
-            let formattedQuestions: ClassificationQuestion[] = study.classification_questions.map((q: any) => {
+            let formattedQuestions: ClassificationQuestion[] = classificationOnly.map((q: any) => {
               let opts = q.answer_options?.map((opt: any) => ({ id: opt.id, text: opt.text })) || []
               if (shouldShuffle && opts.length > 0) {
                 opts = [...opts].sort(() => Math.random() - 0.5)

@@ -179,6 +179,36 @@ export async function startStudy(studyId: string): Promise<StartStudyResponse> {
 	return data
 }
 
+/** Response from check-panelist-participation API */
+export interface CheckPanelistParticipationResponse {
+	ok: boolean
+	participated: boolean
+	message?: string | null
+}
+
+/**
+ * Check if a panelist has already participated in this study (main participate only).
+ * Call when user selects a panelist ID on the panelist page; if participated, show message and block continue.
+ */
+export async function checkPanelistParticipation(
+	studyId: string,
+	panelistId: string
+): Promise<CheckPanelistParticipationResponse> {
+	const params = new URLSearchParams({
+		study_id: studyId,
+		panelist_id: panelistId.trim(),
+	})
+	const response = await fetch(
+		`${API_BASE_URL}/responses/check-panelist-participation?${params}`,
+		{ method: 'GET', headers: { 'Content-Type': 'application/json' } }
+	)
+	if (!response.ok) {
+		const err = await response.json().catch(() => ({}))
+		throw new Error(err?.detail || `Check failed: ${response.status}`)
+	}
+	return response.json()
+}
+
 /**
  * Get respondent-specific study details
  * @param respondentId - The respondent ID

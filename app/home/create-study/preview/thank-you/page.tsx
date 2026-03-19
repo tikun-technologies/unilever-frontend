@@ -11,7 +11,6 @@ export default function ThankYouPage() {
   const [responseTimes, setResponseTimes] = useState<Record<string, number>>({})
   const [completionTime, setCompletionTime] = useState<string>("")
   // const [studyName, setStudyName] = useState<string>("")
-  const [responseId, setResponseId] = useState<string>("")
   const [isHydrated, setIsHydrated] = useState(false)
   const [redirecting, setRedirecting] = useState(false)
   const [countdown, setCountdown] = useState<number | null>(null)
@@ -41,9 +40,6 @@ export default function ThankYouPage() {
       hour12: true
     })
     setCompletionTime(formattedTime)
-
-    // Generate a lightweight preview response id (not stored)
-    try { setResponseId(Math.random().toString(36).substring(2, 8).toUpperCase()) } catch { }
 
     // If redirected id exists, schedule redirect 2s after thank-you shows
     try {
@@ -178,11 +174,7 @@ export default function ThankYouPage() {
             <h2 className="text-base sm:text-lg font-semibold text-gray-900 mb-3">
               Response Summary
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div className="bg-blue-100 rounded-full px-4 py-2 text-center">
-                <div className="text-xs text-blue-600 font-medium">Response ID</div>
-                <div className="text-sm font-semibold text-blue-800">{responseId}</div>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="bg-blue-100 rounded-full px-4 py-2 text-center">
                 <div className="text-xs text-blue-600 font-medium">Completed At</div>
                 <div className="text-sm font-semibold text-blue-800">{completionTime}</div>
