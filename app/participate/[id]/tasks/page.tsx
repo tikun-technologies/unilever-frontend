@@ -552,10 +552,10 @@ export default function TasksPage() {
 
   return (
     <div
-      className="h-[100dvh] lg:min-h-screen lg:bg-white overflow-hidden lg:overflow-visible"
+      className="h-[100dvh] lg:h-screen lg:bg-white overflow-hidden"
       style={{ paddingTop: "max(10px, env(safe-area-inset-top))" }}
     >
-      <div className={`max-w-6xl mx-auto ${isBgLandscape ? 'px-0 sm:px-6 lg:px-8' : 'px-4 sm:px-6 lg:px-8'} pt-2 sm:pt-12 md:pt-14 pb-16`}>
+      <div className={`max-w-6xl mx-auto lg:h-full ${isBgLandscape ? 'px-0 sm:px-6 lg:px-8' : 'px-4 sm:px-6 lg:px-8'} pt-2 sm:pt-12 md:pt-14 lg:pt-2 pb-16 lg:pb-2 lg:flex lg:flex-col`}>
         {isFetching ? (
           <div className="p-10 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgba(38,116,186,1)] mx-auto mb-4" />
@@ -897,28 +897,28 @@ export default function TasksPage() {
             </div>
 
             {/* Desktop Layout */}
-            <div className="hidden lg:block">
-              <div className="flex items-start justify-between text-sm text-gray-600 mb-4 gap-4">
-                <div className="text-xl font-semibold text-gray-800 flex-1 leading-tight break-words hyphens-auto max-w-[calc(100%-5rem)]">
+            <div className="hidden lg:flex lg:flex-col lg:flex-1 lg:min-h-0 lg:overflow-hidden">
+              <div className="flex items-start justify-between text-sm text-gray-600 mb-2 gap-4 flex-shrink-0">
+                <div className="text-lg font-semibold text-gray-800 flex-1 leading-tight break-words hyphens-auto max-w-[calc(100%-5rem)] line-clamp-2">
                   {mainQuestion || `Question ${Math.min(currentTaskIndex + 1, totalTasks)}`}
                 </div>
               </div>
-              <div className="h-1 rounded bg-gray-200 overflow-hidden">
+              <div className="h-1 rounded bg-gray-200 overflow-hidden flex-shrink-0">
                 <div className="h-full bg-[rgba(38,116,186,1)] transition-all" style={{ width: `${progressPct}%` }} />
               </div>
 
-              <div className="mt-4 bg-white border rounded-xl shadow-sm p-3 sm:p-4">
+              <div className="mt-2 bg-white border rounded-xl shadow-sm p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
                 {isLoading ? (
-                  <div className="p-6 sm:p-10 text-center">
+                  <div className="p-6 text-center flex-1 flex flex-col items-center justify-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgba(38,116,186,1)] mx-auto mb-4"></div>
-                    <h2 className="text-xl sm:text-2xl font-semibold text-gray-900">Processing your responses...</h2>
+                    <h2 className="text-xl font-semibold text-gray-900">Processing your responses...</h2>
                     <p className="mt-2 text-sm text-gray-600">Please wait while we save your study data.</p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="flex flex-col flex-1 min-h-0">
                     {task?.type === "layer" ? (
-                      <div className="flex justify-center">
-                        <div ref={previewContainerRefDesktop} className="relative w-full max-w-lg aspect-square overflow-hidden">
+                      <div className="flex justify-center flex-1 min-h-0 overflow-hidden">
+                        <div ref={previewContainerRefDesktop} className="relative w-full max-w-lg h-full max-h-[45vh] lg:max-h-[55vh] xl:max-h-[60vh] overflow-hidden" style={{ aspectRatio: '1/1' }}>
                           <div className="relative w-full h-full">
                             {backgroundUrl && (
                               <img
@@ -1019,14 +1019,15 @@ export default function TasksPage() {
                         </div>
                       </div>
                     ) : task?.type === "text" ? (
-                      <div className="w-full h-full flex flex-col items-center justify-center overflow-hidden relative gap-4 p-6 min-h-[400px]">
+                      <div className="w-full flex-1 min-h-0 flex flex-col items-center justify-center overflow-hidden relative gap-2 p-4 max-h-[45vh] lg:max-h-[55vh] xl:max-h-[60vh]">
                         {task?.gridUrls?.map((statement, idx) => (
                           <div
                             key={idx}
-                            className="w-full flex-1 flex items-center justify-center text-center p-6 rounded-xl shadow-sm transition-colors"
+                            className="w-full flex items-center justify-center text-center px-4 py-3 rounded-xl shadow-sm transition-colors bg-gray-50"
                             style={{
-                              minHeight: '80px',
-                              fontSize: 'clamp(16px, 1.5vw, 24px)',
+                              height: `${100 / (task?.gridUrls?.length || 1)}%`,
+                              maxHeight: '120px',
+                              fontSize: 'clamp(14px, 1.2vw, 20px)',
                               overflowWrap: 'break-word',
                               wordBreak: 'break-word'
                             }}
@@ -1045,7 +1046,7 @@ export default function TasksPage() {
 
                         if (urls.length <= 2) {
                           return (
-                            <div className="flex justify-center items-center w-full aspect-square max-w-lg mx-auto relative">
+                            <div className="flex justify-center items-center w-full flex-1 min-h-0 max-w-lg mx-auto relative max-h-[45vh] lg:max-h-[55vh] xl:max-h-[60vh]" style={{ aspectRatio: '1/1' }}>
                               {backgroundUrl && (
                                 <img
                                   src={getCachedUrl(backgroundUrl) || "/placeholder.svg"}
@@ -1057,28 +1058,28 @@ export default function TasksPage() {
                                   style={{ zIndex: 0 }}
                                 />
                               )}
-                              <div className="grid grid-cols-2 gap-4 w-full relative" style={{ zIndex: 1 }}>
-                                <div className="aspect-square w-full min-w-0 overflow-hidden">
+                              <div className="grid grid-cols-2 gap-3 w-full h-full relative" style={{ zIndex: 1 }}>
+                                <div className="w-full h-full min-w-0 overflow-hidden flex items-center justify-center">
                                   {urls[0] && (
                                     <Image
                                       src={getCachedUrl(urls[0]) || "/placeholder.svg"}
                                       alt="left"
                                       width={300}
                                       height={300}
-                                      className="h-full w-full object-contain"
+                                      className="max-h-full max-w-full object-contain"
                                       loading="eager"
                                       unoptimized={urls[0]?.includes("blob.core.windows.net")}
                                     />
                                   )}
                                 </div>
-                                <div className="aspect-square w-full min-w-0 overflow-hidden">
+                                <div className="w-full h-full min-w-0 overflow-hidden flex items-center justify-center">
                                   {urls[1] && (
                                     <Image
                                       src={getCachedUrl(urls[1]) || "/placeholder.svg"}
                                       alt="right"
                                       width={300}
                                       height={300}
-                                      className="h-full w-full object-contain"
+                                      className="max-h-full max-w-full object-contain"
                                       loading="eager"
                                       unoptimized={urls[1]?.includes("blob.core.windows.net")}
                                     />
@@ -1091,7 +1092,7 @@ export default function TasksPage() {
 
                         if (urls.length === 3) {
                           return (
-                            <div className="relative max-w-lg mx-auto">
+                            <div className="relative max-w-lg mx-auto flex-1 min-h-0 max-h-[45vh] lg:max-h-[55vh] xl:max-h-[60vh]" style={{ aspectRatio: '1/1' }}>
                               {backgroundUrl && (
                                 <img
                                   src={getCachedUrl(backgroundUrl) || "/placeholder.svg"}
@@ -1103,29 +1104,29 @@ export default function TasksPage() {
                                   style={{ zIndex: 0 }}
                                 />
                               )}
-                              <div className="flex flex-col gap-4" style={{ zIndex: 1 }}>
-                                <div className="grid grid-cols-2 gap-4">
+                              <div className="flex flex-col gap-2 h-full" style={{ zIndex: 1 }}>
+                                <div className="grid grid-cols-2 gap-2 flex-1 min-h-0">
                                   {urls.slice(0, 2).map((url, i) => (
-                                    <div key={i} className="aspect-square w-full overflow-hidden">
+                                    <div key={i} className="w-full h-full overflow-hidden flex items-center justify-center">
                                       <Image
                                         src={getCachedUrl(url as string) || "/placeholder.svg"}
                                         alt={`element-${i + 1}`}
                                         width={300}
                                         height={300}
-                                        className="h-full w-full object-contain"
+                                        className="max-h-full max-w-full object-contain"
                                         unoptimized={(url as string)?.includes("blob.core.windows.net")}
                                       />
                                     </div>
                                   ))}
                                 </div>
-                                <div className="w-full flex justify-center">
-                                  <div className="aspect-square w-1/2 overflow-hidden">
+                                <div className="w-full flex justify-center flex-1 min-h-0">
+                                  <div className="h-full overflow-hidden flex items-center justify-center">
                                     <Image
                                       src={getCachedUrl(urls[2] as string) || "/placeholder.svg"}
                                       alt="element-3"
                                       width={300}
                                       height={300}
-                                      className="h-full w-full object-contain"
+                                      className="max-h-full max-w-full object-contain"
                                       unoptimized={(urls[2] as string)?.includes("blob.core.windows.net")}
                                     />
                                   </div>
@@ -1136,7 +1137,7 @@ export default function TasksPage() {
                         }
 
                         return (
-                          <div className="grid grid-cols-2 gap-4 relative max-w-lg mx-auto">
+                          <div className="grid grid-cols-2 gap-2 relative max-w-lg mx-auto flex-1 min-h-0 max-h-[45vh] lg:max-h-[55vh] xl:max-h-[60vh]" style={{ aspectRatio: '1/1' }}>
                             {backgroundUrl && (
                               <img
                                 src={getCachedUrl(backgroundUrl) || "/placeholder.svg"}
@@ -1151,7 +1152,7 @@ export default function TasksPage() {
                             {urls.slice(0, 4).map((url, i) => (
                               <div
                                 key={i}
-                                className="aspect-square w-full overflow-hidden"
+                                className="w-full h-full overflow-hidden flex items-center justify-center"
                                 style={{ zIndex: 1 }}
                               >
                                 <Image
@@ -1159,7 +1160,7 @@ export default function TasksPage() {
                                   alt={`element-${i + 1}`}
                                   width={300}
                                   height={300}
-                                  className="h-full w-full object-contain"
+                                  className="max-h-full max-w-full object-contain"
                                   unoptimized={(url as string)?.includes("blob.core.windows.net")}
                                 />
                               </div>
@@ -1169,18 +1170,20 @@ export default function TasksPage() {
                       })()
                     )}
 
-                    <div className="grid grid-cols-2 gap-4 text-sm font-semibold text-gray-800">
+                    {/* Labels - fixed section */}
+                    <div className="grid grid-cols-2 gap-4 text-sm font-semibold text-gray-800 flex-shrink-0 mt-2">
                       <div className="text-center text-balance">{task?.leftLabel ?? ""}</div>
                       <div className="text-center text-balance">{task?.rightLabel ?? ""}</div>
                     </div>
 
-                    <div className="flex flex-col items-center justify-center gap-2 mt-[1px] px-2">
+                    {/* Scale labels - fixed section */}
+                    <div className="flex flex-col items-center justify-center gap-1 px-2 flex-shrink-0 mt-1">
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="h-8 w-8 lg:h-9 lg:w-9 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs lg:text-sm font-semibold text-gray-700 flex-shrink-0">
+                        <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
                           1
                         </div>
                         {scaleLabels.left && (
-                          <div className="text-sm lg:text-base xl:text-lg font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
+                          <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
                             {scaleLabels.left}
                           </div>
                         )}
@@ -1188,37 +1191,38 @@ export default function TasksPage() {
 
                       {scaleLabels.middle && (
                         <div className="flex items-center gap-2 flex-shrink-0">
-                          <div className="h-8 w-8 lg:h-9 lg:w-9 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs lg:text-sm font-semibold text-gray-700 flex-shrink-0">
+                          <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
                             3
                           </div>
-                          <div className="text-sm lg:text-base xl:text-lg font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
+                          <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
                             {scaleLabels.middle}
                           </div>
                         </div>
                       )}
 
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="h-8 w-8 lg:h-9 lg:w-9 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs lg:text-sm font-semibold text-gray-700 flex-shrink-0">
+                        <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
                           5
                         </div>
                         {scaleLabels.right && (
-                          <div className="text-sm lg:text-base xl:text-lg font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
+                          <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
                             {scaleLabels.right}
                           </div>
                         )}
                       </div>
                     </div>
 
-                    <div className="w-full max-w-2xl mx-auto mt-4">
-                      <div className="flex items-center justify-center mb-3">
-                        <div className="flex items-center justify-center gap-4">
+                    {/* Rating buttons - fixed at bottom */}
+                    <div className="w-full max-w-2xl mx-auto flex-shrink-0 mt-2">
+                      <div className="flex items-center justify-center">
+                        <div className="flex items-center justify-center gap-3">
                           {ratingScaleValues.map((n) => {
                             const selected = lastSelected === n
                             return (
                               <button
                                 key={n}
                                 onClick={() => handleSelect(n)}
-                                className={`h-11 w-11 lg:h-12 lg:w-12 xl:h-14 xl:w-14 rounded-full border-2 transition-colors text-sm lg:text-base xl:text-lg font-semibold flex-shrink-0 ${selected
+                                className={`h-10 w-10 lg:h-11 lg:w-11 rounded-full border-2 transition-colors text-sm font-semibold flex-shrink-0 ${selected
                                   ? "bg-[rgba(38,116,186,1)] text-white border-[rgba(38,116,186,1)]"
                                   : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
                                   }`}
@@ -1233,8 +1237,6 @@ export default function TasksPage() {
                           })}
                         </div>
                       </div>
-
-
                     </div>
                   </div>
                 )}
