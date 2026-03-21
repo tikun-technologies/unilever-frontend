@@ -99,16 +99,19 @@ export default function PreviewPersonalInformation() {
 
     setIsSubmitting(true)
 
-    // Simulate API call delay for preview
+    // Special creator: show fragrance question page before classification
+    const nextPath = isAdmin
+      ? '/home/create-study/preview/fragrance-like'
+      : '/home/create-study/preview/classification-questions'
     setTimeout(() => {
-      router.push('/home/create-study/preview/classification-questions')
+      router.push(nextPath)
     }, 500)
   }
 
   if (isAdmin) {
     return (
       <PanelistSelection
-        onComplete={() => router.push('/home/create-study/preview/classification-questions')}
+        onComplete={() => router.push('/home/create-study/preview/fragrance-like')}
         creatorEmail={(() => {
           try {
             const stored = localStorage.getItem('current_study_creator_email')

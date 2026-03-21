@@ -646,7 +646,8 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
               const arr = Array.isArray(parsed) ? parsed : (parsed?.keys ?? [])
               if (!Array.isArray(arr)) return false
               const withName = arr.filter((k: any) => k && typeof k.name === 'string' && String(k.name).trim().length > 0)
-              const productIdOk = Array.isArray(parsed) ? true : !!(parsed?.productId && String(parsed.productId).trim().length > 0)
+              const productIdVal = parsed?.productId ?? parsed?.product_id ?? ''
+              const productIdOk = Array.isArray(parsed) ? true : String(productIdVal).trim().length >= 1
               return withName.length > 0 && productIdOk
             } catch { return false }
           }

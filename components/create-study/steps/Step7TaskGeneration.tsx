@@ -3,7 +3,7 @@
 
 import { useEffect, useState, useRef, useMemo, useLayoutEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { buildTaskGenerationPayloadFromLocalStorage, generateTasks, generateTasksWithPolling, JobStatus } from "@/lib/api/StudyAPI"
+import { buildTaskGenerationPayloadFromLocalStorage, generateTasks, generateTasksWithPolling, JobStatus, subscribeTaskGenerationStatus, getTaskGenerationResult } from "@/lib/api/StudyAPI"
 import JSZip from "jszip"
 
 interface Step7TaskGenerationProps {
@@ -244,62 +244,52 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     }
   }
 
-  // Resume polling for existing job (signal allows cancellation on unmount)
-  const resumeJobPolling = async (jobId: string, signal?: AbortSignal) => {
+  // Resume subscription for existing job (WebSocket with polling fallback; signal cancels on unmount)
+  const resumeJobPolling = (jobId: string, signal?: AbortSignal) => {
     if (isResuming.current) {
       console.log('[Step7] Already resuming, skipping duplicate call')
       return
     }
 
-    try {
-      isResuming.current = true
-      console.log('[Step7] Resuming polling for job:', jobId)
-      setIsPolling(true)
-      setPollingError(null)
+    isResuming.current = true
+    console.log('[Step7] Resuming task generation for job:', jobId, '(WebSocket with fallback)')
+    setIsPolling(true)
+    setPollingError(null)
 
-      // Show user that we're resuming with latest progress
-      console.log('[Step7] Resuming task generation from saved progress...')
+    const onProgress = (status: JobStatus) => {
+      console.log('[Step7] Resumed job status update:', {
+        job_id: status?.job_id,
+        status: status?.status,
+        progress: status?.progress,
+        message: status?.message
+      })
 
-      // Import the polling function
-      const { pollJobStatus, getTaskGenerationResult } = await import('@/lib/api/StudyAPI')
+      const currentProgress = typeof status?.progress === 'number' ? status.progress : 0
+      const newHighestProgress = Math.max(highestProgress, currentProgress)
+      setHighestProgress(newHighestProgress)
 
-      const finalStatus = await pollJobStatus(jobId, (status) => {
-        console.log('[Step7] Resumed job status update:', {
-          job_id: status?.job_id,
-          status: status?.status,
-          progress: status?.progress,
-          message: status?.message
-        })
+      const monotonicStatus = {
+        ...status,
+        progress: newHighestProgress
+      }
 
-        // Ensure progress never decreases from the highest value reached
-        const currentProgress = typeof status?.progress === 'number' ? status.progress : 0
-        const newHighestProgress = Math.max(highestProgress, currentProgress)
-        setHighestProgress(newHighestProgress)
+      setJobStatus(monotonicStatus)
+      setIsPolling(status.status === 'processing' || status.status === 'pending')
 
-        // Create a modified status object with monotonic progress
-        const monotonicStatus = {
-          ...status,
-          progress: newHighestProgress
+      const currentJobState = loadJobState()
+      const studyId = currentJobState?.studyId || (() => {
+        try {
+          const stored = localStorage.getItem('cs_study_id')
+          return stored ? JSON.parse(stored) : null
+        } catch {
+          return null
         }
+      })()
+      saveJobState(jobId, monotonicStatus, jobStartTime || Date.now(), studyId)
+    }
 
-        setJobStatus(monotonicStatus)
-        setIsPolling(status.status === 'processing' || status.status === 'pending')
-
-        // Update job state in localStorage with latest progress
-        // Try to get study_id from job state or current localStorage
-        const currentJobState = loadJobState()
-        const studyId = currentJobState?.studyId || (() => {
-          try {
-            const stored = localStorage.getItem('cs_study_id')
-            return stored ? JSON.parse(stored) : null
-          } catch {
-            return null
-          }
-        })()
-        saveJobState(jobId, monotonicStatus, jobStartTime || Date.now(), studyId)
-      }, 5000, signal) // 5 second interval, signal for unmount cancellation
-
-      if (finalStatus.status === 'completed') {
+    const onComplete = async () => {
+      try {
         console.log('[Step7] Resumed job completed, fetching result...')
         const result = await getTaskGenerationResult(jobId)
         savePreviewAndComplete(result)
@@ -307,27 +297,23 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         clearTimerState()
         stopTimerSaving()
         setJobStartTime(null)
-        setHighestProgress(0) // Clear highest progress when job completes
-      } else if (finalStatus.status === 'failed') {
-        console.error('[Step7] Resumed job failed:', finalStatus.error)
-        setPollingError(finalStatus.error || 'Job failed')
-        clearJobState()
-        setJobStartTime(null)
+        setHighestProgress(0)
+      } finally {
+        setIsPolling(false)
+        isResuming.current = false
       }
+    }
 
-    } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        console.log('[Step7] Resume polling aborted (unmounted)')
-        return
-      }
-      console.error('[Step7] Error resuming job polling:', error)
-      setPollingError(error instanceof Error ? error.message : 'Failed to resume job')
+    const onError = (error: string) => {
+      console.error('[Step7] Resumed job error:', error)
+      setPollingError(error || 'Job failed')
       clearJobState()
       setJobStartTime(null)
-    } finally {
       setIsPolling(false)
       isResuming.current = false
     }
+
+    subscribeTaskGenerationStatus(jobId, onProgress, onComplete, onError, signal ?? undefined)
   }
 
   // Persist preview and mark step completed when full result is ready
@@ -850,6 +836,90 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       }
     }
   }, [])
+
+  // Handle page visibility change - reconnect WebSocket when tab becomes visible
+  useEffect(() => {
+    if (!active) return
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return
+      
+      console.log('[Step7] Tab became visible, checking if reconnection needed...')
+      
+      // Check if we have an active job that should be polling
+      const existingJobState = loadJobState()
+      if (!existingJobState) {
+        console.log('[Step7] No active job state found')
+        return
+      }
+      
+      const jobId = existingJobState.jobId || existingJobState.status?.job_id
+      if (!jobId) {
+        console.log('[Step7] No job ID in state')
+        return
+      }
+      
+      // Verify job belongs to current study
+      const jobStudyId = existingJobState.studyId
+      let currentStudyId: string | null = null
+      try {
+        const raw = localStorage.getItem('cs_study_id')
+        currentStudyId = raw ? (() => { try { const p = JSON.parse(raw); return typeof p === 'string' ? p : String(p) } catch { return raw } })() : null
+      } catch { /* ignore */ }
+      
+      if (jobStudyId && currentStudyId && jobStudyId !== currentStudyId) {
+        console.log('[Step7] Job belongs to different study, skipping reconnect')
+        return
+      }
+      
+      // If not already polling/resuming and job is still active, check and resume
+      if (!isPolling && !isResuming.current) {
+        const status = existingJobState.status?.status || existingJobState.status
+        const isActiveJob = status === 'processing' || status === 'pending'
+        
+        if (isActiveJob) {
+          console.log('[Step7] Tab visible with active job, checking completion and resuming if needed...')
+          
+          // First check if job completed while tab was hidden
+          checkAndFetchCompletedJob(jobId).then((isCompleted) => {
+            if (isCompleted) {
+              console.log('[Step7] Job completed while tab was hidden')
+              return
+            }
+            
+            // Job still running, resume polling
+            if (!isPolling && !isResuming.current) {
+              console.log('[Step7] Resuming job polling after tab visibility change')
+              setJobStatus(existingJobState.status)
+              setJobStartTime(existingJobState.startTime)
+              setHighestProgress(existingJobState.status?.progress ?? existingJobState.progress ?? 0)
+              setIsPolling(true)
+              
+              const ac = new AbortController()
+              abortControllerRef.current = ac
+              
+              const savedTimer = loadTimerState()
+              if (savedTimer) {
+                setCountdownSeconds(savedTimer.seconds)
+                countdownRef.current = savedTimer.seconds
+                timerInitialized.current = true
+              }
+              
+              resumeJobPolling(jobId, ac.signal)
+            }
+          }).catch((err) => {
+            console.log('[Step7] Error checking job on visibility change:', err)
+          })
+        }
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [active, isPolling])
 
   // Show timer after 1 second delay to prevent flickering
   useEffect(() => {

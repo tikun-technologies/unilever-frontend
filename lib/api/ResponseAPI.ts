@@ -179,6 +179,36 @@ export async function startStudy(studyId: string): Promise<StartStudyResponse> {
 	return data
 }
 
+/** Response from check-panelist-participation API */
+export interface CheckPanelistParticipationResponse {
+	ok: boolean
+	participated: boolean
+	message?: string | null
+}
+
+/**
+ * Check if a panelist has already participated in this study (main participate only).
+ * Call when user selects a panelist ID on the panelist page; if participated, show message and block continue.
+ */
+export async function checkPanelistParticipation(
+	studyId: string,
+	panelistId: string
+): Promise<CheckPanelistParticipationResponse> {
+	const params = new URLSearchParams({
+		study_id: studyId,
+		panelist_id: panelistId.trim(),
+	})
+	const response = await fetch(
+		`${API_BASE_URL}/responses/check-panelist-participation?${params}`,
+		{ method: 'GET', headers: { 'Content-Type': 'application/json' } }
+	)
+	if (!response.ok) {
+		const err = await response.json().catch(() => ({}))
+		throw new Error(err?.detail || `Check failed: ${response.status}`)
+	}
+	return response.json()
+}
+
 /**
  * Get respondent-specific study details
  * @param respondentId - The respondent ID
@@ -473,7 +503,37 @@ export async function postStudyFilter(
 	return res.json()
 }
 
-/** Subscribe to live analytics via SSE with graceful fallback to polling. Returns an unsubscribe function. */
+/**
+ * Get WebSocket URL from API base URL.
+ * Converts https:// to wss:// and http:// to ws://
+ */
+function getWebSocketUrl(): string | null {
+	if (!API_BASE_URL) return null
+	try {
+		const url = new URL(API_BASE_URL)
+		const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+		return `${wsProtocol}//${url.host}${url.pathname}`
+	} catch {
+		return null
+	}
+}
+
+/**
+ * Get access token from localStorage for WebSocket auth.
+ */
+function getAccessToken(): string | null {
+	try {
+		if (typeof window === 'undefined') return null
+		const raw = localStorage.getItem('tokens')
+		if (!raw) return null
+		const tokens = JSON.parse(raw)
+		return tokens?.access_token || null
+	} catch {
+		return null
+	}
+}
+
+/** Subscribe to live analytics via WebSocket with graceful fallback to SSE, then polling. Returns an unsubscribe function. */
 export function subscribeStudyAnalytics(
 	studyId: string,
 	onData: (data: StudyAnalytics) => void,
@@ -481,11 +541,23 @@ export function subscribeStudyAnalytics(
 	intervalSeconds: number = 5
 ): () => void {
 	let stopped = false
+	let ws: WebSocket | null = null
 	let es: EventSource | null = null
 	let pollTimer: number | null = null
+	let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+	let reconnectAttempts = 0
+	const MAX_RECONNECT_ATTEMPTS = 3
+
+	const cleanup = () => {
+		stopped = true
+		if (ws) { try { ws.close() } catch { /* ignore */ } ws = null }
+		if (es) { try { es.close() } catch { /* ignore */ } es = null }
+		if (pollTimer) { window.clearInterval(pollTimer); pollTimer = null }
+		if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null }
+	}
 
 	const startPolling = () => {
-		// Fallback: poll using authenticated fetch
+		if (stopped || pollTimer) return
 		const tick = async () => {
 			if (stopped) return
 			try {
@@ -495,39 +567,99 @@ export function subscribeStudyAnalytics(
 				onError?.(e)
 			}
 		}
-		// First immediate tick to hydrate
 		tick()
 		pollTimer = window.setInterval(tick, Math.max(1000, intervalSeconds * 1000))
 	}
 
-	try {
-		const url = `${API_BASE_URL}/responses/analytics/study/${encodeURIComponent(studyId)}/stream?interval_seconds=${encodeURIComponent(String(intervalSeconds))}`
-		es = new EventSource(url)
-		es.onmessage = (ev) => {
-			try {
-				const data = JSON.parse(ev.data)
-				if (!stopped) onData(data)
-			} catch (e) {
-				// ignore parse errors
+	const startSSE = () => {
+		if (stopped) return
+		try {
+			const url = `${API_BASE_URL}/responses/analytics/study/${encodeURIComponent(studyId)}/stream?interval_seconds=${encodeURIComponent(String(intervalSeconds))}`
+			es = new EventSource(url)
+			es.onmessage = (ev) => {
+				try {
+					const data = JSON.parse(ev.data)
+					if (!stopped) onData(data)
+				} catch {
+					// ignore parse errors
+				}
 			}
-		}
-		es.onerror = (e) => {
-			// Close and fallback to polling
-			try { es?.close() } catch { }
-			es = null
+			es.onerror = () => {
+				try { es?.close() } catch { /* ignore */ }
+				es = null
+				if (!stopped) startPolling()
+			}
+		} catch {
 			if (!stopped) startPolling()
-			onError?.(e)
 		}
-	} catch (e) {
-		onError?.(e)
-		startPolling()
 	}
 
-	return () => {
-		stopped = true
-		try { es?.close() } catch { }
-		if (pollTimer) { window.clearInterval(pollTimer); pollTimer = null }
+	const startWebSocket = () => {
+		if (stopped) return
+
+		const wsBaseUrl = getWebSocketUrl()
+		const token = getAccessToken()
+
+		if (!wsBaseUrl || !token) {
+			startSSE()
+			return
+		}
+
+		try {
+			const wsUrl = `${wsBaseUrl}/ws/analytics/${encodeURIComponent(studyId)}?token=${encodeURIComponent(token)}&interval_seconds=${intervalSeconds}`
+			ws = new WebSocket(wsUrl)
+
+			ws.onopen = () => {
+				reconnectAttempts = 0
+			}
+
+			ws.onmessage = (ev) => {
+				try {
+					const message = JSON.parse(ev.data)
+					if (message.type === 'data' && message.payload && !stopped) {
+						onData(message.payload as StudyAnalytics)
+					}
+					// Ignore ping messages
+				} catch {
+					// ignore parse errors
+				}
+			}
+
+			ws.onerror = () => {
+				// Will trigger onclose
+			}
+
+			ws.onclose = (event) => {
+				ws = null
+				if (stopped) return
+
+				// If connection was rejected (auth error), fall back to SSE immediately
+				if (event.code === 4001 || event.code === 4003) {
+					startSSE()
+					return
+				}
+
+				// Try to reconnect with exponential backoff
+				if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+					reconnectAttempts++
+					const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), 10000)
+					reconnectTimer = setTimeout(() => {
+						if (!stopped) startWebSocket()
+					}, delay)
+				} else {
+					// Max reconnect attempts reached, fall back to SSE
+					startSSE()
+				}
+			}
+		} catch {
+			startSSE()
+		}
 	}
+
+	// Start with WebSocket (preferred), will fall back automatically
+	startWebSocket()
+
+	return cleanup
 }
 
 // ---------------- Responses Listing (owner) ----------------

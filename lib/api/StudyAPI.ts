@@ -1358,7 +1358,284 @@ export async function pollJobStatus(
   }
 }
 
+/**
+ * Get WebSocket URL from API base URL.
+ * Converts https:// to wss:// and http:// to ws://
+ */
+function getWebSocketUrl(): string | null {
+  if (!API_BASE_URL) return null
+  try {
+    const url = new URL(API_BASE_URL)
+    const wsProtocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    return `${wsProtocol}//${url.host}${url.pathname}`
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Get access token from localStorage for WebSocket auth.
+ */
+function getAccessTokenForWS(): string | null {
+  try {
+    if (typeof window === 'undefined') return null
+    const raw = localStorage.getItem('tokens')
+    if (!raw) return null
+    const tokens = JSON.parse(raw)
+    return tokens?.access_token || null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Subscribe to task generation progress via WebSocket with fallback to polling.
+ * Includes automatic reconnection on visibility change (tab focus) and exponential backoff.
+ * 
+ * @param jobId - The job ID to subscribe to
+ * @param onProgress - Callback for progress updates (progress: 0-100, message: string)
+ * @param onComplete - Callback when job completes successfully
+ * @param onError - Callback when job fails
+ * @param signal - Optional AbortSignal to cancel the subscription
+ * @returns Unsubscribe function
+ */
+export function subscribeTaskGenerationStatus(
+  jobId: string,
+  onProgress: (status: JobStatus) => void,
+  onComplete: () => void,
+  onError: (error: string) => void,
+  signal?: AbortSignal
+): () => void {
+  let stopped = false
+  let ws: WebSocket | null = null
+  let fallbackPolling = false
+  let reconnectAttempts = 0
+  let reconnectTimeout: ReturnType<typeof setTimeout> | null = null
+  let lastMessageTime = Date.now()
+  let healthCheckInterval: ReturnType<typeof setInterval> | null = null
+  let jobCompleted = false // Track if job finished to prevent reconnection attempts
+  const maxReconnectAttempts = 5
+  const maxReconnectDelay = 30000 // 30 seconds max
+
+  const cleanup = () => {
+    stopped = true
+    if (ws) {
+      try { ws.close() } catch { /* ignore */ }
+      ws = null
+    }
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout)
+      reconnectTimeout = null
+    }
+    if (healthCheckInterval) {
+      clearInterval(healthCheckInterval)
+      healthCheckInterval = null
+    }
+    // Remove visibility listener
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }
+
+  // Handle visibility change - reconnect when tab becomes visible
+  const handleVisibilityChange = () => {
+    if (stopped || jobCompleted) return
+    
+    if (document.visibilityState === 'visible') {
+      console.log('[WS] Tab became visible, checking connection...')
+      
+      // Check if WebSocket is still open and healthy
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.log('[WS] Connection lost while tab was hidden, reconnecting...')
+        reconnectAttempts = 0 // Reset attempts on visibility change
+        reconnectWebSocket()
+      } else {
+        // Connection seems open, but verify it's still working
+        const timeSinceLastMessage = Date.now() - lastMessageTime
+        if (timeSinceLastMessage > 60000) { // No message in 60 seconds
+          console.log('[WS] Connection stale (no messages for 60s), reconnecting...')
+          if (ws) {
+            try { ws.close() } catch { /* ignore */ }
+          }
+          reconnectWebSocket()
+        }
+      }
+    }
+  }
+
+  // Handle abort signal
+  if (signal) {
+    signal.addEventListener('abort', cleanup, { once: true })
+  }
+
+  // Add visibility change listener
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+  }
+
+  const startPollingFallback = async () => {
+    if (stopped || fallbackPolling || jobCompleted) return
+    fallbackPolling = true
+    console.log('[WS] Falling back to polling for job:', jobId)
+    
+    try {
+      const finalStatus = await pollJobStatus(jobId, onProgress, 5000, signal)
+      if (stopped) return
+      
+      if (finalStatus.status === 'completed') {
+        jobCompleted = true
+        onComplete()
+      } else if (finalStatus.status === 'failed') {
+        jobCompleted = true
+        onError(finalStatus.error || 'Job failed')
+      }
+    } catch (e) {
+      if (stopped) return
+      if (e instanceof DOMException && e.name === 'AbortError') return
+      onError((e as Error).message || 'Polling failed')
+    }
+  }
+
+  const reconnectWebSocket = () => {
+    if (stopped || fallbackPolling || jobCompleted) return
+    
+    if (reconnectAttempts >= maxReconnectAttempts) {
+      console.log('[WS] Max reconnect attempts reached, falling back to polling')
+      startPollingFallback()
+      return
+    }
+
+    // Exponential backoff: 1s, 2s, 4s, 8s, 16s (capped at maxReconnectDelay)
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), maxReconnectDelay)
+    reconnectAttempts++
+    
+    console.log(`[WS] Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`)
+    
+    reconnectTimeout = setTimeout(() => {
+      if (!stopped && !fallbackPolling && !jobCompleted) {
+        startWebSocket()
+      }
+    }, delay)
+  }
+
+  const startWebSocket = () => {
+    if (stopped || jobCompleted) return
+
+    const wsBaseUrl = getWebSocketUrl()
+    const token = getAccessTokenForWS()
+
+    if (!wsBaseUrl || !token) {
+      console.log('[WS] No WebSocket URL or token, falling back to polling')
+      startPollingFallback()
+      return
+    }
+
+    try {
+      const wsUrl = `${wsBaseUrl}/ws/task-generation/${encodeURIComponent(jobId)}?token=${encodeURIComponent(token)}`
+      console.log('[WS] Connecting to:', wsUrl.replace(token, '***'))
+      ws = new WebSocket(wsUrl)
+
+      ws.onopen = () => {
+        console.log('[WS] Connected for job:', jobId)
+        reconnectAttempts = 0 // Reset on successful connection
+        lastMessageTime = Date.now()
+        
+        // Start health check interval
+        if (healthCheckInterval) clearInterval(healthCheckInterval)
+        healthCheckInterval = setInterval(() => {
+          if (stopped || jobCompleted) {
+            if (healthCheckInterval) clearInterval(healthCheckInterval)
+            return
+          }
+          
+          const timeSinceLastMessage = Date.now() - lastMessageTime
+          // If no message in 45 seconds and WebSocket appears open, it might be stale
+          if (timeSinceLastMessage > 45000 && ws && ws.readyState === WebSocket.OPEN) {
+            console.log('[WS] Connection appears stale, closing for reconnect...')
+            try { ws.close() } catch { /* ignore */ }
+          }
+        }, 15000) // Check every 15 seconds
+      }
+
+      ws.onmessage = (ev) => {
+        lastMessageTime = Date.now() // Track last message time
+        
+        try {
+          const message = JSON.parse(ev.data)
+          
+          if (message.type === 'progress') {
+            onProgress({
+              job_id: jobId,
+              status: 'processing',
+              progress: message.progress,
+              message: message.message
+            })
+          } else if (message.type === 'completed') {
+            console.log('[WS] Job completed:', jobId)
+            jobCompleted = true
+            onProgress({
+              job_id: jobId,
+              status: 'completed',
+              progress: 100,
+              message: message.message || 'Task generation completed'
+            })
+            onComplete()
+            cleanup()
+          } else if (message.type === 'failed') {
+            console.log('[WS] Job failed:', jobId, message.error)
+            jobCompleted = true
+            onError(message.error || message.message || 'Job failed')
+            cleanup()
+          }
+          // Ignore ping messages but they still update lastMessageTime
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      ws.onerror = (e) => {
+        console.log('[WS] Error:', e)
+        // Don't cleanup immediately - let onclose handle reconnection
+      }
+
+      ws.onclose = (event) => {
+        console.log('[WS] Connection closed:', event.code, event.reason)
+        ws = null
+        
+        if (healthCheckInterval) {
+          clearInterval(healthCheckInterval)
+          healthCheckInterval = null
+        }
+        
+        // Don't reconnect if:
+        // - Already stopped/cleaned up
+        // - Already using polling fallback
+        // - Job completed/failed
+        // - Normal close (code 1000)
+        if (stopped || fallbackPolling || jobCompleted) return
+        
+        if (event.code === 1000) {
+          // Normal close, don't reconnect
+          return
+        }
+        
+        // Try to reconnect with backoff
+        reconnectWebSocket()
+      }
+    } catch (e) {
+      console.error('[WS] Failed to create WebSocket:', e)
+      reconnectWebSocket()
+    }
+  }
+
+  // Start with WebSocket (preferred), will fall back automatically
+  startWebSocket()
+
+  return cleanup
+}
+
 // Enhanced task generation with background job support
+// Uses WebSocket for real-time progress updates with automatic fallback to polling
 // Optional signal allows cancellation when component unmounts
 export async function generateTasksWithPolling(
   payload: TaskGenerationPayload,
@@ -1397,34 +1674,60 @@ export async function generateTasksWithPolling(
         }
       }
 
-      console.log('🔄 Background job started, polling for completion...')
-      const finalStatus = await pollJobStatus(effectiveJobId, onProgress, 5000, signal) // 5 second interval
-      if (finalStatus.status === 'completed') {
-        // Fetch the final result from result endpoint
-        console.log('🔄 Job completed, fetching final result...')
-        const result = await getTaskGenerationResult(effectiveJobId)
-        console.log('✅ Final result received:', {
-          hasTasks: !!(result?.tasks),
-          hasMetadata: !!(result?.metadata),
-          taskCount: result?.tasks ? Object.keys(result.tasks).length : 0,
-          respondents: result?.metadata?.number_of_respondents,
-          study_id: result?.study_id || result?.metadata?.study_id
-        })
+      console.log('🔄 Background job started, using WebSocket for progress updates...')
+      
+      // Use WebSocket subscription (with automatic fallback to polling)
+      return new Promise((resolve, reject) => {
+        const unsubscribe = subscribeTaskGenerationStatus(
+          effectiveJobId,
+          (status) => {
+            // Forward progress updates to the caller
+            if (onProgress) onProgress(status)
+          },
+          async () => {
+            // Job completed - fetch the final result
+            try {
+              console.log('🔄 Job completed, fetching final result...')
+              const result = await getTaskGenerationResult(effectiveJobId)
+              console.log('✅ Final result received:', {
+                hasTasks: !!(result?.tasks),
+                hasMetadata: !!(result?.metadata),
+                taskCount: result?.tasks ? Object.keys(result.tasks).length : 0,
+                respondents: result?.metadata?.number_of_respondents,
+                study_id: result?.study_id || result?.metadata?.study_id
+              })
 
-        // Store study_id from result if available
-        const studyId = result?.study_id || result?.metadata?.study_id
-        if (studyId) {
-          console.log('[API] Storing study_id from task generation result:', studyId)
-          try {
-            localStorage.setItem('cs_study_id', JSON.stringify(studyId))
-          } catch (storageError) {
-            console.warn('Failed to store study_id:', storageError)
-          }
+              // Store study_id from result if available
+              const studyId = result?.study_id || result?.metadata?.study_id
+              if (studyId) {
+                console.log('[API] Storing study_id from task generation result:', studyId)
+                try {
+                  localStorage.setItem('cs_study_id', JSON.stringify(studyId))
+                } catch (storageError) {
+                  console.warn('Failed to store study_id:', storageError)
+                }
+              }
+
+              resolve(result)
+            } catch (e) {
+              reject(e)
+            }
+          },
+          (error) => {
+            // Job failed
+            reject(new Error(error))
+          },
+          signal
+        )
+
+        // Handle abort signal
+        if (signal) {
+          signal.addEventListener('abort', () => {
+            unsubscribe()
+            reject(new DOMException('Aborted', 'AbortError'))
+          }, { once: true })
         }
-
-        return result
-      }
-      return finalStatus
+      })
     }
 
     // If no job_id, return immediate result
@@ -2203,6 +2506,249 @@ export function subscribeSimulateAIStream(
     stopped = true
     abortController.abort()
   }
+}
+
+/**
+ * Progress update from WebSocket simulation subscription
+ */
+export interface SimulateAIProgressUpdate {
+  type: 'progress' | 'completed' | 'failed' | 'ping'
+  progress?: number
+  message?: string
+  error?: string
+  respondents_completed?: number
+  respondents_requested?: number
+}
+
+/**
+ * Subscribe to AI simulation progress via WebSocket with automatic reconnection.
+ * Falls back to SSE/polling if WebSocket fails.
+ * Includes visibility API integration to reconnect when tab becomes visible.
+ * 
+ * @param jobId - The simulation job ID
+ * @param respondentsRequested - Total number of respondents requested (for progress calculation)
+ * @param onProgress - Callback for progress updates
+ * @param onComplete - Callback when simulation completes
+ * @param onError - Callback when simulation fails
+ * @param signal - Optional AbortSignal to cancel the subscription
+ * @returns Unsubscribe function
+ */
+export function subscribeSimulateAIWebSocket(
+  jobId: string,
+  respondentsRequested: number,
+  onProgress: (completed: number, progress: number, message?: string) => void,
+  onComplete: (totalCompleted: number) => void,
+  onError: (error: string) => void,
+  signal?: AbortSignal
+): () => void {
+  let stopped = false
+  let ws: WebSocket | null = null
+  let fallbackToSSE = false
+  let reconnectAttempts = 0
+  let reconnectTimeout: ReturnType<typeof setTimeout> | null = null
+  let lastMessageTime = Date.now()
+  let healthCheckInterval: ReturnType<typeof setInterval> | null = null
+  let jobCompleted = false
+  const maxReconnectAttempts = 5
+  const maxReconnectDelay = 30000
+
+  const cleanup = () => {
+    stopped = true
+    if (ws) {
+      try { ws.close() } catch { /* ignore */ }
+      ws = null
+    }
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout)
+      reconnectTimeout = null
+    }
+    if (healthCheckInterval) {
+      clearInterval(healthCheckInterval)
+      healthCheckInterval = null
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }
+
+  const handleVisibilityChange = () => {
+    if (stopped || jobCompleted) return
+    
+    if (document.visibilityState === 'visible') {
+      console.log('[WS-Simulate] Tab became visible, checking connection...')
+      
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.log('[WS-Simulate] Connection lost while hidden, reconnecting...')
+        reconnectAttempts = 0
+        reconnectWebSocket()
+      } else {
+        const timeSinceLastMessage = Date.now() - lastMessageTime
+        if (timeSinceLastMessage > 60000) {
+          console.log('[WS-Simulate] Connection stale, reconnecting...')
+          if (ws) {
+            try { ws.close() } catch { /* ignore */ }
+          }
+          reconnectWebSocket()
+        }
+      }
+    }
+  }
+
+  if (signal) {
+    signal.addEventListener('abort', cleanup, { once: true })
+  }
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+  }
+
+  const startSSEFallback = () => {
+    if (stopped || fallbackToSSE || jobCompleted) return
+    fallbackToSSE = true
+    console.log('[WS-Simulate] Falling back to SSE for job:', jobId)
+    
+    const sseCleanup = subscribeSimulateAIStream(
+      jobId,
+      (completed) => {
+        if (stopped || jobCompleted) return
+        const progress = respondentsRequested > 0 ? (completed / respondentsRequested) * 100 : 0
+        onProgress(completed, progress)
+        
+        if (completed >= respondentsRequested && respondentsRequested > 0) {
+          jobCompleted = true
+          onComplete(completed)
+          cleanup()
+        }
+      },
+      (err) => {
+        if (stopped || jobCompleted) return
+        onError((err as Error)?.message || 'SSE stream failed')
+      }
+    )
+    
+    if (signal) {
+      signal.addEventListener('abort', sseCleanup, { once: true })
+    }
+  }
+
+  const reconnectWebSocket = () => {
+    if (stopped || fallbackToSSE || jobCompleted) return
+    
+    if (reconnectAttempts >= maxReconnectAttempts) {
+      console.log('[WS-Simulate] Max reconnects reached, falling back to SSE')
+      startSSEFallback()
+      return
+    }
+
+    const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), maxReconnectDelay)
+    reconnectAttempts++
+    
+    console.log(`[WS-Simulate] Reconnecting in ${delay}ms (attempt ${reconnectAttempts}/${maxReconnectAttempts})`)
+    
+    reconnectTimeout = setTimeout(() => {
+      if (!stopped && !fallbackToSSE && !jobCompleted) {
+        startWebSocket()
+      }
+    }, delay)
+  }
+
+  const startWebSocket = () => {
+    if (stopped || jobCompleted) return
+
+    const wsBaseUrl = getWebSocketUrl()
+    const token = getAccessTokenForWS()
+
+    if (!wsBaseUrl || !token) {
+      console.log('[WS-Simulate] No WebSocket URL or token, falling back to SSE')
+      startSSEFallback()
+      return
+    }
+
+    try {
+      const wsUrl = `${wsBaseUrl}/ws/simulate-ai/${encodeURIComponent(jobId)}?token=${encodeURIComponent(token)}`
+      console.log('[WS-Simulate] Connecting to:', wsUrl.replace(token, '***'))
+      ws = new WebSocket(wsUrl)
+
+      ws.onopen = () => {
+        console.log('[WS-Simulate] Connected for job:', jobId)
+        reconnectAttempts = 0
+        lastMessageTime = Date.now()
+        
+        if (healthCheckInterval) clearInterval(healthCheckInterval)
+        healthCheckInterval = setInterval(() => {
+          if (stopped || jobCompleted) {
+            if (healthCheckInterval) clearInterval(healthCheckInterval)
+            return
+          }
+          
+          const timeSinceLastMessage = Date.now() - lastMessageTime
+          if (timeSinceLastMessage > 45000 && ws && ws.readyState === WebSocket.OPEN) {
+            console.log('[WS-Simulate] Connection appears stale, closing for reconnect...')
+            try { ws.close() } catch { /* ignore */ }
+          }
+        }, 15000)
+      }
+
+      ws.onmessage = (ev) => {
+        lastMessageTime = Date.now()
+        
+        try {
+          const message = JSON.parse(ev.data) as SimulateAIProgressUpdate
+          
+          if (message.type === 'progress') {
+            const completed = message.respondents_completed ?? 
+              (respondentsRequested > 0 && typeof message.progress === 'number' 
+                ? Math.round((message.progress / 100) * respondentsRequested) 
+                : 0)
+            const progress = message.progress ?? 0
+            onProgress(completed, progress, message.message)
+          } else if (message.type === 'completed') {
+            console.log('[WS-Simulate] Job completed:', jobId)
+            jobCompleted = true
+            const completed = message.respondents_completed ?? respondentsRequested
+            onProgress(completed, 100, message.message || 'AI simulation completed')
+            onComplete(completed)
+            cleanup()
+          } else if (message.type === 'failed') {
+            console.log('[WS-Simulate] Job failed:', jobId, message.error)
+            jobCompleted = true
+            onError(message.error || message.message || 'AI simulation failed')
+            cleanup()
+          }
+          // Ignore ping messages (they still update lastMessageTime)
+        } catch {
+          // ignore parse errors
+        }
+      }
+
+      ws.onerror = (e) => {
+        console.log('[WS-Simulate] Error:', e)
+      }
+
+      ws.onclose = (event) => {
+        console.log('[WS-Simulate] Connection closed:', event.code, event.reason)
+        ws = null
+        
+        if (healthCheckInterval) {
+          clearInterval(healthCheckInterval)
+          healthCheckInterval = null
+        }
+        
+        if (stopped || fallbackToSSE || jobCompleted) return
+        
+        if (event.code === 1000) return
+        
+        reconnectWebSocket()
+      }
+    } catch (e) {
+      console.error('[WS-Simulate] Failed to create WebSocket:', e)
+      reconnectWebSocket()
+    }
+  }
+
+  startWebSocket()
+
+  return cleanup
 }
 
 /**
