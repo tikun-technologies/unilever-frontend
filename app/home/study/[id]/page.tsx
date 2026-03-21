@@ -504,7 +504,7 @@ export default function StudyManagementPage() {
                 <span className="text-gray-700">{createdDisplay}</span>
               </div>
             </div>
-            {/* AI agentic respondents CTA */}
+            {/* AI agentic respondents CTA - commented out
             {study.status === "completed" ? (
               <div
                 className="mx-6 mb-4 block rounded-xl p-4 transition-all duration-300 border border-gray-200 bg-gray-50 opacity-70 cursor-not-allowed"
@@ -538,6 +538,7 @@ export default function StudyManagementPage() {
                 </div>
               </Link>
             )}
+            */}
           </div>
 
           {/* Response Statistics */}
