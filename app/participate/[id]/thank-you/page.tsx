@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react"
 import { CheckCircle, X } from "lucide-react"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
+import { API_BASE_URL } from "@/lib/api/LoginApi"
 
 export default function ThankYouPage() {
   const router = useRouter()
@@ -91,7 +92,9 @@ export default function ThankYouPage() {
           elements_shown_content: it.elements_shown_content || undefined,
         }))
 
-        const url = `http://127.0.0.1:8000/api/v1/responses/submit-tasks-bulk?session_id=${encodeURIComponent(String(sessionId))}`
+        const base = API_BASE_URL?.replace(/\/$/, "")
+        if (!base) return
+        const url = `${base}/responses/submit-tasks-bulk?session_id=${encodeURIComponent(String(sessionId))}`
         const data = JSON.stringify({ tasks })
 
         // Try sendBeacon first

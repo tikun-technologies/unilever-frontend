@@ -471,7 +471,7 @@ export default function TasksPage() {
     clickCountsRef.current = {}
   }, [currentTaskIndex])
 
-  const handleSelect = async (value: number) => {
+  const handleSelect = (value: number) => {
     clickCountsRef.current[value] = (clickCountsRef.current[value] || 0) + 1
 
     const elapsedMs = Date.now() - taskStartRef.current
@@ -512,15 +512,36 @@ export default function TasksPage() {
     if (shouldSendBulk) {
       try {
         const sessionRaw = localStorage.getItem('study_session')
-        if (sessionRaw) {
-          const { sessionId } = JSON.parse(sessionRaw)
-          if (sessionId) {
-            const chunkToSend = [...pendingResponsesRef.current]
-            pendingResponsesRef.current = [] // Clear pending
-            submitTasksBulk(sessionId, chunkToSend).catch(err => {
+        const sessionId = sessionRaw ? (JSON.parse(sessionRaw).sessionId as string | undefined) : undefined
+
+        if (sessionRaw && sessionId) {
+          const chunkToSend = [...pendingResponsesRef.current]
+          pendingResponsesRef.current = []
+
+          if (isLastTask) {
+            void (async () => {
+              const MAX_FINAL_RETRIES = 3
+              let lastResult: { ok?: boolean } | null = null
+              for (let attempt = 0; attempt < MAX_FINAL_RETRIES; attempt++) {
+                lastResult = await submitTasksBulk(sessionId, chunkToSend)
+                const failed =
+                  lastResult && typeof lastResult === "object" && lastResult.ok === false
+                if (!failed) break
+                if (attempt < MAX_FINAL_RETRIES - 1) {
+                  await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
+                }
+              }
+              if (
+                lastResult &&
+                typeof lastResult === "object" &&
+                lastResult.ok === false
+              ) {
+                console.error("[Participate] Final bulk submit failed after retries")
+              }
+            })()
+          } else {
+            submitTasksBulk(sessionId, chunkToSend).catch((err) => {
               console.error("Failed to submit bulk tasks:", err)
-              // Optionally: restore to pending if failed? 
-              // But submitTasksBulk already handles internal errors.
             })
           }
         }
@@ -533,9 +554,9 @@ export default function TasksPage() {
       setTimeout(() => setCurrentTaskIndex((i) => i + 1), 80)
     } else {
       setIsLoading(true)
-      setTimeout(() => {
+      window.setTimeout(() => {
         router.push(`/participate/${studyIdFromParams}/thank-you`)
-      }, 600)
+      }, 700)
     }
   }
 
