@@ -66,15 +66,15 @@ export default function PersonalInformationPage() {
   }
 
   useEffect(() => {
-    // Check if study is already completed for this user
-    try {
-      const completedStudies = JSON.parse(localStorage.getItem('completed_studies') || '{}')
-      if (completedStudies[params.id]) {
-        // Study already completed, redirect to thank you page
-        router.push(`/participate/${params.id}/thank-you`)
-        return
-      }
-    } catch { }
+    // COMMENTED OUT: For now, allow users to retake the study (do not check completed_studies)
+    // try {
+    //   const completedStudies = JSON.parse(localStorage.getItem('completed_studies') || '{}')
+    //   if (completedStudies[params.id]) {
+    //     // Study already completed, redirect to thank you page
+    //     router.push(`/participate/${params.id}/thank-you`)
+    //     return
+    //   }
+    // } catch { }
 
     try {
       const s = localStorage.getItem('study_session')
@@ -464,9 +464,15 @@ function PanelistSelection({
 
   const primaryBlue = "rgba(38,116,186,1)"
 
+  // COMMENTED OUT: Don't fetch initial panelists - only show results after search
+  // useEffect(() => {
+  //   fetchInitialPanelists(creatorEmail)
+  // }, [creatorEmail])
+
+  // Set loading to false initially since we're not fetching panelists on mount
   useEffect(() => {
-    fetchInitialPanelists(creatorEmail)
-  }, [creatorEmail])
+    setLoading(false)
+  }, [])
 
   // When user selects a panelist, check if they have already participated in this study (main participate only)
   useEffect(() => {
@@ -513,7 +519,8 @@ function PanelistSelection({
     if (searchTimeout.current) clearTimeout(searchTimeout.current)
 
     if (!query.trim()) {
-      fetchInitialPanelists(creatorEmail)
+      // Clear panelists when search is empty - don't show initial list
+      setPanelists([])
       return
     }
 
@@ -801,14 +808,8 @@ function PanelistSelection({
                     <User className="h-5 w-5" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-0.5">
+                    <div className="flex items-center justify-between">
                       <h3 className="font-bold text-gray-900 truncate text-sm">#{panelist.id}</h3>
-                      {/* <span className="text-[11px] font-mono font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">ID: {panelist.id}</span> */}
-                    </div>
-                    <div className="flex items-center gap-2 text-[11px] text-gray-500">
-                      <span className="capitalize">{panelist.gender}</span>
-                      <span className="w-1 h-1 rounded-full bg-gray-300"></span>
-                      <span>{panelist.age} years</span>
                     </div>
                   </div>
                   {selectedPanelist?.id === panelist.id && (
@@ -820,9 +821,13 @@ function PanelistSelection({
               ))
             ) : (
               <div className="text-center py-12 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
-                <User className="h-6 w-6 text-gray-300 mx-auto mb-2" />
-                <h3 className="text-sm font-bold text-gray-900 mb-1">No panelists found</h3>
-                <p className="text-xs text-gray-400">Try a different search term or add a new record.</p>
+                <Search className="h-6 w-6 text-gray-300 mx-auto mb-2" />
+                <h3 className="text-sm font-bold text-gray-900 mb-1">
+                  {searchQuery.trim() ? "No panelists found" : "Search for a panelist"}
+                </h3>
+                <p className="text-xs text-gray-400">
+                  {searchQuery.trim() ? "Try a different search term or add a new record." : "Enter a panelist ID to search."}
+                </p>
               </div>
             )}
           </div>
