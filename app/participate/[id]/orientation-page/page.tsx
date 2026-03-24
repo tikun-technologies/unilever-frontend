@@ -13,15 +13,15 @@ export default function OrientationPage() {
   const orientationStartRef = useRef<number>(Date.now())
 
   useEffect(() => {
-    // Check if study is already completed for this user
-    try {
-      const completedStudies = JSON.parse(localStorage.getItem('completed_studies') || '{}')
-      if (completedStudies[params.id]) {
-        // Study already completed, redirect to thank you page
-        router.push(`/participate/${params.id}/thank-you`)
-        return
-      }
-    } catch { }
+    // COMMENTED OUT: For now, allow users to retake the study (do not check completed_studies)
+    // try {
+    //   const completedStudies = JSON.parse(localStorage.getItem('completed_studies') || '{}')
+    //   if (completedStudies[params.id]) {
+    //     // Study already completed, redirect to thank you page
+    //     router.push(`/participate/${params.id}/thank-you`)
+    //     return
+    //   }
+    // } catch { }
 
     // Load orientation text from localStorage
     try {

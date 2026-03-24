@@ -3,6 +3,7 @@
 import { useParams, useRouter } from "next/navigation"
 import { useState, useRef, useEffect, useLayoutEffect } from "react"
 import Image from "next/image"
+import { ThumbsUp, ThumbsDown } from "lucide-react"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
 import { getRespondentStudyDetails, submitTasksBulk } from "@/lib/api/ResponseAPI"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
@@ -471,7 +472,7 @@ export default function TasksPage() {
     clickCountsRef.current = {}
   }, [currentTaskIndex])
 
-  const handleSelect = async (value: number) => {
+  const handleSelect = (value: number) => {
     clickCountsRef.current[value] = (clickCountsRef.current[value] || 0) + 1
 
     const elapsedMs = Date.now() - taskStartRef.current
@@ -512,15 +513,36 @@ export default function TasksPage() {
     if (shouldSendBulk) {
       try {
         const sessionRaw = localStorage.getItem('study_session')
-        if (sessionRaw) {
-          const { sessionId } = JSON.parse(sessionRaw)
-          if (sessionId) {
-            const chunkToSend = [...pendingResponsesRef.current]
-            pendingResponsesRef.current = [] // Clear pending
-            submitTasksBulk(sessionId, chunkToSend).catch(err => {
+        const sessionId = sessionRaw ? (JSON.parse(sessionRaw).sessionId as string | undefined) : undefined
+
+        if (sessionRaw && sessionId) {
+          const chunkToSend = [...pendingResponsesRef.current]
+          pendingResponsesRef.current = []
+
+          if (isLastTask) {
+            void (async () => {
+              const MAX_FINAL_RETRIES = 3
+              let lastResult: { ok?: boolean } | null = null
+              for (let attempt = 0; attempt < MAX_FINAL_RETRIES; attempt++) {
+                lastResult = await submitTasksBulk(sessionId, chunkToSend)
+                const failed =
+                  lastResult && typeof lastResult === "object" && lastResult.ok === false
+                if (!failed) break
+                if (attempt < MAX_FINAL_RETRIES - 1) {
+                  await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
+                }
+              }
+              if (
+                lastResult &&
+                typeof lastResult === "object" &&
+                lastResult.ok === false
+              ) {
+                console.error("[Participate] Final bulk submit failed after retries")
+              }
+            })()
+          } else {
+            submitTasksBulk(sessionId, chunkToSend).catch((err) => {
               console.error("Failed to submit bulk tasks:", err)
-              // Optionally: restore to pending if failed? 
-              // But submitTasksBulk already handles internal errors.
             })
           }
         }
@@ -533,9 +555,9 @@ export default function TasksPage() {
       setTimeout(() => setCurrentTaskIndex((i) => i + 1), 80)
     } else {
       setIsLoading(true)
-      setTimeout(() => {
+      window.setTimeout(() => {
         router.push(`/participate/${studyIdFromParams}/thank-you`)
-      }, 600)
+      }, 700)
     }
   }
 
@@ -836,29 +858,32 @@ export default function TasksPage() {
                       </div>
                     )}
 
-                    <div className={`flex flex-col items-start mb-6 gap-3 mt-[1px] ${isBgLandscape ? 'px-8 sm:px-4' : 'px-4'}`}>
-                      <div className="flex items-center gap-[9px]">
-                        <div className="h-6 w-6 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
-                          1
-                        </div>
-                        {scaleLabels.left && (
-                          <div className="text-xs font-medium text-gray-700 leading-tight">
-                            {scaleLabels.left}
+                    {/* Rating scale labels - hidden for special creators */}
+                    {!isSpecialCreator && (
+                      <div className={`flex flex-col items-start mb-6 gap-3 mt-[1px] ${isBgLandscape ? 'px-8 sm:px-4' : 'px-4'}`}>
+                        <div className="flex items-center gap-[9px]">
+                          <div className="h-6 w-6 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
+                            1
                           </div>
-                        )}
-                      </div>
+                          {scaleLabels.left && (
+                            <div className="text-xs font-medium text-gray-700 leading-tight">
+                              {scaleLabels.left}
+                            </div>
+                          )}
+                        </div>
 
-                      <div className="flex items-center gap-[9px]">
-                        <div className="h-6 w-6 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
-                          5
-                        </div>
-                        {scaleLabels.right && (
-                          <div className="text-xs font-medium text-gray-700 leading-tight">
-                            {scaleLabels.right}
+                        <div className="flex items-center gap-[9px]">
+                          <div className="h-6 w-6 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
+                            5
                           </div>
-                        )}
+                          {scaleLabels.right && (
+                            <div className="text-xs font-medium text-gray-700 leading-tight">
+                              {scaleLabels.right}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* Rating Scale */}
                     <div
@@ -866,27 +891,64 @@ export default function TasksPage() {
                       style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}
                     >
                       <div className="flex items-center justify-center mb-2">
-                        <div className={`flex items-center mx-auto ${ratingScaleValues.length === 2 ? 'justify-center gap-6' : 'justify-between w-full max-w-[320px]'}`}>
-                          {ratingScaleValues.map((n) => {
-                            const selected = lastSelected === n
-                            return (
-                              <button
-                                key={n}
-                                onClick={() => handleSelect(n)}
-                                className={`h-10 w-10 sm:h-12 sm:w-12 rounded-full border-2 transition-colors text-sm sm:text-base font-semibold flex-shrink-0 ${selected
-                                  ? "bg-[rgba(38,116,186,1)] text-white border-[rgba(38,116,186,1)]"
-                                  : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-                                  }`}
-                                onMouseEnter={() => {
-                                  hoverCountsRef.current[n] = (hoverCountsRef.current[n] || 0) + 1
-                                  lastViewTimeRef.current = new Date().toISOString()
-                                }}
-                              >
-                                {n}
-                              </button>
-                            )
-                          })}
-                        </div>
+                        {isSpecialCreator ? (
+                          /* Thumbs up/down for special creators */
+                          <div className="flex items-center justify-center gap-4">
+                            <button
+                              onClick={() => handleSelect(1)}
+                              className={`h-12 w-12 sm:h-14 sm:w-14 rounded-full border-2 transition-colors flex items-center justify-center flex-shrink-0 ${lastSelected === 1
+                                ? "bg-[rgba(38,116,186,1)] border-[rgba(38,116,186,1)]"
+                                : "bg-white border-gray-300 hover:border-[rgba(38,116,186,1)]"
+                                }`}
+                              onMouseEnter={() => {
+                                hoverCountsRef.current[1] = (hoverCountsRef.current[1] || 0) + 1
+                                lastViewTimeRef.current = new Date().toISOString()
+                              }}
+                            >
+                              <ThumbsDown 
+                                className={`h-6 w-6 sm:h-7 sm:w-7 ${lastSelected === 1 ? "text-white" : "text-[rgba(38,116,186,1)]"}`} 
+                              />
+                            </button>
+                            <button
+                              onClick={() => handleSelect(5)}
+                              className={`h-12 w-12 sm:h-14 sm:w-14 rounded-full border-2 transition-colors flex items-center justify-center flex-shrink-0 ${lastSelected === 5
+                                ? "bg-[rgba(38,116,186,1)] border-[rgba(38,116,186,1)]"
+                                : "bg-white border-gray-300 hover:border-[rgba(38,116,186,1)]"
+                                }`}
+                              onMouseEnter={() => {
+                                hoverCountsRef.current[5] = (hoverCountsRef.current[5] || 0) + 1
+                                lastViewTimeRef.current = new Date().toISOString()
+                              }}
+                            >
+                              <ThumbsUp 
+                                className={`h-6 w-6 sm:h-7 sm:w-7 ${lastSelected === 5 ? "text-white" : "text-[rgba(38,116,186,1)]"}`} 
+                              />
+                            </button>
+                          </div>
+                        ) : (
+                          /* Regular rating scale for non-special creators */
+                          <div className={`flex items-center mx-auto ${ratingScaleValues.length === 2 ? 'justify-center gap-6' : 'justify-between w-full max-w-[320px]'}`}>
+                            {ratingScaleValues.map((n) => {
+                              const selected = lastSelected === n
+                              return (
+                                <button
+                                  key={n}
+                                  onClick={() => handleSelect(n)}
+                                  className={`h-10 w-10 sm:h-12 sm:w-12 rounded-full border-2 transition-colors text-sm sm:text-base font-semibold flex-shrink-0 ${selected
+                                    ? "bg-[rgba(38,116,186,1)] text-white border-[rgba(38,116,186,1)]"
+                                    : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                                    }`}
+                                  onMouseEnter={() => {
+                                    hoverCountsRef.current[n] = (hoverCountsRef.current[n] || 0) + 1
+                                    lastViewTimeRef.current = new Date().toISOString()
+                                  }}
+                                >
+                                  {n}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
 
 
@@ -1176,66 +1238,105 @@ export default function TasksPage() {
                       <div className="text-center text-balance">{task?.rightLabel ?? ""}</div>
                     </div>
 
-                    {/* Scale labels - fixed section */}
-                    <div className="flex flex-col items-center justify-center gap-1 px-2 flex-shrink-0 mt-1">
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
-                          1
-                        </div>
-                        {scaleLabels.left && (
-                          <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
-                            {scaleLabels.left}
-                          </div>
-                        )}
-                      </div>
-
-                      {scaleLabels.middle && (
+                    {/* Scale labels - fixed section - hidden for special creators */}
+                    {!isSpecialCreator && (
+                      <div className="flex flex-col items-center justify-center gap-1 px-2 flex-shrink-0 mt-1">
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
-                            3
+                            1
                           </div>
-                          <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
-                            {scaleLabels.middle}
-                          </div>
+                          {scaleLabels.left && (
+                            <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
+                              {scaleLabels.left}
+                            </div>
+                          )}
                         </div>
-                      )}
 
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
-                          5
-                        </div>
-                        {scaleLabels.right && (
-                          <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
-                            {scaleLabels.right}
+                        {scaleLabels.middle && (
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
+                              3
+                            </div>
+                            <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
+                              {scaleLabels.middle}
+                            </div>
                           </div>
                         )}
+
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
+                            5
+                          </div>
+                          {scaleLabels.right && (
+                            <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
+                              {scaleLabels.right}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* Rating buttons - fixed at bottom */}
                     <div className="w-full max-w-2xl mx-auto flex-shrink-0 mt-2">
                       <div className="flex items-center justify-center">
-                        <div className="flex items-center justify-center gap-3">
-                          {ratingScaleValues.map((n) => {
-                            const selected = lastSelected === n
-                            return (
-                              <button
-                                key={n}
-                                onClick={() => handleSelect(n)}
-                                className={`h-10 w-10 lg:h-11 lg:w-11 rounded-full border-2 transition-colors text-sm font-semibold flex-shrink-0 ${selected
-                                  ? "bg-[rgba(38,116,186,1)] text-white border-[rgba(38,116,186,1)]"
-                                  : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-                                  }`}
-                                onMouseEnter={() => {
-                                  hoverCountsRef.current[n] = (hoverCountsRef.current[n] || 0) + 1
-                                  lastViewTimeRef.current = new Date().toISOString()
-                                }}
-                              >
-                                {n}
-                              </button>
-                            )
-                          })}
-                        </div>
+                        {isSpecialCreator ? (
+                          /* Thumbs up/down for special creators */
+                          <div className="flex items-center justify-center gap-4">
+                            <button
+                              onClick={() => handleSelect(1)}
+                              className={`h-12 w-12 lg:h-14 lg:w-14 rounded-full border-2 transition-colors flex items-center justify-center flex-shrink-0 ${lastSelected === 1
+                                ? "bg-[rgba(38,116,186,1)] border-[rgba(38,116,186,1)]"
+                                : "bg-white border-gray-300 hover:border-[rgba(38,116,186,1)]"
+                                }`}
+                              onMouseEnter={() => {
+                                hoverCountsRef.current[1] = (hoverCountsRef.current[1] || 0) + 1
+                                lastViewTimeRef.current = new Date().toISOString()
+                              }}
+                            >
+                              <ThumbsDown 
+                                className={`h-6 w-6 lg:h-7 lg:w-7 ${lastSelected === 1 ? "text-white" : "text-[rgba(38,116,186,1)]"}`} 
+                              />
+                            </button>
+                            <button
+                              onClick={() => handleSelect(5)}
+                              className={`h-12 w-12 lg:h-14 lg:w-14 rounded-full border-2 transition-colors flex items-center justify-center flex-shrink-0 ${lastSelected === 5
+                                ? "bg-[rgba(38,116,186,1)] border-[rgba(38,116,186,1)]"
+                                : "bg-white border-gray-300 hover:border-[rgba(38,116,186,1)]"
+                                }`}
+                              onMouseEnter={() => {
+                                hoverCountsRef.current[5] = (hoverCountsRef.current[5] || 0) + 1
+                                lastViewTimeRef.current = new Date().toISOString()
+                              }}
+                            >
+                              <ThumbsUp 
+                                className={`h-6 w-6 lg:h-7 lg:w-7 ${lastSelected === 5 ? "text-white" : "text-[rgba(38,116,186,1)]"}`} 
+                              />
+                            </button>
+                          </div>
+                        ) : (
+                          /* Regular rating scale for non-special creators */
+                          <div className="flex items-center justify-center gap-3">
+                            {ratingScaleValues.map((n) => {
+                              const selected = lastSelected === n
+                              return (
+                                <button
+                                  key={n}
+                                  onClick={() => handleSelect(n)}
+                                  className={`h-10 w-10 lg:h-11 lg:w-11 rounded-full border-2 transition-colors text-sm font-semibold flex-shrink-0 ${selected
+                                    ? "bg-[rgba(38,116,186,1)] text-white border-[rgba(38,116,186,1)]"
+                                    : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                                    }`}
+                                  onMouseEnter={() => {
+                                    hoverCountsRef.current[n] = (hoverCountsRef.current[n] || 0) + 1
+                                    lastViewTimeRef.current = new Date().toISOString()
+                                  }}
+                                >
+                                  {n}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>

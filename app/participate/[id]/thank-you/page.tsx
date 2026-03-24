@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react"
 import { CheckCircle, X } from "lucide-react"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
+import { API_BASE_URL } from "@/lib/api/LoginApi"
 
 export default function ThankYouPage() {
   const router = useRouter()
@@ -16,6 +17,9 @@ export default function ThankYouPage() {
   const [redirecting, setRedirecting] = useState(false)
   const [countdown, setCountdown] = useState<number | null>(null)
   const [totalTasks, setTotalTasks] = useState<number>(0)
+  const [isSpecialCreatorStudy, setIsSpecialCreatorStudy] = useState(false)
+  const [restartCountdown, setRestartCountdown] = useState<number | null>(null)
+  const [currentStudyId, setCurrentStudyId] = useState<string>("")
 
   const completedStorageProcessedRef = useRef(false)
 
@@ -25,7 +29,8 @@ export default function ThankYouPage() {
 
     // Get study ID from URL
     const pathParts = window.location.pathname.split('/')
-    const currentStudyId = pathParts[pathParts.indexOf('participate') + 1]
+    const studyId = pathParts[pathParts.indexOf('participate') + 1]
+    setCurrentStudyId(studyId)
 
     // For studies created by special creators: do not store in completed_studies so participants can go back.
     // Run only once so we don't double-store if effect runs again (e.g. Strict Mode) after removing the flag.
@@ -33,10 +38,10 @@ export default function ThankYouPage() {
       if (completedStorageProcessedRef.current) return
       completedStorageProcessedRef.current = true
 
-      let isSpecialCreatorStudy = false
+      let specialCreatorStudy = false
       const skipStorageFlag = localStorage.getItem('current_study_skip_completed_storage')
-      if (skipStorageFlag === currentStudyId) {
-        isSpecialCreatorStudy = true
+      if (skipStorageFlag === studyId) {
+        specialCreatorStudy = true
       } else {
         // Fallback: if flag was cleared before we ran (e.g. by another tab or navigation), check creator from storage before we remove it
         const creatorEmail =
@@ -48,20 +53,25 @@ export default function ThankYouPage() {
               return d?.study_info?.creator_email || ''
             } catch { return '' }
           })()
-        isSpecialCreatorStudy = checkIsSpecialCreator(creatorEmail)
+        specialCreatorStudy = checkIsSpecialCreator(creatorEmail)
       }
 
-      if (isSpecialCreatorStudy) {
+      setIsSpecialCreatorStudy(specialCreatorStudy)
+
+      if (specialCreatorStudy) {
         localStorage.removeItem('current_study_skip_completed_storage')
       }
-      if (!isSpecialCreatorStudy) {
-        const completedStudies = JSON.parse(localStorage.getItem('completed_studies') || '{}')
-        completedStudies[currentStudyId] = {
-          completedAt: new Date().toISOString(),
-          responseId: Math.random().toString(36).substring(2, 8).toUpperCase()
-        }
-        localStorage.setItem('completed_studies', JSON.stringify(completedStudies))
-      }
+      
+      // COMMENTED OUT: For now, allow users to retake the study (do not store in completed_studies)
+      // if (!specialCreatorStudy) {
+      //   const completedStudies = JSON.parse(localStorage.getItem('completed_studies') || '{}')
+      //   completedStudies[studyId] = {
+      //     completedAt: new Date().toISOString(),
+      //     responseId: Math.random().toString(36).substring(2, 8).toUpperCase()
+      //   }
+      //   localStorage.setItem('completed_studies', JSON.stringify(completedStudies))
+      // }
+      
       localStorage.removeItem('current_study_creator_email')
     } catch (error) {
       console.error('Error marking study as completed:', error)
@@ -91,7 +101,9 @@ export default function ThankYouPage() {
           elements_shown_content: it.elements_shown_content || undefined,
         }))
 
-        const url = `http://127.0.0.1:8000/api/v1/responses/submit-tasks-bulk?session_id=${encodeURIComponent(String(sessionId))}`
+        const base = API_BASE_URL?.replace(/\/$/, "")
+        if (!base) return
+        const url = `${base}/responses/submit-tasks-bulk?session_id=${encodeURIComponent(String(sessionId))}`
         const data = JSON.stringify({ tasks })
 
         // Try sendBeacon first
@@ -120,8 +132,8 @@ export default function ThankYouPage() {
 
     // Run one flush immediately and a few retries for a short window
     flushOnce()
-    const interval = window.setInterval(flushOnce, 3000)
-    const timeoutStop = window.setTimeout(() => { try { window.clearInterval(interval) } catch { } }, 15000)
+    const flushInterval = window.setInterval(flushOnce, 3000)
+    const timeoutStop = window.setTimeout(() => { try { window.clearInterval(flushInterval) } catch { } }, 15000)
 
     // Get response times from localStorage
     const times = localStorage.getItem('study_response_times')
@@ -167,6 +179,7 @@ export default function ThankYouPage() {
     } catch { }
 
     // If redirected id exists, schedule redirect 2s after thank-you shows
+    let ridInterval: ReturnType<typeof setInterval> | undefined
     try {
       const rid = localStorage.getItem('redirect_rid')
       console.log('Thank you page - checking for rid:', rid) // Debug log
@@ -174,11 +187,11 @@ export default function ThankYouPage() {
         console.log('Found rid in localStorage, setting up redirect:', rid) // Debug log
         setRedirecting(true)
         setCountdown(3)
-        const interval = setInterval(() => {
+        ridInterval = setInterval(() => {
           setCountdown((prev) => {
             if (prev === null) return null
             if (prev <= 1) {
-              clearInterval(interval)
+              clearInterval(ridInterval)
               try { localStorage.removeItem('redirect_rid') } catch { }
               const cintRid = encodeURIComponent(rid)
               console.log('Redirecting to:', `https://notch.insights.supply/cb?token=446a1929-7cfa-4ee3-9778-a9e9dae498ac&RID=${cintRid}`) // Debug log
@@ -194,6 +207,7 @@ export default function ThankYouPage() {
     } catch (error) {
       console.error('Error handling rid redirect:', error)
     }
+    
     // Prevent back navigation - if user tries to go back, redirect to thank you page
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       // This will show a confirmation dialog if user tries to leave
@@ -204,7 +218,7 @@ export default function ThankYouPage() {
     const handlePopState = (event: PopStateEvent) => {
       // If user tries to go back using browser back button, redirect to thank you page
       event.preventDefault()
-      router.push(`/participate/${currentStudyId}/thank-you`)
+      router.push(`/participate/${studyId}/thank-you`)
     }
 
     // Add event listeners
@@ -213,15 +227,54 @@ export default function ThankYouPage() {
 
     return () => {
       try {
-        window.clearInterval(interval);
+        window.clearInterval(flushInterval);
         window.clearTimeout(timeoutStop);
+        if (ridInterval) window.clearInterval(ridInterval);
         window.removeEventListener('beforeunload', handleBeforeUnload);
         window.removeEventListener('popstate', handlePopState);
       } catch { }
     }
   }, [router])
 
+  // Auto-redirect for special creator studies - 5 seconds countdown to restart study
+  useEffect(() => {
+    if (!isHydrated || !isSpecialCreatorStudy || !currentStudyId) return
+    
+    // Don't start restart countdown if there's already a rid redirect happening
+    const rid = localStorage.getItem('redirect_rid')
+    if (rid) return
+
+    setRestartCountdown(5)
+    const restartInterval = setInterval(() => {
+      setRestartCountdown((prev) => {
+        if (prev === null) return null
+        if (prev <= 1) {
+          clearInterval(restartInterval)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => {
+      clearInterval(restartInterval)
+    }
+  }, [isHydrated, isSpecialCreatorStudy, currentStudyId])
+
+  // Separate effect to handle the redirect when countdown reaches 0
+  useEffect(() => {
+    if (restartCountdown === 0 && isSpecialCreatorStudy && currentStudyId) {
+      router.push(`/participate/${currentStudyId}`)
+    }
+  }, [restartCountdown, isSpecialCreatorStudy, currentStudyId, router])
+
   const handleCloseTab = () => {
+    // For special creator studies, redirect back to the beginning of the study
+    if (isSpecialCreatorStudy && currentStudyId) {
+      router.push(`/participate/${currentStudyId}`)
+      return
+    }
+
     // Try to close the tab/window
     if (window.opener) {
       // If opened in a popup, close it
@@ -292,6 +345,14 @@ export default function ThankYouPage() {
                   <span className="text-gray-400 mr-2">•</span>
                   <span className="font-medium text-blue-700">
                     Redirecting in {countdown ?? 3}...
+                  </span>
+                </li>
+              )}
+              {isSpecialCreatorStudy && !redirecting && restartCountdown !== null && restartCountdown > 0 && (
+                <li className="flex items-start">
+                  <span className="text-gray-400 mr-2">•</span>
+                  <span className="font-medium text-green-700">
+                    Restarting study in {restartCountdown} seconds...
                   </span>
                 </li>
               )}
