@@ -6,6 +6,7 @@ export const SPECIAL_CREATOR_EMAILS = [
     
     'dlovej009@gmail.com',
     'pareenja55555@gmail.com',
+    'tusharpareenja@gmail.com'
 ]
 
 /** Domains where every user is treated as a special creator (e.g. xyz@unilever.com). */
