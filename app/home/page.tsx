@@ -21,7 +21,7 @@ import {
   getProjectStudies as getProjectStudiesApi,
   getProjectMembers as getProjectMembersApi,
   downloadProjectCsv,
-  downloadProjectZip,
+  startProjectZipExport,
   Project
 } from "@/api/projectApi"
 import { getStudyProjectMapping } from "@/lib/utils/projectUtils"
@@ -315,23 +315,19 @@ function DashboardContent() {
 
   const handleExportProjectZip = async () => {
     if (!selectedProjectId || exportingProjectZip) return
-    const project = projects.find((p) => p.id === selectedProjectId)
-    const projectName = project?.name ?? "project"
     setExportingProjectZip(true)
-    setExportZipStatus("Getting data...")
+    setExportZipStatus("Starting export...")
+    
     try {
-      const blob = await downloadProjectZip(selectedProjectId)
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `${projectName.replace(/[^a-zA-Z0-9-_]/g, "_")}_studies.zip`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
+      // Start background export job - returns immediately
+      await startProjectZipExport(selectedProjectId)
+      
+      // Show success message - user will receive email when ready
+      setExportZipStatus("Export started!")
+      alert("Export started! You'll receive an email with the download link when it's ready.")
     } catch (err) {
       console.error("Export project ZIP failed:", err)
-      alert(err instanceof Error ? err.message : "Failed to export project ZIP.")
+      alert(err instanceof Error ? err.message : "Failed to start export.")
     } finally {
       setExportingProjectZip(false)
     }

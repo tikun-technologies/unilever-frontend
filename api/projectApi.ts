@@ -119,19 +119,20 @@ export async function downloadProjectCsv(projectId: string): Promise<Blob> {
 }
 
 /**
- * Download project as ZIP
+ * Start a background job to export project as ZIP
  * POST /api/v1/projects/{project_id}/export-zip
+ * Returns immediately - user will receive email when export is ready
  */
-export async function downloadProjectZip(projectId: string): Promise<Blob> {
+export async function startProjectZipExport(projectId: string): Promise<{ job_id: string; status: string; message: string }> {
     const res = await fetchWithAuth(`${API_BASE_URL}/projects/${projectId}/export-zip`, {
         method: "POST",
-        headers: { Accept: "application/zip" },
+        headers: { "Content-Type": "application/json" },
     });
     if (!res.ok) {
         const errorText = await res.text().catch(() => "");
-        throw new Error(`Failed to export project ZIP: ${res.status} ${errorText}`);
+        throw new Error(`Failed to start project ZIP export: ${res.status} ${errorText}`);
     }
-    return res.blob();
+    return res.json();
 }
 
 /**
