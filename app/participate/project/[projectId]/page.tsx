@@ -224,6 +224,11 @@ export default function PublicProjectPage() {
                         <h2 className="text-xl font-semibold leading-8 text-slate-900 transition-colors group-hover:text-[rgba(38,116,186,1)]">
                           {study.title}
                         </h2>
+                        {study.product_id ? (
+                          <p className="mt-2 text-sm font-medium text-[rgba(38,116,186,1)]">
+                            Product ID: <span className="text-slate-600">{study.product_id}</span>
+                          </p>
+                        ) : null}
                         <p className="mt-3 text-sm leading-6 text-slate-500">
                           Open this study to continue to the standard participant start flow.
                         </p>

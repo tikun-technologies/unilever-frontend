@@ -287,6 +287,7 @@ export interface PublicProjectStudy {
     id: string;
     title: string;
     study_type: string;
+    product_id?: string | null;
 }
 
 export interface PublicProjectStudiesResponse {
