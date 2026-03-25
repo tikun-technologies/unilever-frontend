@@ -648,7 +648,13 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
               const withName = arr.filter((k: any) => k && typeof k.name === 'string' && String(k.name).trim().length > 0)
               const productIdVal = parsed?.productId ?? parsed?.product_id ?? ''
               const productIdOk = Array.isArray(parsed) ? true : String(productIdVal).trim().length >= 1
-              return withName.length > 0 && productIdOk
+              const roundPct = (n: number) => Math.round(n * 100) / 100
+              const clampPct = (n: number) => Math.max(0, Math.min(100.01, n))
+              const totalPct = roundPct(
+                withName.reduce((sum: number, k: any) => sum + roundPct(clampPct(Number(k?.percentage) || 0)), 0)
+              )
+              const totalOk = totalPct >= 100 && totalPct <= 100.01
+              return withName.length > 0 && productIdOk && totalOk
             } catch { return false }
           }
           case 8: {

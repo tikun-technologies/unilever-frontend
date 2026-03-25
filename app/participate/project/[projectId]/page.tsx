@@ -14,6 +14,7 @@ import {
   Sparkles,
   Type,
 } from "lucide-react"
+import { setParticipateProjectReturnFromCurrentPage } from "@/lib/participate/projectReturnUrl"
 
 function getStudyTypeMeta(type: string) {
   switch (type) {
@@ -201,7 +202,10 @@ export default function PublicProjectPage() {
                   <button
                     key={study.id}
                     type="button"
-                    onClick={() => router.push(`/participate/${study.id}`)}
+                    onClick={() => {
+                      setParticipateProjectReturnFromCurrentPage(study.id)
+                      router.push(`/participate/${study.id}`)
+                    }}
                     className="group relative cursor-pointer overflow-hidden rounded-[26px] border border-slate-200 bg-white p-0 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-[rgba(38,116,186,0.35)] hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-[rgba(38,116,186,0.12)]"
                   >
                     <div className="absolute inset-x-0 top-0 h-1.5 bg-[rgba(38,116,186,1)]" />

@@ -7,6 +7,10 @@ import { CheckCircle, X } from "lucide-react"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
+import {
+  clearParticipateProjectReturn,
+  readParticipateProjectReturn,
+} from "@/lib/participate/projectReturnUrl"
 
 export default function ThankYouPage() {
   const router = useRouter()
@@ -34,11 +38,11 @@ export default function ThankYouPage() {
 
     // For studies created by special creators: do not store in completed_studies so participants can go back.
     // Run only once so we don't double-store if effect runs again (e.g. Strict Mode) after removing the flag.
+    let specialCreatorStudy = false
     try {
       if (completedStorageProcessedRef.current) return
       completedStorageProcessedRef.current = true
 
-      let specialCreatorStudy = false
       const skipStorageFlag = localStorage.getItem('current_study_skip_completed_storage')
       if (skipStorageFlag === studyId) {
         specialCreatorStudy = true
@@ -178,8 +182,9 @@ export default function ThankYouPage() {
       }
     } catch { }
 
-    // If redirected id exists, schedule redirect 2s after thank-you shows
+    // Post-completion redirect: rid (panel) > project list URL > default study intro (non–special-creator only)
     let ridInterval: ReturnType<typeof setInterval> | undefined
+    let postThankYouInterval: ReturnType<typeof setInterval> | undefined
     try {
       const rid = localStorage.getItem('redirect_rid')
       console.log('Thank you page - checking for rid:', rid) // Debug log
@@ -203,9 +208,40 @@ export default function ThankYouPage() {
         }, 1000)
       } else {
         console.log('No rid found in localStorage') // Debug log
+        const projectReturnUrl = readParticipateProjectReturn(studyId)
+        if (projectReturnUrl) {
+          setRedirecting(true)
+          setCountdown(3)
+          postThankYouInterval = setInterval(() => {
+            setCountdown((prev) => {
+              if (prev === null) return null
+              if (prev <= 1) {
+                clearInterval(postThankYouInterval)
+                clearParticipateProjectReturn()
+                window.location.href = projectReturnUrl
+                return 0
+              }
+              return prev - 1
+            })
+          }, 1000)
+        } else if (!specialCreatorStudy) {
+          setRedirecting(true)
+          setCountdown(3)
+          postThankYouInterval = setInterval(() => {
+            setCountdown((prev) => {
+              if (prev === null) return null
+              if (prev <= 1) {
+                clearInterval(postThankYouInterval)
+                router.push(`/participate/${studyId}`)
+                return 0
+              }
+              return prev - 1
+            })
+          }, 1000)
+        }
       }
     } catch (error) {
-      console.error('Error handling rid redirect:', error)
+      console.error('Error handling post-thank-you redirect:', error)
     }
     
     // Prevent back navigation - if user tries to go back, redirect to thank you page
@@ -230,6 +266,7 @@ export default function ThankYouPage() {
         window.clearInterval(flushInterval);
         window.clearTimeout(timeoutStop);
         if (ridInterval) window.clearInterval(ridInterval);
+        if (postThankYouInterval) window.clearInterval(postThankYouInterval);
         window.removeEventListener('beforeunload', handleBeforeUnload);
         window.removeEventListener('popstate', handlePopState);
       } catch { }
@@ -240,9 +277,10 @@ export default function ThankYouPage() {
   useEffect(() => {
     if (!isHydrated || !isSpecialCreatorStudy || !currentStudyId) return
     
-    // Don't start restart countdown if there's already a rid redirect happening
+    // Don't start restart countdown if there's already a rid redirect or return-to-project URL
     const rid = localStorage.getItem('redirect_rid')
     if (rid) return
+    if (readParticipateProjectReturn(currentStudyId)) return
 
     setRestartCountdown(5)
     const restartInterval = setInterval(() => {
@@ -269,8 +307,20 @@ export default function ThankYouPage() {
   }, [restartCountdown, isSpecialCreatorStudy, currentStudyId, router])
 
   const handleCloseTab = () => {
+    const projectUrl = currentStudyId ? readParticipateProjectReturn(currentStudyId) : null
+    if (projectUrl) {
+      clearParticipateProjectReturn()
+      window.location.href = projectUrl
+      return
+    }
+
     // For special creator studies, redirect back to the beginning of the study
     if (isSpecialCreatorStudy && currentStudyId) {
+      router.push(`/participate/${currentStudyId}`)
+      return
+    }
+
+    if (currentStudyId) {
       router.push(`/participate/${currentStudyId}`)
       return
     }

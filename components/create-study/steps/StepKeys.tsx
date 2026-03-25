@@ -19,7 +19,9 @@ function clampPercentage(n: number): number {
 
 const PRODUCT_ID_MAX_LENGTH = 100
 const MIN_KEYS = 4
+/** Per-key cap; sum of all keys may be up to this same value (100.01) to allow rounding. */
 const MAX_KEY_PERCENTAGE = 100.01
+const MAX_TOTAL_KEYS_PERCENTAGE = MAX_KEY_PERCENTAGE
 
 function roundPercentage(n: number): number {
   return Math.round(n * 100) / 100
@@ -70,7 +72,8 @@ export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: S
   const filledKeys = keys.filter((k) => k.name.trim().length > 0)
   const toStoreKeys = filledKeys.map((k) => ({ name: k.name.trim(), percentage: roundPercentage(clampPercentage(k.percentage)) }))
   const totalPercentage = roundPercentage(toStoreKeys.reduce((sum, k) => sum + k.percentage, 0))
-  const totalIs100 = totalPercentage === 100
+  const totalIsValid =
+    totalPercentage >= 100 && totalPercentage <= MAX_TOTAL_KEYS_PERCENTAGE
   const productIdValid = productId.trim().length > 0
   const allKeysFilled =
     keys.length > 0 &&
@@ -87,9 +90,9 @@ export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: S
     .map(([name]) => name)
   const hasDuplicateNames = duplicateNames.length > 0
 
-  const canProceed = productIdValid && allKeysFilled && totalIs100 && !hasDuplicateNames
+  const canProceed = productIdValid && allKeysFilled && totalIsValid && !hasDuplicateNames
 
-  const hasPercentageError = filledKeys.length > 0 && !totalIs100
+  const hasPercentageError = filledKeys.length > 0 && !totalIsValid
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -179,7 +182,7 @@ export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: S
       <div>
         <h3 className="text-lg font-semibold text-gray-800">Keys</h3>
         <p className="text-sm text-gray-600">
-          Add product keys with name and percentage. Each percentage can include decimals up to {MAX_KEY_PERCENTAGE}%, and the total must equal 100%.
+          Add product keys with name and percentage. Each key can be up to {MAX_KEY_PERCENTAGE}%, and the sum of all keys must be between 100% and {MAX_TOTAL_KEYS_PERCENTAGE}% (inclusive).
         </p>
       </div>
 
@@ -253,7 +256,7 @@ export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: S
         )}
         {hasPercentageError && (
           <p className="text-sm text-red-600">
-            The keys should total 100%. Current total: {totalPercentage}%.
+            The keys should total between 100% and {MAX_TOTAL_KEYS_PERCENTAGE}%. Current total: {totalPercentage}%.
           </p>
         )}
         {hasDuplicateNames && (

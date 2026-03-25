@@ -180,7 +180,8 @@ function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
           const parsed = JSON.parse(data)
           return !!(parsed.respondents && parsed.respondents > 0)
         }
-        // Keys step (special creators only): product_id required (min 1 character) + at least one key with name
+        // Keys step (special creators only): product_id required (min 1 character) + at least one key with name;
+        // percentages must sum to 100–100.01 (same rules as StepKeys).
         const data = localStorage.getItem('cs_step_keys')
         if (!data) return false
         try {
@@ -190,7 +191,13 @@ function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
           const withName = arr.filter((k: any) => k && typeof k.name === 'string' && String(k.name).trim().length > 0)
           const productIdVal = parsed?.productId ?? parsed?.product_id ?? ''
           const productIdOk = Array.isArray(parsed) ? true : String(productIdVal).trim().length >= 1
-          return withName.length > 0 && productIdOk
+          const roundPct = (n: number) => Math.round(n * 100) / 100
+          const clampPct = (n: number) => Math.max(0, Math.min(100.01, n))
+          const totalPct = roundPct(
+            withName.reduce((sum: number, k: any) => sum + roundPct(clampPct(Number(k?.percentage) || 0)), 0)
+          )
+          const totalOk = totalPct >= 100 && totalPct <= 100.01
+          return withName.length > 0 && productIdOk && totalOk
         } catch { return false }
       }
       case 8: {
