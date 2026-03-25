@@ -282,3 +282,31 @@ export async function validateProduct(
 
     return res.json();
 }
+
+export interface PublicProjectStudy {
+    id: string;
+    title: string;
+    study_type: string;
+}
+
+export interface PublicProjectStudiesResponse {
+    project_name: string;
+    studies: PublicProjectStudy[];
+}
+
+/**
+ * Get public studies for a project
+ * GET /api/v1/projects/public/{project_id}/studies
+ */
+export async function getPublicProjectStudies(projectId: string): Promise<PublicProjectStudiesResponse> {
+    const res = await fetch(`${API_BASE_URL}/projects/public/${projectId}/studies`, {
+        method: "GET",
+    });
+
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || "Failed to fetch public project studies");
+    }
+
+    return res.json();
+}

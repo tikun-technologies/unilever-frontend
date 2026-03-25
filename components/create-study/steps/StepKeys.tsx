@@ -14,11 +14,16 @@ interface StepKeysProps {
 }
 
 function clampPercentage(n: number): number {
-  return Math.max(0, Math.min(100, n))
+  return Math.max(0, Math.min(100.01, n))
 }
 
 const PRODUCT_ID_MAX_LENGTH = 100
 const MIN_KEYS = 4
+const MAX_KEY_PERCENTAGE = 100.01
+
+function roundPercentage(n: number): number {
+  return Math.round(n * 100) / 100
+}
 
 export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: StepKeysProps) {
   const [isSaving, setIsSaving] = useState(false)
@@ -63,8 +68,8 @@ export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: S
   })
 
   const filledKeys = keys.filter((k) => k.name.trim().length > 0)
-  const toStoreKeys = filledKeys.map((k) => ({ name: k.name.trim(), percentage: clampPercentage(k.percentage) }))
-  const totalPercentage = toStoreKeys.reduce((sum, k) => sum + k.percentage, 0)
+  const toStoreKeys = filledKeys.map((k) => ({ name: k.name.trim(), percentage: roundPercentage(clampPercentage(k.percentage)) }))
+  const totalPercentage = roundPercentage(toStoreKeys.reduce((sum, k) => sum + k.percentage, 0))
   const totalIs100 = totalPercentage === 100
   const productIdValid = productId.trim().length > 0
   const allKeysFilled =
@@ -174,7 +179,7 @@ export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: S
       <div>
         <h3 className="text-lg font-semibold text-gray-800">Keys</h3>
         <p className="text-sm text-gray-600">
-          Add product keys with name and percentage. Each percentage must be between 0 and 100, and the total must equal 100%.
+          Add product keys with name and percentage. Each percentage can include decimals up to {MAX_KEY_PERCENTAGE}%, and the total must equal 100%.
         </p>
       </div>
 
@@ -207,16 +212,17 @@ export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: S
                 <Input
                   type="number"
                   min={0}
-                  max={100}
+                  max={MAX_KEY_PERCENTAGE}
+                  step="0.01"
                   value={key.percentage === 0 ? "" : key.percentage}
                   onChange={(e) => {
                     const v = e.target.value
                     if (v === "") setKey(idx, "percentage", 0)
-                    else setKey(idx, "percentage", parseInt(v, 10) || 0)
+                    else setKey(idx, "percentage", roundPercentage(parseFloat(v) || 0))
                   }}
-                  className="w-16 text-center rounded-lg"
+                  className="w-20 text-center rounded-lg"
                   disabled={isReadOnly || !key.name.trim()}
-                  placeholder="0"
+                  placeholder="0.00"
                 />
                 <span className="text-sm text-gray-500">%</span>
               </div>

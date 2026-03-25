@@ -27,7 +27,7 @@ import {
 import { getStudyProjectMapping } from "@/lib/utils/projectUtils"
 import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
-import { FileDown } from "lucide-react"
+import { FileDown, Link } from "lucide-react"
 
 // Redirect to login without showing error when auth fails (token expired, not authenticated, etc.)
 function redirectToLoginOnAuthError() {
@@ -89,6 +89,7 @@ function DashboardContent() {
   const [exportCsvStatus, setExportCsvStatus] = useState("Getting data...")
   const [exportingProjectZip, setExportingProjectZip] = useState(false)
   const [exportZipStatus, setExportZipStatus] = useState("Getting data...")
+  const [isCopied, setIsCopied] = useState(false)
 
   const { user } = useAuth()
   const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
@@ -555,6 +556,14 @@ function DashboardContent() {
     )
   }
 
+  const handleShareProjectToParticipant = () => {
+    if (!selectedProjectId) return
+    const url = `${window.location.origin}/participate/project/${selectedProjectId}`
+    navigator.clipboard.writeText(url)
+    setIsCopied(true)
+    setTimeout(() => setIsCopied(false), 2000)
+  }
+
   return (
     <AuthGuard requireAuth={true}>
       <div className="flex min-h-screen bg-slate-100 font-sans">
@@ -642,6 +651,14 @@ function DashboardContent() {
                       <span>Export ZIP</span>
                     </>
                   )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShareProjectToParticipant}
+                  className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white transition-colors"
+                >
+                  <Link className="w-4 h-4" />
+                  <span>{isCopied ? "Copied!" : "Share Project to Participant"}</span>
                 </button>
               </div>
             )}
