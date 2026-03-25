@@ -1,5 +1,6 @@
-import type { Metadata } from "next";
-import { getStudyDetailsWithoutAuth } from "@/lib/api/StudyAPI";
+import type { Metadata } from "next"
+import { getStudyDetailsWithoutAuth } from "@/lib/api/StudyAPI"
+import { ParticipateStudyDocumentTitle } from "@/components/participate/ParticipateStudyDocumentTitle"
 
 type LayoutProps = {
   children: React.ReactNode;
@@ -13,8 +14,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id: studyId } = await params;
   try {
     const study = await getStudyDetailsWithoutAuth(studyId);
-    const titleBase = study?.title || "Study";
-    const title = titleBase;
+    const titleBase = study?.title || "Study"
+    const title = `${titleBase} · MindSurve`
     const description = "Participate in this study.";
     const appUrl = process.env.NEXT_PUBLIC_BASE_URL || "";
     const url = `${appUrl}/participate/${studyId}`;
@@ -36,18 +37,19 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     };
   } catch {
     return {
-      title: "Study",
+      title: "Study · MindSurve",
       description: "Participate in this study.",
-    };
+    }
   }
 }
 
 export default function ParticipateLayout({ children }: LayoutProps) {
   return (
     <section>
+      <ParticipateStudyDocumentTitle />
       {children}
     </section>
-  );
+  )
 }
 
 

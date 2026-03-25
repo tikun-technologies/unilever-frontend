@@ -244,21 +244,12 @@ export default function ThankYouPage() {
       console.error('Error handling post-thank-you redirect:', error)
     }
     
-    // Prevent back navigation - if user tries to go back, redirect to thank you page
-    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
-      // This will show a confirmation dialog if user tries to leave
-      event.preventDefault()
-      event.returnValue = 'You have already completed this study. Are you sure you want to leave?'
-    }
-
     const handlePopState = (event: PopStateEvent) => {
       // If user tries to go back using browser back button, redirect to thank you page
       event.preventDefault()
       router.push(`/participate/${studyId}/thank-you`)
     }
 
-    // Add event listeners
-    window.addEventListener('beforeunload', handleBeforeUnload)
     window.addEventListener('popstate', handlePopState)
 
     return () => {
@@ -267,7 +258,6 @@ export default function ThankYouPage() {
         window.clearTimeout(timeoutStop);
         if (ridInterval) window.clearInterval(ridInterval);
         if (postThankYouInterval) window.clearInterval(postThankYouInterval);
-        window.removeEventListener('beforeunload', handleBeforeUnload);
         window.removeEventListener('popstate', handlePopState);
       } catch { }
     }

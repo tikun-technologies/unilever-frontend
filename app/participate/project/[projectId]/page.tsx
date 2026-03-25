@@ -4,42 +4,8 @@ import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { getPublicProjectStudies, PublicProjectStudiesResponse } from "@/api/projectApi"
-import {
-  Activity,
-  ArrowRight,
-  FolderOpen,
-  LayoutGrid,
-  Layers,
-  Search,
-  Sparkles,
-  Type,
-} from "lucide-react"
+import { Activity, ArrowRight, FolderOpen, Search } from "lucide-react"
 import { setParticipateProjectReturnFromCurrentPage } from "@/lib/participate/projectReturnUrl"
-
-function getStudyTypeMeta(type: string) {
-  switch (type) {
-    case "grid":
-      return {
-        label: "Grid Study",
-        icon: <LayoutGrid className="h-4 w-4" />,
-      }
-    case "layer":
-      return {
-        label: "Layer Study",
-        icon: <Layers className="h-4 w-4" />,
-      }
-    case "text":
-      return {
-        label: "Text Study",
-        icon: <Type className="h-4 w-4" />,
-      }
-    default:
-      return {
-        label: "Study",
-        icon: <Activity className="h-4 w-4" />,
-      }
-  }
-}
 
 export default function PublicProjectPage() {
   const params = useParams<{ projectId: string }>()
@@ -130,43 +96,45 @@ export default function PublicProjectPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
-        <section
-          onClick={() => searchInputRef.current?.focus()}
-          className="relative cursor-pointer overflow-hidden rounded-[32px] border border-[rgba(38,116,186,0.18)] bg-[rgba(38,116,186,1)] px-6 py-8 text-white shadow-xl sm:px-8 sm:py-10"
-        >
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.14),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(12,74,140,0.28),transparent_40%)]" />
-          <div className="relative flex flex-col gap-8">
-            <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-              <div className="max-w-3xl">
-                <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.2em] text-white">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Project Studies
+      <div className="mx-auto max-w-6xl px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
+        <section className="space-y-3">
+          {/* Compact hero strip — low height, horizontal layout */}
+          <div className="relative overflow-hidden rounded-xl border border-[rgba(38,116,186,0.22)] bg-gradient-to-r from-[#1a5f96] via-[rgba(38,116,186,1)] to-[#2d87c4] shadow-sm ring-1 ring-black/5">
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_120%_80%_at_100%_-20%,rgba(255,255,255,0.18),transparent_45%),linear-gradient(180deg,rgba(255,255,255,0.06),transparent)]" />
+            <div className="relative flex flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5 sm:py-4">
+              <div className="flex min-w-0 flex-1 items-start gap-3 sm:items-center">
+                <div className="min-w-0 pt-0.5 sm:pt-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/65">
+                    Products
+                  </p>
+                  <h1 className="mt-0.5 truncate text-lg font-semibold leading-tight tracking-tight text-white sm:text-xl">
+                    {data.project_name}
+                  </h1>
+                  <p className="mt-1 hidden text-xs leading-snug text-white/75 sm:line-clamp-1 sm:block">
+                    Choose a Product below to begin — quick access to each participant flow.
+                  </p>
                 </div>
-                <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">
-                  {data.project_name}
-                </h1>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-white/85 sm:text-base">
-                  Choose a study below to begin the participant flow. Everything here is organized for quick access and a smooth start.
-                </p>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:w-auto">
-                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur-sm">
-                  <p className="text-xs uppercase tracking-[0.18em] text-white/80">Available</p>
-                  <p className="mt-2 text-2xl font-semibold text-white">{data.studies.length}</p>
-                  <p className="text-xs text-white/75">Active studies</p>
-                </div>
-                <div className="rounded-2xl border border-white/15 bg-white/10 px-4 py-4 backdrop-blur-sm">
-                  <p className="text-xs uppercase tracking-[0.18em] text-white/80">Showing</p>
-                  <p className="mt-2 text-2xl font-semibold text-white">{filteredStudies.length}</p>
-                  <p className="text-xs text-white/75">Matching results</p>
+              <div className="flex shrink-0 items-stretch gap-2 sm:gap-2.5">
+                <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-lg border border-white/15 bg-white/12 px-3 py-2 text-center backdrop-blur-[2px] sm:min-w-[5.5rem] sm:py-2.5">
+                  <span className="text-[10px] font-medium uppercase tracking-wide text-white/65">Available</span>
+                  <span className="w-full text-center text-xl font-bold tabular-nums leading-none text-white sm:text-2xl">
+                    {data.studies.length}
+                  </span>
                 </div>
               </div>
             </div>
+          </div>
 
-            <div className="relative max-w-xl">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
+          {/* Search — slim rectangle below hero */}
+          <div
+            role="presentation"
+            onClick={() => searchInputRef.current?.focus()}
+            className="cursor-text rounded-xl border border-slate-200/90 bg-white px-3 py-2 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+          >
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 ref={searchInputRef}
                 type="text"
@@ -174,13 +142,13 @@ export default function PublicProjectPage() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
-                className="h-14 w-full rounded-2xl border border-white/10 bg-white pl-12 pr-4 text-sm text-slate-900 shadow-lg outline-none transition focus:border-white focus:ring-4 focus:ring-white/20"
+                className="h-9 w-full rounded-lg border-0 bg-transparent pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none ring-0 focus:ring-2 focus:ring-[rgba(38,116,186,0.2)]"
               />
             </div>
           </div>
         </section>
 
-        <section className="mt-8">
+        <section className="mt-6 sm:mt-7">
           {filteredStudies.length === 0 ? (
             <div className="rounded-[28px] border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-sm">
               <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
@@ -196,51 +164,31 @@ export default function PublicProjectPage() {
           ) : (
             <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:gap-6">
               {filteredStudies.map((study) => {
-                const studyType = getStudyTypeMeta(study.study_type)
+                const displayId = (study.product_id && study.product_id.trim()) || study.id
 
                 return (
                   <button
                     key={study.id}
                     type="button"
+                    title={displayId}
                     onClick={() => {
                       setParticipateProjectReturnFromCurrentPage(study.id)
                       router.push(`/participate/${study.id}`)
                     }}
-                    className="group relative cursor-pointer overflow-hidden rounded-[26px] border border-slate-200 bg-white p-0 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-[rgba(38,116,186,0.35)] hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-[rgba(38,116,186,0.12)]"
+                    className="group relative w-full cursor-pointer overflow-hidden rounded-[26px] border border-slate-200 bg-white p-0 text-left shadow-sm transition duration-200 hover:-translate-y-1 hover:border-[rgba(38,116,186,0.35)] hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-[rgba(38,116,186,0.12)]"
                   >
                     <div className="absolute inset-x-0 top-0 h-1.5 bg-[rgba(38,116,186,1)]" />
-                    <div className="flex h-full flex-col px-6 pb-6 pt-7">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
-                          {studyType.icon}
-                          <span>{studyType.label}</span>
-                        </div>
-                        <div className="rounded-full bg-[rgba(38,116,186,0.08)] px-3 py-1 text-xs font-medium text-[rgba(38,116,186,1)]">
-                          Ready to start
-                        </div>
-                      </div>
-
-                      <div className="mt-5 flex-1">
-                        <h2 className="text-xl font-semibold leading-8 text-slate-900 transition-colors group-hover:text-[rgba(38,116,186,1)]">
-                          {study.title}
-                        </h2>
-                        {study.product_id ? (
-                          <p className="mt-2 text-sm font-medium text-[rgba(38,116,186,1)]">
-                            Product ID: <span className="text-slate-600">{study.product_id}</span>
-                          </p>
-                        ) : null}
-                        <p className="mt-3 text-sm leading-6 text-slate-500">
-                          Open this study to continue to the standard participant start flow.
-                        </p>
-                      </div>
-
-                      <div className="mt-8 flex items-center justify-between border-t border-slate-100 pt-4">
-                        <span className="text-sm font-semibold text-slate-900">Start study</span>
-                        <span className="inline-flex items-center gap-2 text-sm font-medium text-[rgba(38,116,186,1)]">
-                          Continue
-                          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
-                        </span>
-                      </div>
+                    <div className="flex items-center justify-between gap-4 px-6 pb-6 pt-7">
+                      <h2 className="min-w-0 flex-1 text-xl font-semibold leading-8 text-slate-900 transition-colors group-hover:text-[rgba(38,116,186,1)]">
+                        Product ID:{" "}
+                        <span className="font-medium text-slate-700 tabular-nums">{displayId}</span>
+                      </h2>
+                      <span
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[rgba(38,116,186,0.12)] text-[rgba(38,116,186,1)] transition group-hover:bg-[rgba(38,116,186,0.2)] group-hover:translate-x-0.5"
+                        aria-hidden
+                      >
+                        <ArrowRight className="h-6 w-6" strokeWidth={2.5} />
+                      </span>
                     </div>
                   </button>
                 )
