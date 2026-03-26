@@ -472,7 +472,7 @@ export default function TasksPage() {
     clickCountsRef.current = {}
   }, [currentTaskIndex])
 
-  const handleSelect = (value: number) => {
+  const handleSelect = async (value: number) => {
     clickCountsRef.current[value] = (clickCountsRef.current[value] || 0) + 1
 
     const elapsedMs = Date.now() - taskStartRef.current
@@ -520,26 +520,15 @@ export default function TasksPage() {
           pendingResponsesRef.current = []
 
           if (isLastTask) {
-            void (async () => {
-              const MAX_FINAL_RETRIES = 3
-              let lastResult: { ok?: boolean } | null = null
-              for (let attempt = 0; attempt < MAX_FINAL_RETRIES; attempt++) {
-                lastResult = await submitTasksBulk(sessionId, chunkToSend)
-                const failed =
-                  lastResult && typeof lastResult === "object" && lastResult.ok === false
-                if (!failed) break
-                if (attempt < MAX_FINAL_RETRIES - 1) {
-                  await new Promise((r) => setTimeout(r, 500 * (attempt + 1)))
-                }
-              }
-              if (
-                lastResult &&
-                typeof lastResult === "object" &&
-                lastResult.ok === false
-              ) {
-                console.error("[Participate] Final bulk submit failed after retries")
-              }
-            })()
+            setIsLoading(true)
+            let lastResult: { ok?: boolean } | null = null
+            while (true) {
+              lastResult = await submitTasksBulk(sessionId, chunkToSend)
+              const failed =
+                lastResult && typeof lastResult === "object" && lastResult.ok === false
+              if (!failed) break
+              await new Promise((r) => setTimeout(r, 1000))
+            }
           } else {
             submitTasksBulk(sessionId, chunkToSend).catch((err) => {
               console.error("Failed to submit bulk tasks:", err)
@@ -554,10 +543,7 @@ export default function TasksPage() {
     if (!isLastTask) {
       setTimeout(() => setCurrentTaskIndex((i) => i + 1), 80)
     } else {
-      setIsLoading(true)
-      window.setTimeout(() => {
-        router.push(`/participate/${studyIdFromParams}/thank-you`)
-      }, 700)
+      router.push(`/participate/${studyIdFromParams}/thank-you`)
     }
   }
 
@@ -615,6 +601,7 @@ export default function TasksPage() {
                       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgba(38,116,186,1)] mx-auto mb-4"></div>
                       <h2 className="text-xl font-semibold text-gray-900">Processing your responses...</h2>
                       <p className="mt-2 text-sm text-gray-600">Please wait while we save your study data.</p>
+                      <p className="mt-1 text-sm font-medium text-gray-700">Please don&apos;t close your tab.</p>
                     </div>
                   </div>
                 ) : isInitialLoading ? (
@@ -973,6 +960,7 @@ export default function TasksPage() {
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgba(38,116,186,1)] mx-auto mb-4"></div>
                     <h2 className="text-xl font-semibold text-gray-900">Processing your responses...</h2>
                     <p className="mt-2 text-sm text-gray-600">Please wait while we save your study data.</p>
+                    <p className="mt-1 text-sm font-medium text-gray-700">Please don&apos;t close your tab.</p>
                   </div>
                 ) : (
                   <div className="flex flex-col flex-1 min-h-0">
