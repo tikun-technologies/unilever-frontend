@@ -3,8 +3,6 @@
 import { useParams, usePathname } from "next/navigation"
 import { useEffect } from "react"
 
-const BRAND_SUFFIX = " · MindSurve"
-
 function participateStepLabel(pathname: string): string | null {
   const lower = pathname.toLowerCase()
   if (lower.includes("/thank-you")) return "Thank you"
@@ -51,10 +49,10 @@ function buildTitle(studyId: string, pathname: string): string | null {
   const name = readStudyTitleForParticipate(studyId)
   const step = participateStepLabel(pathname)
   if (name) {
-    return step ? `${name} · ${step}${BRAND_SUFFIX}` : `${name}${BRAND_SUFFIX}`
+    return step ? `${name} · ${step}` : `${name}`
   }
   if (step) {
-    return `Study · ${step}${BRAND_SUFFIX}`
+    return `Study · ${step}`
   }
   return null
 }

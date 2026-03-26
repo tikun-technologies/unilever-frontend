@@ -3,8 +3,7 @@
 import { usePathname } from "next/navigation"
 import { useEffect } from "react"
 
-const TITLE_SUFFIX = " · MindSurve"
-const DEFAULT_TITLE = "Study preview" + TITLE_SUFFIX
+const DEFAULT_TITLE = "Study preview"
 
 function readPreviewStudyTitle(): string {
   if (typeof window === "undefined") return ""
@@ -33,7 +32,7 @@ function readPreviewStudyTitle(): string {
 
 function applyTitle() {
   const name = readPreviewStudyTitle()
-  document.title = name ? `${name}${TITLE_SUFFIX}` : DEFAULT_TITLE
+  document.title = name ? name : DEFAULT_TITLE
 }
 
 /**

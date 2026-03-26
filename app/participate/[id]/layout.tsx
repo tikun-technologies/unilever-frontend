@@ -14,8 +14,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { id: studyId } = await params;
   try {
     const study = await getStudyDetailsWithoutAuth(studyId);
-    const titleBase = study?.title || "Study"
-    const title = `${titleBase} · MindSurve`
+    const title = study?.title?.trim() || "Study"
     const description = "Participate in this study.";
     const appUrl = process.env.NEXT_PUBLIC_BASE_URL || "";
     const url = `${appUrl}/participate/${studyId}`;
@@ -37,7 +36,7 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     };
   } catch {
     return {
-      title: "Study · MindSurve",
+      title: "Study",
       description: "Participate in this study.",
     }
   }

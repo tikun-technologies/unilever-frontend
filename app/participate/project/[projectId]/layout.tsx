@@ -10,14 +10,28 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { projectId } = await params
   try {
     const data = await getPublicProjectStudies(projectId)
-    const name = data?.project_name?.trim() || "Project"
+    const title = data?.project_name?.trim() || "Project"
+    const description = "Choose a project to participate."
+    const appUrl = process.env.NEXT_PUBLIC_BASE_URL || ""
+    const url = `${appUrl}/participate/project/${projectId}`
     return {
-      title: `${name} · MindSurve`,
-      description: "Choose a project to participate.",
+      title,
+      description,
+      openGraph: {
+        title,
+        description,
+        url: url || undefined,
+        type: "website",
+      },
+      twitter: {
+        card: "summary_large_image",
+        title,
+        description,
+      },
     }
   } catch {
     return {
-      title: "Project · MindSurve",
+      title: "Project",
       description: "Project participant listing.",
     }
   }
