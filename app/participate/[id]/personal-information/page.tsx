@@ -13,10 +13,11 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import { DateCalendar } from '@mui/x-date-pickers/DateCalendar'
 import dayjs from 'dayjs'
-import { updateUserPersonalInfo, checkPanelistParticipation } from "@/lib/api/ResponseAPI"
+import { updateUserPersonalInfo, checkPanelistParticipation, abortStudySession } from "@/lib/api/ResponseAPI"
 import { searchPanelists, assignPanelistToSession, Panelist } from "@/lib/api/PanelistAPI"
 import { cn } from "@/lib/utils"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
+import { readParticipateProjectReturn } from "@/lib/participate/projectReturnUrl"
 
 export default function PersonalInformationPage() {
   const params = useParams<{ id: string }>()
@@ -448,6 +449,8 @@ function PanelistSelection({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [participationChecking, setParticipationChecking] = useState(false)
   const [participationError, setParticipationError] = useState<string | null>(null)
+  const [isAborting, setIsAborting] = useState(false)
+  const [abortError, setAbortError] = useState<string | null>(null)
 
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
 
@@ -467,10 +470,12 @@ function PanelistSelection({
   useEffect(() => {
     if (!selectedPanelist || !studyId) {
       setParticipationError(null)
+      setAbortError(null)
       return
     }
     let cancelled = false
     setParticipationError(null)
+    setAbortError(null)
     setParticipationChecking(true)
     checkPanelistParticipation(studyId, selectedPanelist.id)
       .then((data) => {
@@ -527,6 +532,25 @@ function PanelistSelection({
       console.error("Failed to assign panelist:", error)
       alert("Failed to assign panelist. Please try again.")
       setIsSubmitting(false)
+    }
+  }
+
+  const handleAbortStudy = async () => {
+    if (!studyId || !sessionId) return
+    setAbortError(null)
+    setIsAborting(true)
+    try {
+      await abortStudySession(studyId, sessionId)
+      const returnUrl = readParticipateProjectReturn(studyId)
+      if (returnUrl) {
+        window.location.href = returnUrl
+        return
+      }
+      router.push(`/participate/${studyId}`)
+    } catch (error) {
+      console.error("Failed to abort study:", error)
+      setAbortError("Failed to abort study. Please try again.")
+      setIsAborting(false)
     }
   }
 
@@ -611,7 +635,23 @@ function PanelistSelection({
           {/* Panelist already participated message (main participate only) */}
           {participationError && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              {participationError}
+              <p>{participationError}</p>
+              <p className="mt-2 text-xs text-amber-900/80">
+                Please click this button to abort study.
+              </p>
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={handleAbortStudy}
+                  disabled={isAborting}
+                  className="inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
+                >
+                  {isAborting ? "Aborting..." : "Abort Study"}
+                </button>
+              </div>
+              {abortError && (
+                <p className="mt-2 text-xs text-red-700">{abortError}</p>
+              )}
             </div>
           )}
 

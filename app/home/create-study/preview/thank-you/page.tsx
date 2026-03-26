@@ -14,6 +14,7 @@ export default function ThankYouPage() {
   const [isHydrated, setIsHydrated] = useState(false)
   const [redirecting, setRedirecting] = useState(false)
   const [countdown, setCountdown] = useState<number | null>(null)
+  const [demoReturnTo, setDemoReturnTo] = useState<string | null>(null)
 
   useEffect(() => {
     // Mark as hydrated to prevent hydration mismatches
@@ -41,7 +42,7 @@ export default function ThankYouPage() {
     })
     setCompletionTime(formattedTime)
 
-    // If redirected id exists, schedule redirect 2s after thank-you shows
+    // If redirected id exists, schedule redirect after thank-you shows
     try {
       const rid = localStorage.getItem('redirect_rid')
       if (rid) {
@@ -60,6 +61,27 @@ export default function ThankYouPage() {
             return prev - 1
           })
         }, 1000)
+        return
+      }
+
+      // Demo participation flow: return to product page in 5 seconds
+      const demoReturn = localStorage.getItem("demo_participation_return_to")
+      if (demoReturn) {
+        setDemoReturnTo(demoReturn)
+        setRedirecting(true)
+        setCountdown(5)
+        const interval = setInterval(() => {
+          setCountdown((prev) => {
+            if (prev === null) return null
+            if (prev <= 1) {
+              clearInterval(interval)
+              try { localStorage.removeItem("demo_participation_return_to") } catch { }
+              window.location.href = demoReturn
+              return 0
+            }
+            return prev - 1
+          })
+        }, 1000)
       }
     } catch { }
   }, [])
@@ -69,6 +91,11 @@ export default function ThankYouPage() {
   }
 
   const handleCloseTab = () => {
+    if (demoReturnTo) {
+      try { localStorage.removeItem("demo_participation_return_to") } catch { }
+      window.location.href = demoReturnTo
+      return
+    }
     window.close()
   }
 
@@ -162,7 +189,9 @@ export default function ThankYouPage() {
                 <li className="flex items-start">
                   <span className="text-gray-400 mr-2">•</span>
                   <span className="font-medium text-blue-700">
-                    Redirecting in {countdown ?? 3}...
+                    {demoReturnTo
+                      ? `Returning to product page in ${countdown ?? 5}...`
+                      : `Redirecting in ${countdown ?? 3}...`}
                   </span>
                 </li>
               )}
@@ -224,7 +253,7 @@ export default function ThankYouPage() {
               className="flex items-center justify-center gap-2 px-6 py-2 border border-gray-300 rounded-md text-sm text-gray-700 hover:bg-gray-50 transition-colors"
             >
               <X className="h-4 w-4" />
-              Close Tab
+              {demoReturnTo ? "Back to Product Page" : "Close Tab"}
             </button>
           </div>
         </div>

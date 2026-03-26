@@ -11,6 +11,8 @@ function ParticipateIntroContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const studyIdParam = searchParams.get('studyId')
+  const demoParticipationParam = searchParams.get('demoParticipation')
+  const returnToParam = searchParams.get('returnTo')
   const [isStarting, setIsStarting] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isCoping, setIsCoping] = useState(false)
@@ -20,6 +22,17 @@ function ParticipateIntroContent() {
   useEffect(() => {
     async function init() {
       try {
+        // Demo participation flow: persist a return URL for thank-you redirect.
+        try {
+          const isDemoParticipation = demoParticipationParam === "1" || demoParticipationParam === "true"
+          const returnTo = returnToParam ? decodeURIComponent(returnToParam) : ""
+          if (isDemoParticipation && returnTo) {
+            localStorage.setItem("demo_participation_return_to", returnTo)
+          } else {
+            localStorage.removeItem("demo_participation_return_to")
+          }
+        } catch { }
+
         if (studyIdParam) {
           console.log('[Preview] Loading shared preview for study:', studyIdParam)
 
@@ -206,7 +219,7 @@ function ParticipateIntroContent() {
     }
 
     init()
-  }, [studyIdParam])
+  }, [studyIdParam, demoParticipationParam, returnToParam])
 
   const [localData, setLocalData] = useState<{
     step1: any;

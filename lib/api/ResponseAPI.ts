@@ -373,6 +373,36 @@ export async function submitProductId(sessionId: string, productId: string): Pro
 	return response.json().catch(() => ({}))
 }
 
+/**
+ * Abort an in-progress study session for a given study/session pair.
+ * Endpoint: /responses/study/{study_id}/session/{session_id}
+ */
+export async function abortStudySession(studyId: string, sessionId: string): Promise<any> {
+	const sid = encodeURIComponent(String(studyId).trim())
+	const sess = encodeURIComponent(String(sessionId).trim())
+	const url = `${API_BASE_URL}/responses/study/${sid}/session/${sess}`
+
+	// Prefer DELETE semantics; fall back to POST if backend expects it.
+	let response = await fetch(url, {
+		method: 'DELETE',
+		headers: { 'Content-Type': 'application/json' },
+	})
+
+	if (response.status === 405) {
+		response = await fetch(url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+		})
+	}
+
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(`Failed to abort study session: ${response.status} ${JSON.stringify(errorData)}`)
+	}
+
+	return response.json().catch(() => ({}))
+}
+
 // Analytics response interface
 export interface StudyAnalytics {
 	total_responses: number

@@ -278,9 +278,7 @@ export default function PublicProjectPage() {
               )}
               {data.studies.length > 0 && (
                 <Link
-                  href={`/home/create-study/preview?studyId=${data.studies[0].id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  href={`/home/create-study/preview?studyId=${encodeURIComponent(data.studies[0].id)}&demoParticipation=1&returnTo=${encodeURIComponent(`/participate/project/${params.projectId}`)}`}
                   className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 text-sm font-medium text-green-700 transition hover:bg-green-100"
                 >
                   <Eye className="h-4 w-4" />
