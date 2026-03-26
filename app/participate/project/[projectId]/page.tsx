@@ -151,7 +151,7 @@ export default function PublicProjectPage() {
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder="Search Product ID"
+                placeholder="Enter code on jar label"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
@@ -169,7 +169,11 @@ export default function PublicProjectPage() {
         </section>
 
         <section className="mt-6 sm:mt-7">
-          {filteredStudies.length === 0 ? (
+          {!submittedSearchQuery.trim() ? (
+            <div className="px-2 py-4 text-center">
+              <p className="text-sm text-slate-500">Enter Product Code and click on Search.</p>
+            </div>
+          ) : filteredStudies.length === 0 ? (
             <div className="rounded-[28px] border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-sm">
               <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-100 text-slate-400">
                 <FolderOpen className="h-8 w-8" />
