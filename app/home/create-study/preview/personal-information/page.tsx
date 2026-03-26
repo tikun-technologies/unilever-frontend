@@ -346,9 +346,14 @@ function PanelistSelection({
         creator_email: creatorEmail
       })
       setNewPanelistId(result.id)
-      // Refresh list after success
-      const updated = await getPanelists(creatorEmail, 5)
-      setPanelists(updated)
+      setSearchQuery(result.id)
+      const createdPanelist = {
+        id: result.id,
+        age: parseInt(newAge),
+        gender: newGender,
+      } as Panelist
+      setPanelists([createdPanelist])
+      setSelectedPanelist(createdPanelist)
     } catch (error) {
       console.error("Failed to add panelist:", error)
       alert("Failed to add panelist. Please try again.")

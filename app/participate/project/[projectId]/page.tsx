@@ -15,6 +15,7 @@ export default function PublicProjectPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
+  const [submittedSearchQuery, setSubmittedSearchQuery] = useState("")
 
   useEffect(() => {
     const fetchData = async () => {
@@ -38,14 +39,19 @@ export default function PublicProjectPage() {
 
   const filteredStudies = useMemo(() => {
     if (!data?.studies) return []
-    if (!searchQuery.trim()) return data.studies
+    if (!submittedSearchQuery.trim()) return data.studies
 
-    const query = searchQuery.toLowerCase()
+    const query = submittedSearchQuery.toLowerCase()
     return data.studies.filter((study) => {
       const displayId = ((study.product_id && study.product_id.trim()) || study.id).toLowerCase()
       return displayId.includes(query)
     })
-  }, [data?.studies, searchQuery])
+  }, [data?.studies, submittedSearchQuery])
+
+  const handleSearchSubmit = (event?: React.FormEvent<HTMLFormElement>) => {
+    event?.preventDefault()
+    setSubmittedSearchQuery(searchQuery.trim())
+  }
 
   if (isLoading) {
     return (
@@ -131,12 +137,16 @@ export default function PublicProjectPage() {
           </div>
 
           {/* Search — slim rectangle below hero */}
-          <div
-            role="presentation"
-            onClick={() => searchInputRef.current?.focus()}
-            className="cursor-text rounded-xl border border-slate-200/90 bg-white px-3 py-2 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+          <form
+            onSubmit={handleSearchSubmit}
+            className="rounded-xl border border-slate-200/90 bg-white px-3 py-2 shadow-sm transition hover:border-slate-300 hover:shadow-md"
           >
-            <div className="relative">
+            <div className="relative flex items-center gap-2">
+              <div
+                role="presentation"
+                onClick={() => searchInputRef.current?.focus()}
+                className="relative flex-1 cursor-text"
+              >
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
                 ref={searchInputRef}
@@ -147,8 +157,15 @@ export default function PublicProjectPage() {
                 onClick={(e) => e.stopPropagation()}
                 className="h-9 w-full rounded-lg border-0 bg-transparent pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none ring-0 focus:ring-2 focus:ring-[rgba(38,116,186,0.2)]"
               />
+              </div>
+              <button
+                type="submit"
+                className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-[rgba(38,116,186,1)] px-4 text-sm font-medium text-white transition hover:bg-[rgba(38,116,186,0.92)]"
+              >
+                Search
+              </button>
             </div>
-          </div>
+          </form>
         </section>
 
         <section className="mt-6 sm:mt-7">
@@ -159,8 +176,8 @@ export default function PublicProjectPage() {
               </div>
               <h2 className="text-xl font-semibold text-slate-900">No studies found</h2>
               <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-500">
-                {searchQuery
-                  ? `No studies match "${searchQuery}". Try a different keyword.`
+                {submittedSearchQuery
+                  ? `No studies match "${submittedSearchQuery}". Try a different keyword.`
                   : "This project does not have active studies available yet."}
               </p>
             </div>
