@@ -1003,7 +1003,7 @@ export default function TasksPage() {
                 <div className="h-full bg-[rgba(38,116,186,1)] transition-all" style={{ width: `${progressPct}%` }} />
               </div>
 
-              <div className="mt-2 bg-white border rounded-xl shadow-sm p-3 flex-1 min-h-0 flex flex-col overflow-hidden">
+              <div className="mt-2 bg-white border rounded-xl shadow-sm p-3 flex-1 min-h-0 flex flex-col overflow-hidden xl:max-h-[780px]">
                 {isLoading ? (
                   <div className="p-6 text-center flex-1 flex flex-col items-center justify-center">
                     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgba(38,116,186,1)] mx-auto mb-4"></div>

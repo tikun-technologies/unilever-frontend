@@ -10,8 +10,8 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import { DateCalendar } from '@mui/x-date-pickers/DateCalendar'
 import dayjs from 'dayjs'
-import { Search, Plus, User, Check, ChevronDown, X } from "lucide-react"
-import { getPanelists, searchPanelists, addPanelist, Panelist } from "@/lib/api/PanelistAPI"
+import { Search, User, Check } from "lucide-react"
+import { searchPanelists, Panelist } from "@/lib/api/PanelistAPI"
 import { cn } from "@/lib/utils"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 
@@ -246,17 +246,6 @@ function PanelistSelection({
   const [selectedPanelist, setSelectedPanelist] = useState<Panelist | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Inline Add form state
-  const [showAddForm, setShowAddForm] = useState(false)
-  const [manualId, setManualId] = useState("")
-  const [newAge, setNewAge] = useState("")
-  const [newGender, setNewGender] = useState("male")
-  const [isAdding, setIsAdding] = useState(false)
-  const [newPanelistId, setNewPanelistId] = useState<string | null>(null)
-  const [idError, setIdError] = useState<string>("")
-  const [ageError, setAgeError] = useState<string>("")
-  const [copied, setCopied] = useState(false)
-
   const searchTimeout = useRef<NodeJS.Timeout | null>(null)
   const primaryBlue = "rgba(38,116,186,1)"
 
@@ -269,18 +258,6 @@ function PanelistSelection({
   useEffect(() => {
     setLoading(false)
   }, [creatorEmail])
-
-  const fetchInitialPanelists = async (email: string) => {
-    setLoading(true)
-    try {
-      const data = await getPanelists(email, 5)
-      setPanelists(data)
-    } catch (error) {
-      console.error("Failed to fetch panelists:", error)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   const handleSearch = async (query: string) => {
     setSearchQuery(query)
@@ -303,81 +280,6 @@ function PanelistSelection({
         setIsSearching(false)
       }
     }, 300)
-  }
-
-  const handleAddPanelist = async () => {
-    if (!manualId || !newAge) return
-
-    // Validate ID length
-    if (manualId.length > 50) {
-      setIdError("Panelist ID must be at most 50 characters.")
-      return
-    }
-
-    // Validate alphanumeric
-    if (!/^[a-zA-Z0-9]{1,50}$/.test(manualId)) {
-      setIdError("Panelist ID must contain only letters and numbers (1–50 characters).")
-      return
-    }
-
-    // Age validation: must be >= 13
-    const ageNum = parseInt(newAge, 10)
-    if (isNaN(ageNum) || ageNum < 13) {
-      setAgeError("Age must be at least 13 years.")
-      return
-    }
-
-    setIdError("")
-    setAgeError("")
-    setIsAdding(true)
-    try {
-      // Check if ID already exists
-      const existing = await searchPanelists(creatorEmail, manualId)
-      if (existing.some(p => p.id.toLowerCase() === manualId.toLowerCase())) {
-        setIdError("Panelist ID already exists.")
-        setIsAdding(false)
-        return
-      }
-
-      const result = await addPanelist({
-        id: manualId,
-        age: parseInt(newAge),
-        gender: newGender,
-        creator_email: creatorEmail
-      })
-      setNewPanelistId(result.id)
-      setSearchQuery(result.id)
-      const createdPanelist = {
-        id: result.id,
-        age: parseInt(newAge),
-        gender: newGender,
-      } as Panelist
-      setPanelists([createdPanelist])
-      setSelectedPanelist(createdPanelist)
-    } catch (error) {
-      console.error("Failed to add panelist:", error)
-      alert("Failed to add panelist. Please try again.")
-    } finally {
-      setIsAdding(false)
-    }
-  }
-
-  const handleCopyId = () => {
-    if (newPanelistId) {
-      navigator.clipboard.writeText(newPanelistId)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    }
-  }
-
-  const resetForm = () => {
-    setManualId("")
-    setNewAge("")
-    setNewGender("male")
-    setNewPanelistId(null)
-    setIdError("")
-    setAgeError("")
-    setShowAddForm(false)
   }
 
   return (
@@ -406,139 +308,7 @@ function PanelistSelection({
                 </div>
               )}
             </div>
-            {!showAddForm && (
-              <Button
-                onClick={() => setShowAddForm(true)}
-                className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-6 h-10 w-full sm:w-auto flex items-center justify-center gap-2"
-                style={{ backgroundColor: primaryBlue }}
-              >
-                <Plus className="h-4 w-4" />
-                Add Panelist
-              </Button>
-            )}
           </div>
-
-          {/* Modal Add Form Overlay */}
-          {showAddForm && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-md bg-white/30 animate-in fade-in duration-300">
-              <div className="bg-white w-full max-w-md rounded-[2rem] shadow-2xl border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-300">
-                <div className="bg-white p-6 sm:p-8 space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-xl font-bold text-gray-900">New Panelist</h3>
-                    <button onClick={resetForm} className="text-gray-400 hover:text-gray-600 transition-colors">
-                      <X className="h-5 w-5" />
-                    </button>
-                  </div>
-
-                  {!newPanelistId ? (
-                    <div className="space-y-5">
-                      <div className="space-y-4">
-                        <div className="space-y-1">
-                          <label className="text-xs font-bold text-gray-500 uppercase ml-1 block">Panelist ID (Max 50 characters)</label>
-                          <input
-                            type="text"
-                            value={manualId}
-                            onChange={(e) => {
-                              const val = e.target.value.toUpperCase().slice(0, 50);
-                              setManualId(val);
-                              if (idError) setIdError("");
-                            }}
-                            placeholder="PYQ18367"
-                            className={cn(
-                              "w-full px-5 py-3 bg-gray-50 border rounded-full outline-none focus:ring-4 transition-all text-sm",
-                              idError ? "border-red-500 focus:ring-red-500/5" : "border-gray-200 focus:border-blue-600 focus:ring-blue-500/5"
-                            )}
-                          />
-                          {idError && <p className="text-[10px] text-red-500 ml-1 font-medium">{idError}</p>}
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div className="space-y-1">
-                            <label className="text-xs font-bold text-gray-500 uppercase ml-1 block">Age (min 13)</label>
-                            <input
-                              type="number"
-                              value={newAge}
-                              onChange={(e) => { setNewAge(e.target.value); if (ageError) setAgeError(""); }}
-                              placeholder="25"
-                              min={13}
-                              className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-full outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-500/5 transition-all text-sm"
-                            />
-                            {ageError && <p className="text-[10px] text-red-500 ml-1 font-medium">{ageError}</p>}
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-xs font-bold text-gray-500 uppercase ml-1 block">Gender</label>
-                            <div className="relative">
-                              <select
-                                value={newGender}
-                                onChange={(e) => setNewGender(e.target.value)}
-                                className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-full outline-none focus:border-blue-600 focus:ring-4 focus:ring-blue-500/5 transition-all text-sm appearance-none"
-                              >
-                                <option value="male">Male</option>
-                                <option value="female">Female</option>
-                              </select>
-                              <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col gap-2 pt-2">
-                        <Button
-                          onClick={handleAddPanelist}
-                          disabled={isAdding || !manualId || !newAge || manualId.length > 50 || (parseInt(newAge, 10) < 13)}
-                          className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-full py-6 h-auto text-sm font-bold shadow-xl shadow-blue-500/20 transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center"
-                          style={{ backgroundColor: primaryBlue }}
-                        >
-                          {isAdding ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                              Registering...
-                            </>
-                          ) : "Add"}
-                        </Button>
-                        <button onClick={resetForm} className="text-xs font-semibold text-gray-400 hover:text-gray-600 transition-colors py-2">
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center py-4 animate-in zoom-in-95 duration-500">
-                      <div className="w-16 h-16 bg-green-50 text-green-500 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-green-100">
-                        <Check className="h-8 w-8 stroke-[3]" />
-                      </div>
-                      <h3 className="text-2xl font-black text-gray-900 mb-2">Success!</h3>
-                      <p className="text-gray-500 text-sm mb-6 leading-relaxed">
-                        New panelist registered. <br />Save this ID for reference:
-                      </p>
-
-                      <div className="bg-gray-50 border border-gray-100 rounded-2xl p-4 mb-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                        <div className="text-left w-full sm:w-auto">
-                          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Panelist ID</div>
-                          <div className="text-lg font-mono font-black text-blue-600 tracking-wider break-all">{newPanelistId}</div>
-                        </div>
-                        <Button
-                          onClick={handleCopyId}
-                          className={cn(
-                            "rounded-full px-4 h-9 text-xs font-bold transition-all shrink-0",
-                            copied ? "bg-green-500 text-white" : "bg-white text-gray-900 border border-gray-200 hover:border-blue-600 hover:text-blue-600"
-                          )}
-                        >
-                          {copied ? <Check className="h-4 w-4" /> : "Copy ID"}
-                        </Button>
-                      </div>
-
-                      <Button
-                        onClick={resetForm}
-                        className="w-full bg-gray-900 hover:bg-black text-white rounded-full py-4 h-auto text-sm font-bold transition-all"
-                      >
-                        Done & Close
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Panelist List */}
           <div className="space-y-2 max-h-[350px] overflow-y-auto pr-1">

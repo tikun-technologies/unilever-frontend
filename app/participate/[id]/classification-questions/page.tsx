@@ -58,6 +58,14 @@ export default function ClassificationQuestionsPage() {
           const study = JSON.parse(studyDetails)
           if (study.classification_questions && Array.isArray(study.classification_questions)) {
             const studyInfo = study.study_info || study
+            // Check multiple sources for creator email
+            let creatorEmail = localStorage.getItem('current_study_creator_email') || ""
+            if (!creatorEmail) {
+              creatorEmail = studyInfo?.creator_email || study?.creator_email || ""
+            }
+            creatorEmail = String(creatorEmail).toLowerCase().trim()
+            const creatorDomain = creatorEmail.includes("@") ? creatorEmail.split("@")[1] : ""
+            const isUnileverCreator = creatorDomain === "unilever.com"
             const shouldShuffle = studyInfo.toggle_shuffle === true || studyInfo.toggle_shuffle === "true"
             // Exclude fragrance question (Q0) — shown on its own page for special creators
             const classificationOnly = study.classification_questions.filter(
@@ -66,7 +74,8 @@ export default function ClassificationQuestionsPage() {
 
             let formattedQuestions: ClassificationQuestion[] = classificationOnly.map((q: any) => {
               let opts = q.answer_options?.map((opt: any) => ({ id: opt.id, text: opt.text })) || []
-              if (shouldShuffle && opts.length > 0) {
+              // Keep option order fixed for unilever.com creators even if shuffle is enabled.
+              if (shouldShuffle && !isUnileverCreator && opts.length > 0) {
                 opts = [...opts].sort(() => Math.random() - 0.5)
               }
               return {

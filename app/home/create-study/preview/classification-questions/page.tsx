@@ -23,11 +23,24 @@ export default function PreviewClassificationQuestions() {
         const raw = localStorage.getItem('cs_step4')
         const arr = raw ? JSON.parse(raw) : []
         const shouldShuffle = localStorage.getItem('cs_step4_shuffle') === 'true'
+        let creatorEmail = (localStorage.getItem('current_study_creator_email') || "").toLowerCase().trim()
+        if (!creatorEmail) {
+          const detailsRaw = localStorage.getItem('current_study_details')
+          const study = detailsRaw ? JSON.parse(detailsRaw) : {}
+          creatorEmail = String(study?.study_info?.creator_email || study?.creator_email || "").toLowerCase().trim()
+        }
+        if (!creatorEmail) {
+          const user = JSON.parse(localStorage.getItem('user') || '{}')
+          creatorEmail = String(user?.email || "").toLowerCase().trim()
+        }
+        const creatorDomain = creatorEmail.includes("@") ? creatorEmail.split("@")[1] : ""
+        const isUnileverCreator = creatorDomain === "unilever.com"
 
         let mapped: ClassificationQuestion[] = Array.isArray(arr)
           ? arr.map((q: any) => {
               let opts = (q.options || []).map((o: any) => ({ id: o.id, text: o.text }))
-              if (shouldShuffle && opts.length > 0) {
+              // Keep option order fixed for unilever.com creators even if shuffle is enabled.
+              if (shouldShuffle && !isUnileverCreator && opts.length > 0) {
                 opts = [...opts].sort(() => Math.random() - 0.5)
               }
               return {

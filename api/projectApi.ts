@@ -292,6 +292,7 @@ export interface PublicProjectStudy {
 
 export interface PublicProjectStudiesResponse {
     project_name: string;
+    creator_email?: string;
     studies: PublicProjectStudy[];
 }
 

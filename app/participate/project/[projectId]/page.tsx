@@ -4,8 +4,9 @@ import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { getPublicProjectStudies, PublicProjectStudiesResponse } from "@/api/projectApi"
-import { Activity, ArrowRight, FolderOpen, Search } from "lucide-react"
+import { Activity, ArrowRight, Check, ChevronDown, Eye, FolderOpen, Plus, Search, X } from "lucide-react"
 import { setParticipateProjectReturnFromCurrentPage } from "@/lib/participate/projectReturnUrl"
+import { addPanelist, searchPanelists } from "@/lib/api/PanelistAPI"
 
 export default function PublicProjectPage() {
   const params = useParams<{ projectId: string }>()
@@ -16,6 +17,17 @@ export default function PublicProjectPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [submittedSearchQuery, setSubmittedSearchQuery] = useState("")
+  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [manualId, setManualId] = useState("")
+  const [newAge, setNewAge] = useState("")
+  const [newGender, setNewGender] = useState("male")
+  const [isAdding, setIsAdding] = useState(false)
+  const [newPanelistId, setNewPanelistId] = useState<string | null>(null)
+  const [idError, setIdError] = useState("")
+  const [ageError, setAgeError] = useState("")
+  const [addPanelistError, setAddPanelistError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     const fetchData = async () => {
@@ -37,6 +49,23 @@ export default function PublicProjectPage() {
     fetchData()
   }, [params?.projectId])
 
+  // Debounced auto-search: triggers 500ms after user stops typing
+  useEffect(() => {
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current)
+    }
+
+    searchDebounceRef.current = setTimeout(() => {
+      setSubmittedSearchQuery(searchQuery.trim())
+    }, 500)
+
+    return () => {
+      if (searchDebounceRef.current) {
+        clearTimeout(searchDebounceRef.current)
+      }
+    }
+  }, [searchQuery])
+
   const filteredStudies = useMemo(() => {
     if (!data?.studies) return []
     if (!submittedSearchQuery.trim()) return []
@@ -51,6 +80,76 @@ export default function PublicProjectPage() {
   const handleSearchSubmit = (event?: React.FormEvent<HTMLFormElement>) => {
     event?.preventDefault()
     setSubmittedSearchQuery(searchQuery.trim())
+  }
+
+  const resetAddPanelistForm = () => {
+    setManualId("")
+    setNewAge("")
+    setNewGender("male")
+    setNewPanelistId(null)
+    setIdError("")
+    setAgeError("")
+    setAddPanelistError(null)
+    setShowAddForm(false)
+  }
+
+  const handleCopyPanelistId = () => {
+    if (!newPanelistId) return
+    navigator.clipboard.writeText(newPanelistId)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleAddPanelist = async () => {
+    if (!manualId || !newAge) return
+    if (!data?.creator_email) {
+      setAddPanelistError("Creator email is missing. Please contact support.")
+      return
+    }
+
+    if (manualId.length > 50) {
+      setIdError("Panelist ID must be at most 50 characters.")
+      return
+    }
+
+    if (!/^[a-zA-Z0-9]{1,50}$/.test(manualId)) {
+      setIdError("Panelist ID must contain only letters and numbers (1-50 characters).")
+      return
+    }
+
+    const ageNum = parseInt(newAge, 10)
+    if (isNaN(ageNum) || ageNum < 13) {
+      setAgeError("Age must be at least 13 years.")
+      return
+    }
+
+    setIdError("")
+    setAgeError("")
+    setAddPanelistError(null)
+    setIsAdding(true)
+
+    try {
+      const existing = await searchPanelists(data.creator_email, manualId)
+      if (existing.some((panelist) => panelist.id.toLowerCase() === manualId.toLowerCase())) {
+        setIdError("Panelist ID already exists.")
+        setIsAdding(false)
+        return
+      }
+
+      const result = await addPanelist({
+        id: manualId,
+        age: ageNum,
+        gender: newGender,
+        creator_email: data.creator_email,
+      })
+
+      setNewPanelistId(result.id)
+    } catch (err) {
+      console.error("Failed to add panelist:", err)
+      setAddPanelistError("Failed to add panelist. Please try again.")
+    } finally {
+      setIsAdding(false)
+    }
   }
 
   if (isLoading) {
@@ -164,6 +263,30 @@ export default function PublicProjectPage() {
               >
                 Search
               </button>
+              {!showAddForm && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAddPanelistError(null)
+                    setShowAddForm(true)
+                  }}
+                  className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.08)] px-3 text-sm font-medium text-[rgba(38,116,186,1)] transition hover:bg-[rgba(38,116,186,0.14)]"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Panelist
+                </button>
+              )}
+              {data.studies.length > 0 && (
+                <Link
+                  href={`/home/create-study/preview?studyId=${data.studies[0].id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 text-sm font-medium text-green-700 transition hover:bg-green-100"
+                >
+                  <Eye className="h-4 w-4" />
+                  Demo Participation
+                </Link>
+              )}
             </div>
           </form>
         </section>
@@ -221,6 +344,139 @@ export default function PublicProjectPage() {
           )}
         </section>
       </div>
+      {showAddForm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-md bg-white/30 animate-in fade-in duration-300">
+          <div className="w-full max-w-md overflow-hidden rounded-[2rem] border border-gray-100 bg-white shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="space-y-6 bg-white p-6 sm:p-8">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-bold text-gray-900">New Panelist</h3>
+                <button onClick={resetAddPanelistForm} className="text-gray-400 transition-colors hover:text-gray-600">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              {!newPanelistId ? (
+                <div className="space-y-5">
+                  <div className="space-y-4">
+                    <div className="space-y-1">
+                      <label className="ml-1 block text-xs font-bold uppercase text-gray-500">Panelist ID (Max 50 characters)</label>
+                      <input
+                        type="text"
+                        value={manualId}
+                        onChange={(e) => {
+                          const nextValue = e.target.value.toUpperCase().slice(0, 50)
+                          setManualId(nextValue)
+                          if (idError) setIdError("")
+                        }}
+                        placeholder="PYQ18367"
+                        className={`w-full rounded-full border bg-gray-50 px-5 py-3 text-sm outline-none transition-all focus:ring-4 ${idError ? "border-red-500 focus:ring-red-500/5" : "border-gray-200 focus:border-blue-600 focus:ring-blue-500/5"
+                          }`}
+                      />
+                      {idError && <p className="ml-1 text-[10px] font-medium text-red-500">{idError}</p>}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="ml-1 block text-xs font-bold uppercase text-gray-500">Age (min 13)</label>
+                        <input
+                          type="number"
+                          value={newAge}
+                          onChange={(e) => {
+                            setNewAge(e.target.value)
+                            if (ageError) setAgeError("")
+                          }}
+                          placeholder="25"
+                          min={13}
+                          className="w-full rounded-full border border-gray-200 bg-gray-50 px-5 py-3 text-sm outline-none transition-all focus:border-blue-600 focus:ring-4 focus:ring-blue-500/5"
+                        />
+                        {ageError && <p className="ml-1 text-[10px] font-medium text-red-500">{ageError}</p>}
+                      </div>
+                      <div className="space-y-1">
+                        <label className="ml-1 block text-xs font-bold uppercase text-gray-500">Gender</label>
+                        <div className="relative">
+                          <select
+                            value={newGender}
+                            onChange={(e) => setNewGender(e.target.value)}
+                            className="w-full appearance-none rounded-full border border-gray-200 bg-gray-50 px-5 py-3 text-sm outline-none transition-all focus:border-blue-600 focus:ring-4 focus:ring-blue-500/5"
+                          >
+                            <option value="male">Male</option>
+                            <option value="female">Female</option>
+                          </select>
+                          <ChevronDown className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {addPanelistError && (
+                    <p className="rounded-md border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-600">
+                      {addPanelistError}
+                    </p>
+                  )}
+
+                  <div className="flex flex-col gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleAddPanelist}
+                      disabled={isAdding || !manualId || !newAge || manualId.length > 50 || parseInt(newAge, 10) < 13}
+                      className="flex h-auto w-full items-center justify-center rounded-full bg-[rgba(38,116,186,1)] py-4 text-sm font-bold text-white shadow-xl shadow-blue-500/20 transition-all active:scale-95 hover:bg-[rgba(38,116,186,0.92)] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isAdding ? (
+                        <>
+                          <div className="mr-2 h-4 w-4 animate-spin rounded-full border-b-2 border-white"></div>
+                          Registering...
+                        </>
+                      ) : (
+                        "Add"
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetAddPanelistForm}
+                      className="py-2 text-xs font-semibold text-gray-400 transition-colors hover:text-gray-600"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="animate-in zoom-in-95 py-4 text-center duration-500">
+                  <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-green-100 bg-green-50 text-green-500">
+                    <Check className="h-8 w-8 stroke-[3]" />
+                  </div>
+                  <h3 className="mb-2 text-2xl font-black text-gray-900">Success!</h3>
+                  <p className="mb-6 text-sm leading-relaxed text-gray-500">
+                    New panelist registered. <br />Save this ID for reference:
+                  </p>
+
+                  <div className="mb-8 flex flex-col items-start justify-between gap-4 rounded-2xl border border-gray-100 bg-gray-50 p-4 sm:flex-row sm:items-center">
+                    <div className="w-full text-left sm:w-auto">
+                      <div className="mb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Panelist ID</div>
+                      <div className="break-all font-mono text-lg font-black tracking-wider text-blue-600">{newPanelistId}</div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleCopyPanelistId}
+                      className={`h-9 shrink-0 rounded-full px-4 text-xs font-bold transition-all ${copied ? "bg-green-500 text-white" : "border border-gray-200 bg-white text-gray-900 hover:border-blue-600 hover:text-blue-600"
+                        }`}
+                    >
+                      {copied ? <Check className="h-4 w-4" /> : "Copy ID"}
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={resetAddPanelistForm}
+                    className="h-auto w-full rounded-full bg-gray-900 py-4 text-sm font-bold text-white transition-all hover:bg-black"
+                  >
+                    Done & Close
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
