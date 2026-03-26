@@ -39,7 +39,7 @@ export default function PublicProjectPage() {
 
   const filteredStudies = useMemo(() => {
     if (!data?.studies) return []
-    if (!submittedSearchQuery.trim()) return data.studies
+    if (!submittedSearchQuery.trim()) return []
 
     const query = submittedSearchQuery.toLowerCase()
     return data.studies.filter((study) => {
@@ -178,7 +178,7 @@ export default function PublicProjectPage() {
               <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-500">
                 {submittedSearchQuery
                   ? `No studies match "${submittedSearchQuery}". Try a different keyword.`
-                  : "This project does not have active studies available yet."}
+                  : "Enter a Product ID and click Search to view matching products."}
               </p>
             </div>
           ) : (
