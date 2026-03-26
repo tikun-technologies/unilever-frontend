@@ -160,7 +160,7 @@ export default function PublicProjectPage() {
               </div>
               <button
                 type="submit"
-                className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg bg-[rgba(38,116,186,1)] px-4 text-sm font-medium text-white transition hover:bg-[rgba(38,116,186,0.92)]"
+                className="inline-flex cursor-pointer h-9 shrink-0 items-center justify-center rounded-lg bg-[rgba(38,116,186,1)] px-4 text-sm font-medium text-white transition hover:bg-[rgba(38,116,186,0.92)]"
               >
                 Search
               </button>
