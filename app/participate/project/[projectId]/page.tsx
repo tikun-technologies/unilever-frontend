@@ -41,7 +41,10 @@ export default function PublicProjectPage() {
     if (!searchQuery.trim()) return data.studies
 
     const query = searchQuery.toLowerCase()
-    return data.studies.filter((study) => study.title.toLowerCase().includes(query))
+    return data.studies.filter((study) => {
+      const displayId = ((study.product_id && study.product_id.trim()) || study.id).toLowerCase()
+      return displayId.includes(query)
+    })
   }, [data?.studies, searchQuery])
 
   if (isLoading) {
@@ -138,7 +141,7 @@ export default function PublicProjectPage() {
               <input
                 ref={searchInputRef}
                 type="text"
-                placeholder="Search studies by name"
+                placeholder="Search Product ID"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onClick={(e) => e.stopPropagation()}
@@ -162,7 +165,7 @@ export default function PublicProjectPage() {
               </p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:gap-6">
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
               {filteredStudies.map((study) => {
                 const displayId = (study.product_id && study.product_id.trim()) || study.id
 

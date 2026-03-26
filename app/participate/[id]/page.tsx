@@ -49,8 +49,12 @@ export default function ParticipateIntroPage() {
 
     // Capture rid query once and store in localStorage for post-completion redirect
     try {
+      const queryKeys = ['rid', 'frid', 'firid', 'RID', 'FRID', 'FIRID']
+
       // Method 1: Using Next.js useSearchParams
-      const ridFromSearchParams = searchParams.get('rid')
+      const ridFromSearchParams = queryKeys
+        .map((key) => searchParams.get(key))
+        .find((value) => !!value)
       console.log('Rid from useSearchParams:', ridFromSearchParams) // Debug log
 
       // Method 2: Using window.location.search as fallback
@@ -60,7 +64,9 @@ export default function ParticipateIntroPage() {
       let rid = ridFromSearchParams
       if (!rid && search) {
         const urlParams = new URLSearchParams(search)
-        rid = urlParams.get('rid')
+        rid = queryKeys
+          .map((key) => urlParams.get(key))
+          .find((value) => !!value) || null
         console.log('Found rid from URLSearchParams:', rid) // Debug log
       }
 

@@ -22,7 +22,7 @@ interface StudyGridProps {
   projects: Project[]
   onMappingChange?: () => void
   onStudyCopied?: () => void | Promise<void>
-  onStudyDeleted?: () => void | Promise<void>
+  onStudyDeleted?: (studyId: string) => void | Promise<void>
   onStudyAssigned?: () => void | Promise<void>
 }
 
@@ -253,7 +253,7 @@ export function StudyGrid({
     try {
       await deleteStudy(studyId)
       setDeleteConfirmStudy(null)
-      await onStudyDeleted?.()
+      await onStudyDeleted?.(studyId)
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to delete study"
       setCopyErrorStudyId(studyId)

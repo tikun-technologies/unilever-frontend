@@ -763,18 +763,17 @@ export default function TasksPage() {
                             />
                           )}
                           {task?.gridUrls && task.gridUrls.length === 3 ? (
-                            // Special layout for exactly 3 images on mobile
-                            <div className="flex flex-col gap-1 xs:gap-2 sm:gap-3 relative" style={{ zIndex: 1 }}>
-                              {/* Top row: 2 images side by side */}
-                              <div className="grid grid-cols-2 gap-1 xs:gap-2 sm:gap-3">
+                            // Keep a consistent minimal gap without forcing square cells
+                            <div className="relative mx-auto flex w-full max-w-lg flex-col gap-2" style={{ zIndex: 1 }}>
+                              <div className="grid grid-cols-2 gap-2 items-start">
                                 {task.gridUrls.slice(0, 2).map((url: string, i: number) => (
-                                  <div key={i} className="aspect-square w-full overflow-hidden">
+                                  <div key={i} className="w-full overflow-hidden">
                                     <Image
                                       src={getCachedUrl(url) || "/placeholder.svg"}
                                       alt={`element-${i + 1}`}
                                       width={299}
                                       height={299}
-                                      className="h-full w-full object-contain"
+                                      className="h-auto w-full object-contain"
                                       loading="eager"
                                       fetchPriority="high"
                                       unoptimized={url?.includes('blob.core.windows.net')}
@@ -782,15 +781,14 @@ export default function TasksPage() {
                                   </div>
                                 ))}
                               </div>
-                              {/* Bottom row: 1 centered image */}
-                              <div className="w-full flex justify-center">
-                                <div className="aspect-square w-1/2 overflow-hidden">
+                              <div className="flex w-full justify-center">
+                                <div className="w-[calc((100%-0.5rem)/2)] overflow-hidden">
                                   <Image
                                     src={getCachedUrl(task.gridUrls[2]) || "/placeholder.svg"}
                                     alt="element-3"
                                     width={299}
                                     height={299}
-                                    className="h-full w-full object-contain"
+                                    className="h-auto w-full object-contain"
                                     loading="eager"
                                     fetchPriority="high"
                                     unoptimized={task.gridUrls[2]?.includes('blob.core.windows.net')}
@@ -799,15 +797,15 @@ export default function TasksPage() {
                               </div>
                             </div>
                           ) : task?.gridUrls && task.gridUrls.length > 3 ? (
-                            <div className="grid grid-cols-2 gap-1 xs:gap-2 sm:gap-3 w-full overflow-hidden place-items-center relative" style={{ zIndex: 1 }}>
+                            <div className="grid grid-cols-2 gap-2 w-full overflow-hidden place-items-center relative" style={{ zIndex: 1 }}>
                               {task.gridUrls.slice(0, 4).map((url: string, i: number) => (
-                                <div key={i} className="aspect-square w-full overflow-hidden">
+                                <div key={i} className="w-full overflow-hidden">
                                   <Image
                                     src={getCachedUrl(url) || "/placeholder.svg"}
                                     alt={`element-${i + 1}`}
                                     width={299}
                                     height={299}
-                                    className="h-full w-full object-contain"
+                                    className="h-auto w-full object-contain"
                                     loading="eager"
                                     fetchPriority="high"
                                     unoptimized={url?.includes('blob.core.windows.net')}
@@ -816,7 +814,7 @@ export default function TasksPage() {
                               ))}
                             </div>
                           ) : (
-                            <div className="grid grid-cols-2 gap-1 xs:gap-2 sm:gap-3 w-full h-full max-h-full overflow-hidden place-items-center relative min-w-0" style={{ zIndex: 1 }}>
+                            <div className="grid grid-cols-2 gap-2 w-full h-full max-h-full overflow-hidden place-items-center relative min-w-0" style={{ zIndex: 1 }}>
                               <div className="aspect-square w-full min-w-0 overflow-hidden">
                                 {task?.leftImageUrl ? (
                                   <Image
@@ -1120,7 +1118,7 @@ export default function TasksPage() {
                                   style={{ zIndex: 0 }}
                                 />
                               )}
-                              <div className="grid grid-cols-2 gap-3 w-full h-full relative" style={{ zIndex: 1 }}>
+                              <div className="grid grid-cols-2 gap-2 w-full h-full relative" style={{ zIndex: 1 }}>
                                 <div className="w-full h-full min-w-0 overflow-hidden flex items-center justify-center">
                                   {urls[0] && (
                                     <Image
@@ -1154,7 +1152,7 @@ export default function TasksPage() {
 
                         if (urls.length === 3) {
                           return (
-                            <div className="relative max-w-lg mx-auto flex-1 min-h-0 max-h-[45vh] lg:max-h-[55vh] xl:max-h-[60vh]" style={{ aspectRatio: '1/1' }}>
+                            <div className="relative max-w-lg mx-auto flex-1 min-h-0 w-full">
                               {backgroundUrl && (
                                 <img
                                   src={getCachedUrl(backgroundUrl) || "/placeholder.svg"}
@@ -1166,29 +1164,29 @@ export default function TasksPage() {
                                   style={{ zIndex: 0 }}
                                 />
                               )}
-                              <div className="flex flex-col gap-2 h-full" style={{ zIndex: 1 }}>
-                                <div className="grid grid-cols-2 gap-2 flex-1 min-h-0">
+                              <div className="flex w-full flex-col gap-2" style={{ zIndex: 1 }}>
+                                <div className="grid grid-cols-2 gap-2 items-start">
                                   {urls.slice(0, 2).map((url, i) => (
-                                    <div key={i} className="w-full h-full overflow-hidden flex items-center justify-center">
+                                    <div key={i} className="w-full overflow-hidden">
                                       <Image
                                         src={getCachedUrl(url as string) || "/placeholder.svg"}
                                         alt={`element-${i + 1}`}
                                         width={300}
                                         height={300}
-                                        className="max-h-full max-w-full object-contain"
+                                        className="h-auto w-full object-contain"
                                         unoptimized={(url as string)?.includes("blob.core.windows.net")}
                                       />
                                     </div>
                                   ))}
                                 </div>
-                                <div className="w-full flex justify-center flex-1 min-h-0">
-                                  <div className="h-full overflow-hidden flex items-center justify-center">
+                                <div className="flex w-full justify-center">
+                                  <div className="w-[calc((100%-0.5rem)/2)] overflow-hidden">
                                     <Image
                                       src={getCachedUrl(urls[2] as string) || "/placeholder.svg"}
                                       alt="element-3"
                                       width={300}
                                       height={300}
-                                      className="max-h-full max-w-full object-contain"
+                                      className="h-auto w-full object-contain"
                                       unoptimized={(urls[2] as string)?.includes("blob.core.windows.net")}
                                     />
                                   </div>
@@ -1199,7 +1197,7 @@ export default function TasksPage() {
                         }
 
                         return (
-                          <div className="grid grid-cols-2 gap-2 relative max-w-lg mx-auto flex-1 min-h-0 max-h-[45vh] lg:max-h-[55vh] xl:max-h-[60vh]" style={{ aspectRatio: '1/1' }}>
+                          <div className="grid grid-cols-2 gap-2 relative max-w-lg mx-auto w-full items-start">
                             {backgroundUrl && (
                               <img
                                 src={getCachedUrl(backgroundUrl) || "/placeholder.svg"}
@@ -1214,7 +1212,7 @@ export default function TasksPage() {
                             {urls.slice(0, 4).map((url, i) => (
                               <div
                                 key={i}
-                                className="w-full h-full overflow-hidden flex items-center justify-center"
+                                className="w-full overflow-hidden flex items-start justify-center"
                                 style={{ zIndex: 1 }}
                               >
                                 <Image
@@ -1222,7 +1220,7 @@ export default function TasksPage() {
                                   alt={`element-${i + 1}`}
                                   width={300}
                                   height={300}
-                                  className="max-h-full max-w-full object-contain"
+                                  className="h-auto w-full object-contain"
                                   unoptimized={(url as string)?.includes("blob.core.windows.net")}
                                 />
                               </div>
@@ -1277,7 +1275,7 @@ export default function TasksPage() {
                     )}
 
                     {/* Rating buttons - fixed at bottom */}
-                    <div className="w-full max-w-2xl mx-auto flex-shrink-0 mt-2">
+                    <div className="w-full max-w-2xl mx-auto flex-shrink-0 mt-auto pt-2">
                       <div className="flex items-center justify-center">
                         {isSpecialCreator ? (
                           /* Thumbs up/down for special creators */

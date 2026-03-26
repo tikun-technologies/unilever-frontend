@@ -384,6 +384,24 @@ function DashboardContent() {
     }
   }
 
+  const handleStudyDeleted = async (studyId: string) => {
+    setStudies((prev) => {
+      const next = prev.filter((study) => study.id !== studyId)
+      try { localStorage.setItem('home_studies_cache', JSON.stringify(next)) } catch { }
+      return next
+    })
+
+    setProjectStudies((prev) => {
+      const next = prev.filter((study) => study.id !== studyId)
+      if (selectedProjectId) {
+        try { localStorage.setItem(`ps_cache_${selectedProjectId}`, JSON.stringify(next)) } catch { }
+      }
+      return next
+    })
+
+    await refetchStudies()
+  }
+
   const handleCreateProject = async (name: string, description: string) => {
     setIsCreatingProject(true)
     try {
@@ -675,7 +693,7 @@ function DashboardContent() {
               projects={projects}
               onMappingChange={() => setStudyProjectMapping(getStudyProjectMapping())}
               onStudyCopied={refetchStudies}
-              onStudyDeleted={refetchStudies}
+              onStudyDeleted={handleStudyDeleted}
               onStudyAssigned={refetchStudies}
             />
           </div>

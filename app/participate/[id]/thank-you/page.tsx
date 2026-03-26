@@ -36,13 +36,24 @@ export default function ThankYouPage() {
     const studyId = pathParts[pathParts.indexOf('participate') + 1]
     setCurrentStudyId(studyId)
 
+    try {
+      const queryKeys = ['rid', 'frid', 'firid', 'RID', 'FRID', 'FIRID']
+      const urlParams = new URLSearchParams(window.location.search)
+      const ridFromQuery = queryKeys
+        .map((key) => urlParams.get(key))
+        .find((value) => !!value)
+
+      if (ridFromQuery) {
+        localStorage.setItem('redirect_rid', ridFromQuery)
+      }
+    } catch (error) {
+      console.error('Error capturing redirect query parameter:', error)
+    }
+
     // For studies created by special creators: do not store in completed_studies so participants can go back.
     // Run only once so we don't double-store if effect runs again (e.g. Strict Mode) after removing the flag.
     let specialCreatorStudy = false
     try {
-      if (completedStorageProcessedRef.current) return
-      completedStorageProcessedRef.current = true
-
       const skipStorageFlag = localStorage.getItem('current_study_skip_completed_storage')
       if (skipStorageFlag === studyId) {
         specialCreatorStudy = true
@@ -62,21 +73,25 @@ export default function ThankYouPage() {
 
       setIsSpecialCreatorStudy(specialCreatorStudy)
 
-      if (specialCreatorStudy) {
-        localStorage.removeItem('current_study_skip_completed_storage')
+      if (!completedStorageProcessedRef.current) {
+        completedStorageProcessedRef.current = true
+
+        if (specialCreatorStudy) {
+          localStorage.removeItem('current_study_skip_completed_storage')
+        }
+        
+        // COMMENTED OUT: For now, allow users to retake the study (do not store in completed_studies)
+        // if (!specialCreatorStudy) {
+        //   const completedStudies = JSON.parse(localStorage.getItem('completed_studies') || '{}')
+        //   completedStudies[studyId] = {
+        //     completedAt: new Date().toISOString(),
+        //     responseId: Math.random().toString(36).substring(2, 8).toUpperCase()
+        //   }
+        //   localStorage.setItem('completed_studies', JSON.stringify(completedStudies))
+        // }
+        
+        localStorage.removeItem('current_study_creator_email')
       }
-      
-      // COMMENTED OUT: For now, allow users to retake the study (do not store in completed_studies)
-      // if (!specialCreatorStudy) {
-      //   const completedStudies = JSON.parse(localStorage.getItem('completed_studies') || '{}')
-      //   completedStudies[studyId] = {
-      //     completedAt: new Date().toISOString(),
-      //     responseId: Math.random().toString(36).substring(2, 8).toUpperCase()
-      //   }
-      //   localStorage.setItem('completed_studies', JSON.stringify(completedStudies))
-      // }
-      
-      localStorage.removeItem('current_study_creator_email')
     } catch (error) {
       console.error('Error marking study as completed:', error)
     }
