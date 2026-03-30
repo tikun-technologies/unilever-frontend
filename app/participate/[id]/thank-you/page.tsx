@@ -197,9 +197,9 @@ export default function ThankYouPage() {
       }
     } catch { }
 
-    // Post-completion redirect: rid (panel) > project list URL > default study intro (non–special-creator only)
+    // Post-completion redirect: only automatic for rid (panel) redirects
+    // Project return URL redirects are manual (via Close Tab button)
     let ridInterval: ReturnType<typeof setInterval> | undefined
-    let postThankYouInterval: ReturnType<typeof setInterval> | undefined
     try {
       const rid = localStorage.getItem('redirect_rid')
       console.log('Thank you page - checking for rid:', rid) // Debug log
@@ -223,37 +223,8 @@ export default function ThankYouPage() {
         }, 1000)
       } else {
         console.log('No rid found in localStorage') // Debug log
-        const projectReturnUrl = readParticipateProjectReturn(studyId)
-        if (projectReturnUrl) {
-          setRedirecting(true)
-          setCountdown(3)
-          postThankYouInterval = setInterval(() => {
-            setCountdown((prev) => {
-              if (prev === null) return null
-              if (prev <= 1) {
-                clearInterval(postThankYouInterval)
-                clearParticipateProjectReturn()
-                window.location.href = projectReturnUrl
-                return 0
-              }
-              return prev - 1
-            })
-          }, 1000)
-        } else if (!specialCreatorStudy) {
-          setRedirecting(true)
-          setCountdown(3)
-          postThankYouInterval = setInterval(() => {
-            setCountdown((prev) => {
-              if (prev === null) return null
-              if (prev <= 1) {
-                clearInterval(postThankYouInterval)
-                router.push(`/participate/${studyId}`)
-                return 0
-              }
-              return prev - 1
-            })
-          }, 1000)
-        }
+        // Project return URL redirect is now manual only (via Close Tab button)
+        // No automatic redirect for project return or default study intro
       }
     } catch (error) {
       console.error('Error handling post-thank-you redirect:', error)
@@ -272,7 +243,6 @@ export default function ThankYouPage() {
         window.clearInterval(flushInterval);
         window.clearTimeout(timeoutStop);
         if (ridInterval) window.clearInterval(ridInterval);
-        if (postThankYouInterval) window.clearInterval(postThankYouInterval);
         window.removeEventListener('popstate', handlePopState);
       } catch { }
     }
