@@ -235,7 +235,10 @@ export default function PublicProjectPage() {
                 type="text"
                 placeholder="Enter code on jar label"
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value)
+                  setSubmittedSearchQuery("")
+                }}
                 onClick={(e) => e.stopPropagation()}
                 className="h-9 w-full rounded-lg border-0 bg-transparent pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none ring-0 focus:ring-2 focus:ring-[rgba(38,116,186,0.2)]"
               />
