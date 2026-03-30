@@ -56,7 +56,7 @@ export default function PublicProjectPage() {
     const query = submittedSearchQuery.toLowerCase()
     return data.studies.filter((study) => {
       const displayId = ((study.product_id && study.product_id.trim()) || study.id).toLowerCase()
-      return displayId.includes(query)
+      return displayId === query
     })
   }, [data?.studies, submittedSearchQuery])
 
