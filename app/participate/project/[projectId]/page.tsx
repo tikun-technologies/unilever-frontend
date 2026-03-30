@@ -17,7 +17,6 @@ export default function PublicProjectPage() {
   const [error, setError] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState("")
   const [submittedSearchQuery, setSubmittedSearchQuery] = useState("")
-  const searchDebounceRef = useRef<NodeJS.Timeout | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
   const [manualId, setManualId] = useState("")
   const [newAge, setNewAge] = useState("")
@@ -49,22 +48,6 @@ export default function PublicProjectPage() {
     fetchData()
   }, [params?.projectId])
 
-  // Debounced auto-search: triggers 500ms after user stops typing
-  useEffect(() => {
-    if (searchDebounceRef.current) {
-      clearTimeout(searchDebounceRef.current)
-    }
-
-    searchDebounceRef.current = setTimeout(() => {
-      setSubmittedSearchQuery(searchQuery.trim())
-    }, 500)
-
-    return () => {
-      if (searchDebounceRef.current) {
-        clearTimeout(searchDebounceRef.current)
-      }
-    }
-  }, [searchQuery])
 
   const filteredStudies = useMemo(() => {
     if (!data?.studies) return []
