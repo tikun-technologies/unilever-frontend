@@ -221,56 +221,65 @@ export default function PublicProjectPage() {
           {/* Search — slim rectangle below hero */}
           <form
             onSubmit={handleSearchSubmit}
-            className="rounded-xl border border-slate-200/90 bg-white px-3 py-2 shadow-sm transition hover:border-slate-300 hover:shadow-md"
+            className="rounded-xl border border-slate-200/90 bg-white px-3 py-3 shadow-sm transition hover:border-slate-300 hover:shadow-md"
           >
-            <div className="relative flex items-center gap-2">
-              <div
-                role="presentation"
-                onClick={() => searchInputRef.current?.focus()}
-                className="relative flex-1 cursor-text"
-              >
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                placeholder="Enter code on jar label"
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value)
-                  setSubmittedSearchQuery("")
-                }}
-                onClick={(e) => e.stopPropagation()}
-                className="h-9 w-full rounded-lg border-0 bg-transparent pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none ring-0 focus:ring-2 focus:ring-[rgba(38,116,186,0.2)]"
-              />
-              </div>
-              <button
-                type="submit"
-                className="inline-flex cursor-pointer h-9 shrink-0 items-center justify-center rounded-lg bg-[rgba(38,116,186,1)] px-4 text-sm font-medium text-white transition hover:bg-[rgba(38,116,186,0.92)]"
-              >
-                Search
-              </button>
-              {!showAddForm && (
+            <div className="flex flex-col gap-3">
+              {/* Search input row */}
+              <div className="relative flex items-center gap-2">
+                <div
+                  role="presentation"
+                  onClick={() => searchInputRef.current?.focus()}
+                  className="relative flex-1 cursor-text"
+                >
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    placeholder="Enter code on jar label"
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value)
+                      setSubmittedSearchQuery("")
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    className="h-9 w-full rounded-lg border-0 bg-transparent pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none ring-0 focus:ring-2 focus:ring-[rgba(38,116,186,0.2)]"
+                  />
+                </div>
                 <button
-                  type="button"
-                  onClick={() => {
-                    setAddPanelistError(null)
-                    setShowAddForm(true)
-                  }}
-                  className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.08)] px-3 text-sm font-medium text-[rgba(38,116,186,1)] transition hover:bg-[rgba(38,116,186,0.14)]"
+                  type="submit"
+                  className="inline-flex cursor-pointer h-9 shrink-0 items-center justify-center rounded-lg bg-[rgba(38,116,186,1)] px-4 text-sm font-medium text-white transition hover:bg-[rgba(38,116,186,0.92)]"
                 >
-                  <Plus className="h-4 w-4" />
-                  Add Panelist
+                  Search
                 </button>
-              )}
-              {data.studies.length > 0 && (
-                <Link
-                  href={`/home/create-study/preview?studyId=${encodeURIComponent(data.studies[0].id)}&demoParticipation=1&returnTo=${encodeURIComponent(`/participate/project/${params.projectId}`)}`}
-                  className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 text-sm font-medium text-green-700 transition hover:bg-green-100"
-                >
-                  <Eye className="h-4 w-4" />
-                  Demo Participation
-                </Link>
-              )}
+              </div>
+
+              {/* Action buttons row */}
+              <div className="flex flex-wrap items-center gap-2">
+                {!showAddForm && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddPanelistError(null)
+                      setShowAddForm(true)
+                    }}
+                    className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.08)] px-3 text-sm font-medium text-[rgba(38,116,186,1)] transition hover:bg-[rgba(38,116,186,0.14)]"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span className="hidden xs:inline">Add Panelist</span>
+                    <span className="xs:hidden">Add</span>
+                  </button>
+                )}
+                {data.studies.length > 0 && (
+                  <Link
+                    href={`/home/create-study/preview?studyId=${encodeURIComponent(data.studies[0].id)}&demoParticipation=1&returnTo=${encodeURIComponent(`/participate/project/${params.projectId}`)}`}
+                    className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-green-200 bg-green-50 px-3 text-sm font-medium text-green-700 transition hover:bg-green-100"
+                  >
+                    <Eye className="h-4 w-4" />
+                    <span className="hidden sm:inline">Demo Participation</span>
+                    <span className="sm:hidden">Demo</span>
+                  </Link>
+                )}
+              </div>
             </div>
           </form>
         </section>

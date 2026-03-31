@@ -133,6 +133,32 @@ export async function submitTasksBulk(sessionId: string, tasks: SubmitTaskPayloa
 	}
 }
 
+/** Lightweight status check - returns completion state for a session */
+export async function getSessionStatus(sessionId: string): Promise<{ is_completed: boolean; completed_tasks_count: number; total_tasks_assigned: number }> {
+	const q = encodeURIComponent(sessionId)
+	const url = `${API_BASE_URL}/responses/session/${q}/status`
+
+	try {
+		const res = await fetch(url, {
+			method: 'GET',
+			headers: { 'Content-Type': 'application/json' },
+		})
+
+		if (!res.ok) {
+			return { is_completed: false, completed_tasks_count: 0, total_tasks_assigned: 0 }
+		}
+
+		const data = await res.json().catch(() => ({}))
+		return {
+			is_completed: !!data.is_completed,
+			completed_tasks_count: data.completed_tasks_count || 0,
+			total_tasks_assigned: data.total_tasks_assigned || 0,
+		}
+	} catch {
+		return { is_completed: false, completed_tasks_count: 0, total_tasks_assigned: 0 }
+	}
+}
+
 export interface TaskSessionPayload {
 	session_id: string
 	task_id: string

@@ -2,7 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation"
 // import { DashboardHeader } from "@/app/home/components/dashboard-header"
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
@@ -442,8 +442,9 @@ function PanelistSelection({
   router: any
 }) {
   const [panelists, setPanelists] = useState<Panelist[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [submittedSearchQuery, setSubmittedSearchQuery] = useState("")
   const [isSearching, setIsSearching] = useState(false)
   const [selectedPanelist, setSelectedPanelist] = useState<Panelist | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -452,19 +453,7 @@ function PanelistSelection({
   const [isAborting, setIsAborting] = useState(false)
   const [abortError, setAbortError] = useState<string | null>(null)
 
-  const searchTimeout = useRef<NodeJS.Timeout | null>(null)
-
   const primaryBlue = "rgba(38,116,186,1)"
-
-  // COMMENTED OUT: Don't fetch initial panelists - only show results after search
-  // useEffect(() => {
-  //   fetchInitialPanelists(creatorEmail)
-  // }, [creatorEmail])
-
-  // Set loading to false initially since we're not fetching panelists on mount
-  useEffect(() => {
-    setLoading(false)
-  }, [])
 
   // When user selects a panelist, check if they have already participated in this study (main participate only)
   useEffect(() => {
@@ -496,27 +485,43 @@ function PanelistSelection({
     return () => { cancelled = true }
   }, [studyId, selectedPanelist?.id])
 
-  const handleSearch = async (query: string) => {
-    setSearchQuery(query)
-    if (searchTimeout.current) clearTimeout(searchTimeout.current)
-
-    if (!query.trim()) {
-      // Clear panelists when search is empty - don't show initial list
+  const handleSearchSubmit = async () => {
+    const query = searchQuery.trim()
+    if (!query) {
       setPanelists([])
+      setSubmittedSearchQuery("")
       return
     }
 
+    setSubmittedSearchQuery(query)
     setIsSearching(true)
-    searchTimeout.current = setTimeout(async () => {
-      try {
-        const data = await searchPanelists(creatorEmail, query)
-        setPanelists(data)
-      } catch (error) {
-        console.error("Search failed:", error)
-      } finally {
-        setIsSearching(false)
-      }
-    }, 300)
+    try {
+      const data = await searchPanelists(creatorEmail, query)
+      // Filter to only show exact matches (case-insensitive)
+      const exactMatches = data.filter(
+        (panelist) => panelist.id.toLowerCase() === query.toLowerCase()
+      )
+      setPanelists(exactMatches)
+    } catch (error) {
+      console.error("Search failed:", error)
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
+  const handleInputChange = (value: string) => {
+    setSearchQuery(value)
+    // Clear results when user modifies input
+    setPanelists([])
+    setSubmittedSearchQuery("")
+    setSelectedPanelist(null)
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault()
+      handleSearchSubmit()
+    }
   }
 
   const handleNext = async () => {
@@ -564,14 +569,15 @@ function PanelistSelection({
 
         <div className="mt-8 bg-white border rounded-xl shadow-sm p-4 sm:p-6 space-y-6">
           {/* Action Bar */}
-          <div className="flex flex-col sm:flex-row gap-4 items-center">
+          <div className="flex flex-col sm:flex-row gap-3 items-center">
             <div className="relative flex-1 w-full group">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 group-focus-within:text-blue-600" />
               <input
                 type="text"
-                placeholder="Search by ID..."
+                placeholder="Enter Panelist ID..."
                 value={searchQuery}
-                onChange={(e) => handleSearch(e.target.value)}
+                onChange={(e) => handleInputChange(e.target.value)}
+                onKeyDown={handleKeyDown}
                 className="w-full pl-11 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-full outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-600 transition-all text-sm"
               />
               {isSearching && (
@@ -580,6 +586,15 @@ function PanelistSelection({
                 </div>
               )}
             </div>
+            <button
+              type="button"
+              onClick={handleSearchSubmit}
+              disabled={isSearching}
+              className="shrink-0 h-10 px-5 rounded-full text-sm font-medium text-white transition-all disabled:opacity-50"
+              style={{ backgroundColor: primaryBlue }}
+            >
+              {isSearching ? "Searching..." : "Search"}
+            </button>
           </div>
 
           {/* Panelist List */}
@@ -623,10 +638,10 @@ function PanelistSelection({
               <div className="text-center py-12 bg-gray-50 rounded-2xl border-2 border-dashed border-gray-200">
                 <Search className="h-6 w-6 text-gray-300 mx-auto mb-2" />
                 <h3 className="text-sm font-bold text-gray-900 mb-1">
-                  {searchQuery.trim() ? "No panelists found" : "Search for a panelist"}
+                  {submittedSearchQuery ? "No panelists found" : "Search for a panelist"}
                 </h3>
                 <p className="text-xs text-gray-400">
-                  {searchQuery.trim() ? "Try a different search term or add a new record." : "Enter a panelist ID to search."}
+                  {submittedSearchQuery ? "Try a different panelist ID." : "Enter panelist ID and press Enter or click Search."}
                 </p>
               </div>
             )}

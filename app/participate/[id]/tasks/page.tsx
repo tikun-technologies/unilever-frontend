@@ -5,8 +5,34 @@ import { useState, useRef, useEffect, useLayoutEffect } from "react"
 import Image from "next/image"
 import { ThumbsUp, ThumbsDown } from "lucide-react"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
-import { getRespondentStudyDetails, submitTasksBulk } from "@/lib/api/ResponseAPI"
+import { getRespondentStudyDetails, submitTasksBulk, getSessionStatus } from "@/lib/api/ResponseAPI"
+import { API_BASE_URL } from "@/lib/api/LoginApi"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
+
+const PENDING_TASKS_STORAGE_KEY = 'pending_task_responses'
+
+// Save pending task payloads to localStorage as backup
+const savePendingToStorage = (sessionId: string, tasks: any[]) => {
+  try {
+    localStorage.setItem(PENDING_TASKS_STORAGE_KEY, JSON.stringify({ sessionId, tasks }))
+  } catch { /* quota exceeded or unavailable - best effort */ }
+}
+
+// Read pending task payloads from localStorage
+const getPendingFromStorage = (): { sessionId: string; tasks: any[] } | null => {
+  try {
+    const raw = localStorage.getItem(PENDING_TASKS_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (parsed?.sessionId && Array.isArray(parsed?.tasks)) return parsed
+    return null
+  } catch { return null }
+}
+
+// Clear pending task payloads from localStorage
+const clearPendingStorage = () => {
+  try { localStorage.removeItem(PENDING_TASKS_STORAGE_KEY) } catch { /* best effort */ }
+}
 
 // Helper function to get cached URLs for display
 const getCachedUrl = (url: string | undefined): string => {
@@ -73,9 +99,35 @@ export default function TasksPage() {
 
   // Accumulate responses for bulk submission
   const pendingResponsesRef = useRef<any[]>([])
+  // Track ALL task payloads ever created (for localStorage backup, never cleared until finalize)
+  const allTaskPayloadsRef = useRef<any[]>([])
+  // Track if a bulk send is currently in progress to prevent race conditions
+  const isSendingRef = useRef<boolean>(false)
+  // Track all in-flight batch promises so we can wait for them before redirect
+  const pendingBatchPromisesRef = useRef<Promise<boolean>[]>([])
+  // Guard against double-clicks on the same task (prevents duplicate submissions)
+  const processedTaskRef = useRef<number>(-1)
 
   useEffect(() => {
     firstViewTimeRef.current = new Date().toISOString()
+  }, [])
+
+  // sendBeacon safety net: if user closes tab, send any pending data
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const stored = getPendingFromStorage()
+      if (stored && stored.tasks.length > 0) {
+        try {
+          const q = encodeURIComponent(stored.sessionId)
+          const url = `${API_BASE_URL}/responses/submit-tasks-bulk?session_id=${q}`
+          const body = JSON.stringify({ tasks: stored.tasks })
+          navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }))
+        } catch { /* best effort */ }
+      }
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
   }, [])
 
   useEffect(() => {
@@ -473,12 +525,20 @@ export default function TasksPage() {
   }, [currentTaskIndex])
 
   const handleSelect = async (value: number) => {
+    // Guard against double-clicks on same task - silently ignore if already processed
+    if (processedTaskRef.current === currentTaskIndex) return
+    processedTaskRef.current = currentTaskIndex
+
     clickCountsRef.current[value] = (clickCountsRef.current[value] || 0) + 1
 
     const elapsedMs = Date.now() - taskStartRef.current
     const seconds = Number((elapsedMs / 1000).toFixed(3))
     setLastSelected(value)
     lastViewTimeRef.current = new Date().toISOString()
+
+    // Get session info once
+    const sessionRaw = localStorage.getItem('study_session')
+    const sessionId = sessionRaw ? (JSON.parse(sessionRaw).sessionId as string | undefined) : undefined
 
     // 1. Calculate payload for this task
     const currentTask = tasks[currentTaskIndex]
@@ -505,45 +565,117 @@ export default function TasksPage() {
       }
 
       pendingResponsesRef.current.push(payload)
-    }
+      allTaskPayloadsRef.current.push(payload)
 
-    const isLastTask = currentTaskIndex === totalTasks - 1
-    const shouldSendBulk = pendingResponsesRef.current.length >= 15 || isLastTask
-
-    if (shouldSendBulk) {
-      try {
-        const sessionRaw = localStorage.getItem('study_session')
-        const sessionId = sessionRaw ? (JSON.parse(sessionRaw).sessionId as string | undefined) : undefined
-
-        if (sessionRaw && sessionId) {
-          const chunkToSend = [...pendingResponsesRef.current]
-          pendingResponsesRef.current = []
-
-          if (isLastTask) {
-            setIsLoading(true)
-            let lastResult: { ok?: boolean } | null = null
-            while (true) {
-              lastResult = await submitTasksBulk(sessionId, chunkToSend)
-              const failed =
-                lastResult && typeof lastResult === "object" && lastResult.ok === false
-              if (!failed) break
-              await new Promise((r) => setTimeout(r, 1000))
-            }
-          } else {
-            submitTasksBulk(sessionId, chunkToSend).catch((err) => {
-              console.error("Failed to submit bulk tasks:", err)
-            })
-          }
-        }
-      } catch (e) {
-        console.error("Error in bulk submission:", e)
+      // Save ALL task payloads to localStorage as backup (never cleared until finalize)
+      if (sessionId) {
+        savePendingToStorage(sessionId, allTaskPayloadsRef.current)
       }
     }
 
-    if (!isLastTask) {
-      setTimeout(() => setCurrentTaskIndex((i) => i + 1), 80)
+    const isLastTask = currentTaskIndex === totalTasks - 1
+    const shouldSendMiddleBatch = pendingResponsesRef.current.length >= 15 && !isLastTask
+
+    // Handle middle batch (every 15 tasks) - only if not already sending
+    if (shouldSendMiddleBatch && !isSendingRef.current && sessionRaw && sessionId) {
+      const chunkToSend = [...pendingResponsesRef.current]
+      isSendingRef.current = true
+      pendingResponsesRef.current = []
+      
+      const batchPromise = (async (): Promise<boolean> => {
+        try {
+          let attempts = 0
+          const maxAttempts = 5
+          let success = false
+          
+          while (attempts < maxAttempts && !success) {
+            attempts++
+            try {
+              const result = await submitTasksBulk(sessionId, chunkToSend)
+              const failed = result && typeof result === "object" && result.ok === false
+              if (!failed) {
+                success = true
+              } else {
+                await new Promise((r) => setTimeout(r, 1000 * attempts))
+              }
+            } catch (err) {
+              console.error(`Bulk submit attempt ${attempts} failed:`, err)
+              if (attempts < maxAttempts) {
+                await new Promise((r) => setTimeout(r, 1000 * attempts))
+              }
+            }
+          }
+          
+          if (!success) {
+            console.error("All retry attempts failed, re-queuing responses for final batch")
+            pendingResponsesRef.current = [...chunkToSend, ...pendingResponsesRef.current]
+          }
+          
+          return success
+        } finally {
+          isSendingRef.current = false
+        }
+      })()
+      
+      pendingBatchPromisesRef.current.push(batchPromise)
+    }
+
+    // Handle last task - ALWAYS process, wait for everything, finalize, then redirect
+    if (isLastTask) {
+      if (sessionRaw && sessionId) {
+        setIsLoading(true)
+        
+        try {
+          // Wait for any in-flight background batches to complete
+          if (pendingBatchPromisesRef.current.length > 0) {
+            await Promise.all(pendingBatchPromisesRef.current)
+            pendingBatchPromisesRef.current = []
+          }
+          
+          // Collect all pending responses (current + any re-queued from failed batches)
+          const finalChunk = [...pendingResponsesRef.current]
+          pendingResponsesRef.current = []
+          
+          // Send final batch with infinite retry until success
+          if (finalChunk.length > 0) {
+            while (true) {
+              const lastResult = await submitTasksBulk(sessionId, finalChunk)
+              const failed = lastResult && typeof lastResult === "object" && lastResult.ok === false
+              if (!failed) break
+              await new Promise((r) => setTimeout(r, 1000))
+            }
+          }
+          
+          // Finalize: verify all tasks were received by the backend
+          const status = await getSessionStatus(sessionId)
+          
+          if (!status.is_completed) {
+            // Some tasks missing - resend ALL from localStorage (backend dedup handles duplicates)
+            const stored = getPendingFromStorage()
+            if (stored && stored.tasks.length > 0) {
+              let recoverySuccess = false
+              for (let attempt = 0; attempt < 3 && !recoverySuccess; attempt++) {
+                const result = await submitTasksBulk(sessionId, stored.tasks)
+                const failed = result && typeof result === "object" && result.ok === false
+                if (!failed) {
+                  recoverySuccess = true
+                } else {
+                  await new Promise((r) => setTimeout(r, 1000))
+                }
+              }
+            }
+          }
+          
+          // Clear localStorage - session is done
+          clearPendingStorage()
+        } finally {
+          router.push(`/participate/${studyIdFromParams}/thank-you`)
+        }
+      } else {
+        router.push(`/participate/${studyIdFromParams}/thank-you`)
+      }
     } else {
-      router.push(`/participate/${studyIdFromParams}/thank-you`)
+      setTimeout(() => setCurrentTaskIndex((i) => i + 1), 30)
     }
   }
 
