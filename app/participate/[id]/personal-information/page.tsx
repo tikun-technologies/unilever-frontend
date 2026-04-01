@@ -13,11 +13,10 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
 import { DateCalendar } from '@mui/x-date-pickers/DateCalendar'
 import dayjs from 'dayjs'
-import { updateUserPersonalInfo, checkPanelistParticipation, abortStudySession } from "@/lib/api/ResponseAPI"
+import { updateUserPersonalInfo } from "@/lib/api/ResponseAPI"
 import { searchPanelists, assignPanelistToSession, Panelist } from "@/lib/api/PanelistAPI"
 import { cn } from "@/lib/utils"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
-import { readParticipateProjectReturn } from "@/lib/participate/projectReturnUrl"
 
 export default function PersonalInformationPage() {
   const params = useParams<{ id: string }>()
@@ -448,42 +447,8 @@ function PanelistSelection({
   const [isSearching, setIsSearching] = useState(false)
   const [selectedPanelist, setSelectedPanelist] = useState<Panelist | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [participationChecking, setParticipationChecking] = useState(false)
-  const [participationError, setParticipationError] = useState<string | null>(null)
-  const [isAborting, setIsAborting] = useState(false)
-  const [abortError, setAbortError] = useState<string | null>(null)
 
   const primaryBlue = "rgba(38,116,186,1)"
-
-  // When user selects a panelist, check if they have already participated in this study (main participate only)
-  useEffect(() => {
-    if (!selectedPanelist || !studyId) {
-      setParticipationError(null)
-      setAbortError(null)
-      return
-    }
-    let cancelled = false
-    setParticipationError(null)
-    setAbortError(null)
-    setParticipationChecking(true)
-    checkPanelistParticipation(studyId, selectedPanelist.id)
-      .then((data) => {
-        if (cancelled) return
-        if (data.participated && data.message) {
-          setParticipationError(data.message)
-        } else {
-          setParticipationError(null)
-        }
-      })
-      .catch(() => {
-        if (cancelled) return
-        setParticipationError("Could not verify panelist. Please try again.")
-      })
-      .finally(() => {
-        if (!cancelled) setParticipationChecking(false)
-      })
-    return () => { cancelled = true }
-  }, [studyId, selectedPanelist?.id])
 
   const handleSearchSubmit = async () => {
     const query = searchQuery.trim()
@@ -526,7 +491,6 @@ function PanelistSelection({
 
   const handleNext = async () => {
     if (!selectedPanelist || !sessionId) return
-    if (participationError) return
 
     try {
       setIsSubmitting(true)
@@ -537,25 +501,6 @@ function PanelistSelection({
       console.error("Failed to assign panelist:", error)
       alert("Failed to assign panelist. Please try again.")
       setIsSubmitting(false)
-    }
-  }
-
-  const handleAbortStudy = async () => {
-    if (!studyId || !sessionId) return
-    setAbortError(null)
-    setIsAborting(true)
-    try {
-      await abortStudySession(studyId, sessionId)
-      const returnUrl = readParticipateProjectReturn(studyId)
-      if (returnUrl) {
-        window.location.href = returnUrl
-        return
-      }
-      router.push(`/participate/${studyId}`)
-    } catch (error) {
-      console.error("Failed to abort study:", error)
-      setAbortError("Failed to abort study. Please try again.")
-      setIsAborting(false)
     }
   }
 
@@ -647,29 +592,6 @@ function PanelistSelection({
             )}
           </div>
 
-          {/* Panelist already participated message (main participate only) */}
-          {participationError && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              <p>{participationError}</p>
-              <p className="mt-2 text-xs text-amber-900/80">
-                Please click this button to abort study.
-              </p>
-              <div className="mt-3">
-                <button
-                  type="button"
-                  onClick={handleAbortStudy}
-                  disabled={isAborting}
-                  className="inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-red-300"
-                >
-                  {isAborting ? "Aborting..." : "Abort Study"}
-                </button>
-              </div>
-              {abortError && (
-                <p className="mt-2 text-xs text-red-700">{abortError}</p>
-              )}
-            </div>
-          )}
-
           {/* Footer Actions */}
           <div className="pt-6 border-t border-gray-100 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
             <p className="text-[11px] text-gray-400 font-medium min-w-0 flex-1 break-words">
@@ -681,19 +603,14 @@ function PanelistSelection({
             </p>
             <Button
               onClick={handleNext}
-              disabled={!selectedPanelist || isSubmitting || participationChecking || !!participationError}
+              disabled={!selectedPanelist || isSubmitting}
               className="bg-blue-600 hover:bg-blue-700 text-white rounded-full px-10 h-11 text-sm font-bold transition-all disabled:bg-gray-200 disabled:text-gray-400 shadow-lg shadow-blue-500/10 flex items-center justify-center shrink-0"
-              style={selectedPanelist && !participationError ? { backgroundColor: primaryBlue } : {}}
+              style={selectedPanelist ? { backgroundColor: primaryBlue } : {}}
             >
               {isSubmitting ? (
                 <>
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
                   Continuing...
-                </>
-              ) : participationChecking ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Checking...
                 </>
               ) : (
                 "Continue Study"
