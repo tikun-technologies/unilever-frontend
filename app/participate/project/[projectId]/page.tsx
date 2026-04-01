@@ -223,13 +223,13 @@ export default function PublicProjectPage() {
             onSubmit={handleSearchSubmit}
             className="rounded-xl border border-slate-200/90 bg-white px-3 py-3 shadow-sm transition hover:border-slate-300 hover:shadow-md"
           >
-            <div className="flex flex-col gap-3">
-              {/* Search input row */}
-              <div className="relative flex items-center gap-2">
+            {/* lg+: search + Search + Add Panelist + Demo on one row. Smaller: actions wrap below. */}
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-3">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
                 <div
                   role="presentation"
                   onClick={() => searchInputRef.current?.focus()}
-                  className="relative flex-1 cursor-text"
+                  className="relative min-w-0 flex-1 cursor-text"
                 >
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                   <input
@@ -242,19 +242,18 @@ export default function PublicProjectPage() {
                       setSubmittedSearchQuery("")
                     }}
                     onClick={(e) => e.stopPropagation()}
-                    className="h-9 w-full rounded-lg border-0 bg-transparent pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 outline-none ring-0 focus:ring-2 focus:ring-[rgba(38,116,186,0.2)]"
+                    className="h-9 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 outline-none transition focus:border-[rgba(38,116,186,0.55)] focus:ring-2 focus:ring-[rgba(38,116,186,0.2)]"
                   />
                 </div>
                 <button
                   type="submit"
-                  className="inline-flex cursor-pointer h-9 shrink-0 items-center justify-center rounded-lg bg-[rgba(38,116,186,1)] px-4 text-sm font-medium text-white transition hover:bg-[rgba(38,116,186,0.92)]"
+                  className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[rgba(38,116,186,1)] px-4 text-sm font-medium text-white transition hover:bg-[rgba(38,116,186,0.92)]"
                 >
                   Search
                 </button>
               </div>
 
-              {/* Action buttons row */}
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
                 {!showAddForm && (
                   <button
                     type="button"
@@ -262,11 +261,10 @@ export default function PublicProjectPage() {
                       setAddPanelistError(null)
                       setShowAddForm(true)
                     }}
-                    className="inline-flex h-9 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.08)] px-3 text-sm font-medium text-[rgba(38,116,186,1)] transition hover:bg-[rgba(38,116,186,0.14)]"
+                    className="inline-flex h-9 cursor-pointer shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.08)] px-3 text-sm font-medium text-[rgba(38,116,186,1)] transition hover:bg-[rgba(38,116,186,0.14)]"
                   >
                     <Plus className="h-4 w-4" />
-                    <span className="hidden xs:inline">Add Panelist</span>
-                    <span className="xs:hidden">Add</span>
+                    <span>Add Panelist</span>
                   </button>
                 )}
                 {data.studies.length > 0 && (
