@@ -229,7 +229,7 @@ export default function ClassificationQuestionsPage() {
     submitAnswerInBackground(questionId, optionId)
   }
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     // Save classification page time
     try {
       const elapsed = Math.round((Date.now() - classStartRef.current) / 1000)
@@ -242,6 +242,50 @@ export default function ClassificationQuestionsPage() {
     questions.forEach(q => { if (q.selected) answers[q.id] = q.selected })
     setIsSubmitting(true)
     localStorage.setItem('classification_answers', JSON.stringify(answers))
+
+    // Final bulk submit of all classification answers as safety net
+    try {
+      const sessionData = localStorage.getItem('study_session')
+      if (sessionData) {
+        const { sessionId } = JSON.parse(sessionData)
+        if (sessionId) {
+          const allAnswers = questions
+            .filter(q => q.selected)
+            .map(q => ({
+              question_id: q.id,
+              question_text: q.text,
+              answer: q.selected!,
+              answer_timestamp: new Date().toISOString(),
+              time_spent_seconds: 0,
+            }))
+
+          if (allAnswers.length > 0) {
+            let success = false
+            for (let attempt = 0; attempt < 4 && !success; attempt++) {
+              try {
+                await submitClassificationAnswers(String(sessionId), { answers: allAnswers })
+                success = true
+              } catch {
+                if (attempt < 3) {
+                  await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+                }
+              }
+            }
+
+            if (!success) {
+              alert('Failed to save classification answers. Please try again.')
+              setIsSubmitting(false)
+              return
+            }
+          }
+        }
+      }
+    } catch {
+      alert('Failed to save classification answers. Please try again.')
+      setIsSubmitting(false)
+      return
+    }
+
     router.push(`/participate/${params?.id}/orientation-page`)
   }
 

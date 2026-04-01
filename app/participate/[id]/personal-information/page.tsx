@@ -260,8 +260,24 @@ export default function PersonalInformationPage() {
       // Store in localStorage for later use
       localStorage.setItem('personal_info', JSON.stringify(personalInfo))
 
-      // Update user personal info via API
-      updateUserPersonalInfo(sid, personalInfo).catch(() => { })
+      // Update user personal info via API with retry
+      let success = false
+      for (let attempt = 0; attempt < 4 && !success; attempt++) {
+        try {
+          await updateUserPersonalInfo(sid, personalInfo)
+          success = true
+        } catch {
+          if (attempt < 3) {
+            await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
+          }
+        }
+      }
+
+      if (!success) {
+        alert('Failed to save personal information. Please try again.')
+        setIsSubmitting(false)
+        return
+      }
 
       // Special creator (e.g. Unilever): show fragrance question page before classification
       const nextPath = isSpecialCreator
