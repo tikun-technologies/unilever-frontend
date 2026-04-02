@@ -4,7 +4,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { useMemo, useRef, useState, useEffect } from "react"
 // import { DashboardHeader } from "@/app/home/components/dashboard-header"
 import { startStudy, getRespondentStudyDetails } from "@/lib/api/ResponseAPI"
-import { getStudyDetailsWithoutAuth, getStudyDetailsForStart } from "@/lib/api/StudyAPI"
+import { getStudyDetailsWithoutAuth } from "@/lib/api/StudyAPI"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 
 export default function ParticipateIntroPage() {
@@ -361,98 +361,6 @@ export default function ParticipateIntroPage() {
         }
       } catch { }
       router.push(startHref)
-
-      // Background: fetch study details using new API endpoint
-      ; (async () => {
-        try {
-          const details: any = await getStudyDetailsForStart(params.id)
-          if (!details) {
-            console.error('[Participate] No study details found for study:', params.id)
-            return
-          }
-
-          console.log('[Participate] Study details received:', {
-            study_id: params.id,
-            hasTasks: !!(details?.tasks),
-            hasDataTasks: !!(details?.data?.tasks),
-            hasTaskMap: !!(details?.task_map),
-            hasTask: !!(details?.task),
-            tasksType: typeof details?.tasks,
-            dataTasksType: typeof details?.data?.tasks,
-            taskMapType: typeof details?.task_map,
-            taskType: typeof details?.task
-          })
-
-          const tasksSrc: any = details?.tasks || details?.data?.tasks || details?.task_map || details?.task || {}
-          let userTasks: any[] = []
-
-          if (Array.isArray(tasksSrc)) {
-            userTasks = tasksSrc
-            console.log('[Participate] Tasks found as array, count:', userTasks.length)
-          } else if (tasksSrc && typeof tasksSrc === 'object') {
-            const rk = String(response.respondent_id ?? 0)
-            userTasks = tasksSrc?.[rk] || tasksSrc?.[Number(rk)] || []
-            console.log('[Participate] Tasks found as object, respondent_id:', rk, 'tasks count:', userTasks.length)
-            if (!Array.isArray(userTasks) || userTasks.length === 0) {
-              console.log('[Participate] No tasks for respondent, trying fallback...')
-              for (const v of Object.values(tasksSrc)) {
-                if (Array.isArray(v) && v.length) {
-                  userTasks = v;
-                  console.log('[Participate] Found fallback tasks, count:', userTasks.length)
-                  break
-                }
-              }
-            }
-          }
-
-          console.log('[Participate] Final user tasks count:', userTasks.length)
-          if (userTasks.length === 0) {
-            console.error('[Participate] No tasks available for study:', params.id, 'This may indicate a study_id mismatch issue.')
-          }
-
-          // Store only essential data to avoid localStorage quota issues
-          // Preserve existing classification_questions if they exist
-          const existingData = localStorage.getItem('current_study_details')
-          const parsedExistingDetails = existingData ? JSON.parse(existingData) : {}
-          const existingClassificationQuestions = parsedExistingDetails?.classification_questions || []
-
-          const backgroundUrl = details?.metadata?.background_image_url || details?.background_image_url || null
-          const essentialData = {
-            study_info: {
-              study_type: details?.study_type,
-              main_question: details?.main_question,
-              orientation_text: details?.orientation_text,
-              rating_scale: details?.rating_scale,
-              metadata: backgroundUrl ? { background_image_url: backgroundUrl } : undefined,
-              creator_email: details?.creator_email || ""
-            },
-            // Preserve compact assigned_tasks with transforms if already stored
-            assigned_tasks: Array.isArray(parsedExistingDetails?.assigned_tasks) ? parsedExistingDetails.assigned_tasks : userTasks,
-            classification_questions: existingClassificationQuestions,
-          }
-
-          try {
-            // Preserve layers and transforms if already stored from respondent details call
-            const existingRaw = localStorage.getItem('current_study_details')
-            const existing = existingRaw ? JSON.parse(existingRaw) : {}
-            const merged = {
-              ...existing,
-              ...essentialData,
-              study_info: { ...(existing?.study_info || {}), ...(essentialData.study_info || {}) },
-              layers: existing?.layers || [],
-              layers_transforms: existing?.layers_transforms || {},
-            }
-            localStorage.setItem('current_study_details', JSON.stringify(merged))
-            if (details?.creator_email) {
-              localStorage.setItem('current_study_creator_email', details.creator_email)
-            }
-          } catch (e) {
-
-          }
-        } catch (e) {
-
-        }
-      })()
     } catch (error) {
       alert('Failed to start the study. Please try again in a moment.')
       setIsStarting(false)
