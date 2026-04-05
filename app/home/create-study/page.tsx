@@ -468,7 +468,10 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
     }
 
     // Populate Step 6 - Audience Segmentation (step 7 in flow when Keys step exists)
-    if (studyDetails.audience_segmentation) {
+    // Only populate if user actually saved step 6 data (number_of_respondents > 0)
+    // Otherwise leave cs_step6 empty so the stepper correctly shows step 6 as incomplete
+    const savedRespondents = studyDetails.audience_segmentation?.number_of_respondents
+    if (studyDetails.audience_segmentation && savedRespondents && savedRespondents > 0) {
       const ageSelections: Record<string, { checked: boolean; percent: string }> = {}
       if (studyDetails.audience_segmentation.age_distribution) {
         Object.keys(studyDetails.audience_segmentation.age_distribution).forEach(ageRange => {
@@ -486,7 +489,7 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
       }
 
       const audienceData = {
-        respondents: studyDetails.audience_segmentation.number_of_respondents || 0,
+        respondents: savedRespondents,
         countries: studyDetails.audience_segmentation.country ? [studyDetails.audience_segmentation.country] : [],
         genderMale: studyDetails.audience_segmentation.gender_distribution?.male || 50,
         genderFemale: studyDetails.audience_segmentation.gender_distribution?.female || 50,
@@ -494,6 +497,10 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
       }
 
       localStorage.setItem('cs_step6', JSON.stringify(audienceData))
+    } else {
+      // User hasn't completed step 6 yet - don't populate localStorage
+      // This ensures stepper correctly shows step 6 as incomplete
+      localStorage.removeItem('cs_step6')
     }
 
     // When jobId is present, tasks are being generated asynchronously. Do NOT store
