@@ -111,12 +111,17 @@ export async function submitTasksBulk(sessionId: string, tasks: SubmitTaskPayloa
 	const baseUrl = API_BASE_URL
 	const url = `${baseUrl}/responses/submit-tasks-bulk?session_id=${q}`
 
+	// Measure payload size to conditionally enable keepalive (64KB browser limit)
+	const bodyString = JSON.stringify(body)
+	const bodySize = new Blob([bodyString]).size
+	const KEEPALIVE_THRESHOLD = 60 * 1024 // 60KB safe threshold
+
 	try {
 		const res = await fetch(url, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
-			keepalive: true,
+			body: bodyString,
+			keepalive: bodySize < KEEPALIVE_THRESHOLD,
 		})
 
 		if (!res.ok) {
