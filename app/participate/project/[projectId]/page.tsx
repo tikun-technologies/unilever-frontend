@@ -179,8 +179,8 @@ export default function PublicProjectPage() {
           <Link href="/home" className="inline-flex items-center cursor-pointer">
             <div className="flex items-center">
               <div className="text-2xl font-bold">
-                <span className="text-green-600">Mind</span>
-                <span className="text-gray-800">Surve</span>
+                <span className="text-[rgba(38,116,186,1)]">Mind</span>
+                <span className="text-gray-800">Surf</span>
               </div>
             </div>
           </Link>

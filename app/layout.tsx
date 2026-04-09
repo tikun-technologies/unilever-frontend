@@ -199,8 +199,8 @@ const indieFlower = Indie_Flower({
 });
 
 export const metadata: Metadata = {
-  title: "Mindsurve",
-  description: "Mindsurve",
+  title: "Mindsurf",
+  description: "Mindsurf",
 };
 
 export default function RootLayout({

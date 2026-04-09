@@ -174,7 +174,7 @@ export function DashboardHeader() {
             <div className="flex items-center">
               <motion.div whileHover={{ scale: 1.05 }} className="text-2xl font-bold">
                 <span className="text-[rgba(38,116,186,1)]">Mind</span>
-                <span className="text-gray-800">Surve</span>
+                <span className="text-gray-800">Surf</span>
               </motion.div>
             </div>
 
