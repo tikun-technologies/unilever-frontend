@@ -312,3 +312,28 @@ export async function getPublicProjectStudies(projectId: string): Promise<Public
 
     return res.json();
 }
+
+/**
+ * Export completed panelists for a project after a specific UTC timestamp
+ * POST /api/v1/projects/{project_id}/export-completed-panelists
+ */
+export async function exportCompletedPanelists(
+    projectId: string, 
+    afterUtc: string
+): Promise<Blob> {
+    const res = await fetchWithAuth(`${API_BASE_URL}/projects/${projectId}/export-completed-panelists`, {
+        method: "POST",
+        headers: { 
+            "Content-Type": "application/json",
+            Accept: "text/csv" 
+        },
+        body: JSON.stringify({ after_utc: afterUtc }),
+    });
+
+    if (!res.ok) {
+        const errorText = await res.text().catch(() => "");
+        throw new Error(`Failed to export completed panelists: ${res.status} ${errorText}`);
+    }
+
+    return res.blob();
+}

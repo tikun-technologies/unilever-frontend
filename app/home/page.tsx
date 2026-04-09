@@ -22,6 +22,7 @@ import {
   getProjectMembers as getProjectMembersApi,
   downloadProjectCsv,
   startProjectZipExport,
+  exportCompletedPanelists,
   Project
 } from "@/api/projectApi"
 import { getStudyProjectMapping } from "@/lib/utils/projectUtils"
@@ -90,6 +91,9 @@ function DashboardContent() {
   const [exportingProjectZip, setExportingProjectZip] = useState(false)
   const [exportZipStatus, setExportZipStatus] = useState("Getting data...")
   const [isCopied, setIsCopied] = useState(false)
+  const [isPanelistModalOpen, setIsPanelistModalOpen] = useState(false)
+  const [exportingPanelist, setExportingPanelist] = useState(false)
+  const [panelistExportStatus, setPanelistExportStatus] = useState("Getting data...")
 
   const { user } = useAuth()
   const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
@@ -290,6 +294,18 @@ function DashboardContent() {
     return () => clearInterval(interval)
   }, [exportingProjectZip])
 
+  useEffect(() => {
+    if (!exportingPanelist) return
+    const messages = ["Getting data...", "Cooking your data...", "Almost there...", "Preparing your file..."]
+    const interval = setInterval(() => {
+      setPanelistExportStatus((prev) => {
+        const idx = messages.indexOf(prev)
+        return messages[(idx + 1) % messages.length]
+      })
+    }, 1500)
+    return () => clearInterval(interval)
+  }, [exportingPanelist])
+
   const handleExportProjectCsv = async () => {
     if (!selectedProjectId || exportingProjectCsv) return
     const project = projects.find((p) => p.id === selectedProjectId)
@@ -331,6 +347,31 @@ function DashboardContent() {
       alert(err instanceof Error ? err.message : "Failed to start export.")
     } finally {
       setExportingProjectZip(false)
+    }
+  }
+
+  const handleExportPanelist = async (afterUtc: string) => {
+    if (!selectedProjectId || exportingPanelist) return
+    const project = projects.find((p) => p.id === selectedProjectId)
+    const projectName = project?.name ?? "project"
+    setExportingPanelist(true)
+    setPanelistExportStatus("Getting data...")
+    try {
+      const blob = await exportCompletedPanelists(selectedProjectId, afterUtc)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${projectName.replace(/[^a-zA-Z0-9-_]/g, "_")}_completed_panelists.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      setIsPanelistModalOpen(false)
+    } catch (err) {
+      console.error("Export panelist failed:", err)
+      alert(err instanceof Error ? err.message : "Failed to export completed panelists.")
+    } finally {
+      setExportingPanelist(false)
     }
   }
 
@@ -633,7 +674,7 @@ function DashboardContent() {
             />
 
             {isSpecialCreator && selectedProjectId && (
-              <div className="mb-6 flex items-center gap-3">
+              <div className="mb-6 flex flex-wrap items-center gap-3">
                 <button
                   type="button"
                   onClick={handleExportProjectCsv}
@@ -651,6 +692,15 @@ function DashboardContent() {
                       <span>Export projects CSV</span>
                     </>
                   )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPanelistModalOpen(true)}
+                  disabled={projectStudies.length === 0}
+                  className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
+                >
+                  <FileDown className="w-4 h-4" />
+                  <span>Export project panelist</span>
                 </button>
                 <button
                   type="button"
@@ -729,7 +779,194 @@ function DashboardContent() {
           userRole="admin" // Defaulting to admin so we can see the management UI, real backend should verify
         />
       )}
+
+      {isPanelistModalOpen && (
+        <ExportPanelistModal
+          isOpen={isPanelistModalOpen}
+          onClose={() => setIsPanelistModalOpen(false)}
+          onExport={handleExportPanelist}
+          isExporting={exportingPanelist}
+          exportStatus={panelistExportStatus}
+        />
+      )}
     </AuthGuard>
+  )
+}
+
+const TIMEZONE_OPTIONS = [
+  { value: "UTC", label: "UTC", offset: "+00:00" },
+  { value: "IST", label: "IST (India Standard Time)", offset: "+05:30" },
+  { value: "EST", label: "EST (Eastern Standard Time)", offset: "-05:00" },
+  { value: "CST", label: "CST (Central Standard Time)", offset: "-06:00" },
+  { value: "MST", label: "MST (Mountain Standard Time)", offset: "-07:00" },
+  { value: "PST", label: "PST (Pacific Standard Time)", offset: "-08:00" },
+  { value: "GMT", label: "GMT (Greenwich Mean Time)", offset: "+00:00" },
+  { value: "CET", label: "CET (Central European Time)", offset: "+01:00" },
+  { value: "JST", label: "JST (Japan Standard Time)", offset: "+09:00" },
+  { value: "AEST", label: "AEST (Australian Eastern Standard Time)", offset: "+10:00" },
+  { value: "SGT", label: "SGT (Singapore Time)", offset: "+08:00" },
+  { value: "HKT", label: "HKT (Hong Kong Time)", offset: "+08:00" },
+]
+
+function ExportPanelistModal({
+  isOpen,
+  onClose,
+  onExport,
+  isExporting,
+  exportStatus
+}: {
+  isOpen: boolean
+  onClose: () => void
+  onExport: (afterUtc: string) => void
+  isExporting: boolean
+  exportStatus: string
+}) {
+  const [selectedTimezone, setSelectedTimezone] = useState("UTC")
+  const [utcInput, setUtcInput] = useState("")
+  const [selectedDate, setSelectedDate] = useState("")
+  const [selectedTime, setSelectedTime] = useState("")
+
+  const handleExport = () => {
+    let afterUtc: string
+
+    if (selectedTimezone === "UTC") {
+      if (!utcInput.trim()) {
+        alert("Please enter a valid UTC datetime")
+        return
+      }
+      afterUtc = utcInput.trim()
+    } else {
+      if (!selectedDate || !selectedTime) {
+        alert("Please select both date and time")
+        return
+      }
+      const tz = TIMEZONE_OPTIONS.find(t => t.value === selectedTimezone)
+      const offset = tz?.offset || "+00:00"
+      const localDatetime = `${selectedDate}T${selectedTime}:00${offset}`
+      
+      const date = new Date(localDatetime)
+      if (isNaN(date.getTime())) {
+        alert("Invalid date/time selection")
+        return
+      }
+      afterUtc = date.toISOString().replace("Z", "+00:00")
+    }
+
+    onExport(afterUtc)
+  }
+
+  if (!isOpen) return null
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
+      <div className="bg-white rounded-lg shadow-xl w-full max-w-md max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <h3 className="text-lg font-semibold text-gray-900">
+            Export Project Panelist
+          </h3>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Timezone
+            </label>
+            <select
+              value={selectedTimezone}
+              onChange={(e) => {
+                setSelectedTimezone(e.target.value)
+                setUtcInput("")
+                setSelectedDate("")
+                setSelectedTime("")
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[rgba(38,116,186,0.5)] focus:border-[rgba(38,116,186,1)] outline-none transition-colors"
+            >
+              {TIMEZONE_OPTIONS.map((tz) => (
+                <option key={tz.value} value={tz.value}>
+                  {tz.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="text-sm text-gray-600 bg-blue-50 px-3 py-2 rounded-md">
+            Export project panelist after:
+          </div>
+
+          {selectedTimezone === "UTC" ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                UTC Datetime
+              </label>
+              <input
+                type="text"
+                value={utcInput}
+                onChange={(e) => setUtcInput(e.target.value)}
+                placeholder="2026-04-02T11:30:00+00:00"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[rgba(38,116,186,0.5)] focus:border-[rgba(38,116,186,1)] outline-none transition-colors font-mono text-sm"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Format: YYYY-MM-DDTHH:MM:SS+00:00
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Date
+                </label>
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[rgba(38,116,186,0.5)] focus:border-[rgba(38,116,186,1)] outline-none transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Time
+                </label>
+                <input
+                  type="time"
+                  value={selectedTime}
+                  onChange={(e) => setSelectedTime(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[rgba(38,116,186,0.5)] focus:border-[rgba(38,116,186,1)] outline-none transition-colors"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="px-6 py-4 border-t border-gray-100 flex-shrink-0 flex flex-col sm:flex-row gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isExporting}
+            className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={isExporting}
+            className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
+          >
+            {isExporting ? (
+              <>
+                <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin shrink-0" />
+                <span>{exportStatus}</span>
+              </>
+            ) : (
+              <>
+                <FileDown className="w-4 h-4" />
+                <span>Export</span>
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

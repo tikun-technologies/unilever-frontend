@@ -129,7 +129,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
   // const GRID_MIN = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MIN_ELEMENTS || '4') || 4
   const GRID_MAX = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MAX_ELEMENTS || '20') || 20
   const CATEGORY_MIN = 3
-  const CATEGORY_MAX = 10
+  const CATEGORY_MAX = 15
   const ELEMENT_MIN = 3
   const ELEMENT_MAX = 10
 
@@ -1360,7 +1360,7 @@ type LayerTextModalState =
 function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerModeProps) {
   // Dynamic limits from env with sensible defaults
   const LAYER_MIN = 3
-  const LAYER_MAX = 10
+  const LAYER_MAX = 15
   const ELEMENT_MIN = 3
   const ELEMENT_MAX = 10
   const [layers, setLayers] = useState<Layer[]>(() => {

@@ -50,7 +50,7 @@ interface Step6AudienceSegmentationProps {
 }
 
 export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isReadOnly = false, lastStepNumber = 6 }: Step6AudienceSegmentationProps) {
-	const [respondents, setRespondents] = useState<number | ''>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); if (typeof o.respondents === 'number') return Math.min(1500, Math.max(1, o.respondents)); return '' } } catch { }; return '' })
+	const [respondents, setRespondents] = useState<number | ''>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); if (typeof o.respondents === 'number' && o.respondents > 0) return Math.min(1500, o.respondents); return '' } } catch { }; return '' })
 	const [countryQuery, setCountryQuery] = useState("")
 	const [countries, setCountries] = useState<string[]>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); return Array.isArray(o.countries) ? o.countries : [] } } catch { }; return [] })
 	const [genderMale, setGenderMale] = useState<number | ''>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); return typeof o.genderMale === 'number' ? o.genderMale : 50 } } catch { }; return 50 })
