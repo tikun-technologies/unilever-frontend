@@ -173,7 +173,7 @@ export function DashboardHeader() {
             {/* Logo: always go to All Studies (no project selected) */}
             <div className="flex items-center">
               <motion.div whileHover={{ scale: 1.05 }} className="text-2xl font-bold">
-                <span className="text-green-600">Mind</span>
+                <span className="text-[rgba(38,116,186,1)]">Mind</span>
                 <span className="text-gray-800">Surve</span>
               </motion.div>
             </div>
