@@ -134,7 +134,6 @@ export async function startProjectZipExport(projectId: string): Promise<{ job_id
     }
     return res.json();
 }
-
 /**
  * Update a project
  * PUT /api/v1/projects/{project_id}
