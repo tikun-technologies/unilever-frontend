@@ -1,21 +1,20 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, Lock } from "lucide-react"
+import { useParams, useSearchParams } from "next/navigation"
+import { Lock, Eye, EyeOff } from "lucide-react"
 
 const BOARD_PASSWORD = "UFH2026"
 const SESSION_KEY = "whiteboard_access_granted"
 
 export default function WhiteboardPage() {
   const params = useParams()
-  const router = useRouter()
   const searchParams = useSearchParams()
   const boardId = params.boardId as string
-  const projId = searchParams.get("proj_id")
 
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [password, setPassword] = useState("")
+  const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState("")
   const [isChecking, setIsChecking] = useState(true)
 
@@ -35,14 +34,6 @@ export default function WhiteboardPage() {
       setError("")
     } else {
       setError("Please contact your admin")
-    }
-  }
-
-  const handleBack = () => {
-    if (projId) {
-      router.push(`/home?proj_id=${projId}`)
-    } else {
-      router.push("/home")
     }
   }
 
@@ -69,18 +60,29 @@ export default function WhiteboardPage() {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
+            <div className="relative">
               <input
-                type="password"
+                type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value)
                   setError("")
                 }}
                 placeholder="Enter password"
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[rgba(38,116,186,0.5)] focus:border-[rgba(38,116,186,1)] outline-none transition-colors text-center text-lg"
+                className="w-full px-4 py-3 pr-12 border border-gray-300 rounded-lg focus:ring-2 focus:ring-[rgba(38,116,186,0.5)] focus:border-[rgba(38,116,186,1)] outline-none transition-colors text-center text-lg"
                 autoFocus
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                {showPassword ? (
+                  <EyeOff className="w-5 h-5" />
+                ) : (
+                  <Eye className="w-5 h-5" />
+                )}
+              </button>
             </div>
 
             {error && (
@@ -93,14 +95,6 @@ export default function WhiteboardPage() {
             >
               Access Board
             </button>
-
-            <button
-              type="button"
-              onClick={handleBack}
-              className="w-full py-3 border border-gray-300 text-gray-700 font-medium rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Go Back
-            </button>
           </form>
         </div>
       </div>
@@ -108,22 +102,13 @@ export default function WhiteboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      {/* Header */}
-      <div className="flex items-center gap-4 px-4 py-3 border-b bg-white z-10">
-
-        <h1 className="text-lg font-semibold text-gray-800">Whiteboard</h1>
-      </div>
-
-      {/* Embedded tldraw board */}
-      <div className="flex-1">
-        <iframe
-          src={`https://www.tldraw.com/r/${boardId}`}
-          className="w-full h-full border-0"
-          style={{ minHeight: "calc(100vh - 57px)" }}
-          allow="clipboard-read; clipboard-write"
-        />
-      </div>
+    <div className="min-h-screen bg-white">
+      <iframe
+        src={`https://www.tldraw.com/r/${boardId}`}
+        className="w-full h-full border-0"
+        style={{ minHeight: "100vh" }}
+        allow="clipboard-read; clipboard-write"
+      />
     </div>
   )
 }
