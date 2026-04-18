@@ -1868,7 +1868,9 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         console.warn('[CSV] Failed to get study title for filename:', err)
       }
 
-      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      // Add UTF-8 BOM (Byte Order Mark) to ensure proper encoding for non-ASCII characters (Tamil, etc.)
+      const BOM = '\uFEFF'
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' })
       const link = document.createElement('a')
       const url = URL.createObjectURL(blob)
       link.setAttribute('href', url)

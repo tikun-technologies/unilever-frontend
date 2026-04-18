@@ -28,7 +28,7 @@ import {
 import { getStudyProjectMapping } from "@/lib/utils/projectUtils"
 import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
-import { FileDown, Link } from "lucide-react"
+import { FileDown, Link, PenTool } from "lucide-react"
 
 // Redirect to login without showing error when auth fails (token expired, not authenticated, etc.)
 function redirectToLoginOnAuthError() {
@@ -727,6 +727,17 @@ function DashboardContent() {
                 >
                   <Link className="w-4 h-4" />
                   <span>{isCopied ? "Copied!" : "Share Project to Participant"}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const boardId = "L3slol6yKsKM4YugPM3fS"
+                    router.push(`/home/whiteboard/${boardId}?proj_id=${selectedProjectId}`)
+                  }}
+                  className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white transition-colors"
+                >
+                  <PenTool className="w-4 h-4" />
+                  <span>Open Whiteboard</span>
                 </button>
               </div>
             )}
