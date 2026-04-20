@@ -1,0 +1,391 @@
+/* Fragrance Map Explorer — ported from standalone HTML */
+
+.container {
+  --ink: #14141a;
+  --ink-soft: #3a3a44;
+  --muted: #74747e;
+  --rule: #d7d3c8;
+  --page: #f6f2ea;
+  --panel: #fdfbf6;
+  --accent: #a6412a;
+  --c-low: #c24a3a;
+  --c-mid: #e8c75a;
+  --c-high: #4e8b55;
+
+  background: var(--page);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+/* ---------- top bar ---------- */
+.topbar {
+  border-bottom: 1px solid var(--rule);
+  padding: 18px 32px 16px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  background: var(--panel);
+}
+
+.brand {
+  font-family: "Fraunces", serif;
+  font-weight: 500;
+  font-size: 24px;
+  letter-spacing: -0.01em;
+}
+
+.brandAccent {
+  font-style: italic;
+  color: var(--accent);
+  font-weight: 400;
+}
+
+.tagline {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+/* ---------- layout ---------- */
+.layout {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 0;
+  min-height: calc(100vh - 64px);
+}
+
+.controls {
+  border-right: 1px solid var(--rule);
+  padding: 32px 28px;
+  background: var(--panel);
+}
+
+.stage {
+  padding: 28px 32px 40px;
+  position: relative;
+}
+
+/* ---------- controls ---------- */
+.sectionLabel {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: var(--muted);
+  margin-bottom: 10px;
+  display: block;
+}
+
+.field {
+  margin-bottom: 28px;
+}
+
+.fieldTitle {
+  font-family: "Fraunces", serif;
+  font-weight: 500;
+  font-size: 18px;
+  margin: 0 0 8px;
+  letter-spacing: -0.005em;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 10px;
+  font-style: italic;
+}
+
+.select {
+  width: 100%;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 14px;
+  padding: 10px 12px;
+  background: var(--page);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 2px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2374747e' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.select:hover {
+  border-color: var(--ink-soft);
+}
+
+.select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.divider {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 24px 0;
+}
+
+/* ---------- legend ---------- */
+.legend h4 {
+  font-family: "Fraunces", serif;
+  font-weight: 500;
+  font-size: 15px;
+  margin: 0 0 10px;
+}
+
+.legendBar {
+  height: 10px;
+  border-radius: 1px;
+  background: linear-gradient(to right, var(--c-low), var(--c-mid), var(--c-high));
+  margin-bottom: 4px;
+}
+
+.legendLabels {
+  display: flex;
+  justify-content: space-between;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10px;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.legendCaption {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 10px;
+  line-height: 1.4;
+}
+
+.legendCaptionNote {
+  composes: legendCaption;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dotted var(--rule);
+}
+
+.legendCaptionStrong {
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+/* ---------- stage ---------- */
+.stageHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 24px;
+  margin-bottom: 4px;
+}
+
+.stageTitle {
+  font-family: "Fraunces", serif;
+  font-weight: 400;
+  font-size: 28px;
+  letter-spacing: -0.015em;
+  margin: 0;
+}
+
+.stageTitleAccent {
+  font-style: italic;
+  color: var(--accent);
+}
+
+.stageSubtitle {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+}
+
+.stageMeta {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 24px;
+  max-width: 640px;
+  line-height: 1.6;
+}
+
+.stageMetaAccent {
+  font-style: italic;
+  color: var(--accent);
+}
+
+/* ---------- plot ---------- */
+.plotWrap {
+  position: relative;
+  background: var(--panel);
+  border: 1px solid var(--rule);
+  padding: 28px 32px 52px 28px;
+}
+
+.plot {
+  width: 100%;
+  height: auto;
+  display: block;
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+/* ---------- info card ---------- */
+.info {
+  position: absolute;
+  top: 28px;
+  right: 32px;
+  width: 260px;
+  background: var(--page);
+  border: 1px solid var(--rule);
+  padding: 18px 20px;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.15s;
+  pointer-events: none;
+}
+
+.infoVisible {
+  opacity: 1;
+}
+
+.stimId {
+  font-family: "Fraunces", serif;
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  margin-bottom: 2px;
+}
+
+.stimLike {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-bottom: 14px;
+}
+
+.stimLikeValue {
+  color: var(--ink);
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  margin-left: 4px;
+}
+
+.oils {
+  border-top: 1px dotted var(--rule);
+  padding-top: 12px;
+  margin-bottom: 10px;
+}
+
+.oilRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.oilName {
+  flex: 0 0 66px;
+  color: var(--ink-soft);
+  font-family: "IBM Plex Sans", sans-serif;
+}
+
+.oilBarTrack {
+  flex: 1;
+  height: 4px;
+  background: var(--rule);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.oilBarFill {
+  height: 100%;
+  border-radius: 2px;
+}
+
+.oilVal {
+  flex: 0 0 36px;
+  text-align: right;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  color: var(--ink);
+}
+
+.axisVals {
+  border-top: 1px dotted var(--rule);
+  padding-top: 12px;
+  font-size: 12px;
+}
+
+.axisValsRow {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.axisValsLabel {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.axisValsVal {
+  font-family: "IBM Plex Mono", monospace;
+  color: var(--ink);
+}
+
+/* ---------- footer note ---------- */
+.stageFoot {
+  margin-top: 20px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 760px;
+}
+
+.stageFootStrong {
+  color: var(--ink-soft);
+  font-weight: 500;
+}
+
+.stageFootAccent {
+  font-style: italic;
+  color: var(--accent);
+}
+
+/* ---------- responsive ---------- */
+@media (max-width: 900px) {
+  .layout {
+    grid-template-columns: 1fr;
+  }
+
+  .controls {
+    border-right: none;
+    border-bottom: 1px solid var(--rule);
+    padding: 20px;
+  }
+
+  .stage {
+    padding: 20px;
+  }
+
+  .info {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    margin-top: 16px;
+    opacity: 1;
+  }
+}
