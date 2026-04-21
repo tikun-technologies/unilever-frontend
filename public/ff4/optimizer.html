@@ -6986,7 +6986,7 @@ const DEFAULT_SETTINGS = {
   minLike: 33,
   viability: 'absolute',
   mixtureStep: 1,  // Percentage increment for mixture generation
-  useClustering: false  // Use k-means clustering for diversity
+  useClustering: true  // Use k-means clustering for diversity
 };
 
 const SETTINGS_KEY = 'mga_optimizer_settings';
@@ -7304,7 +7304,7 @@ init();
           <div class="settings-sublabel">Cluster results for diversity (more varied formulas)</div>
         </div>
         <label class="settings-checkbox">
-          <input type="checkbox" id="s-use-clustering">
+          <input type="checkbox" id="s-use-clustering" checked>
           <span class="checkmark"></span>
         </label>
       </div>
