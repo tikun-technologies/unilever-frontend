@@ -113,6 +113,16 @@ export default function FragranceMapPage() {
     setIsCheckingSession(false);
   }, []);
 
+  useEffect(() => {
+    if (isAuthenticated) return;
+    for (const row of IMAGE_CONFIG) {
+      const src = `/api/proxy-image?url=${encodeURIComponent(row.url)}`;
+      const img = new Image();
+      img.decoding = "async";
+      img.src = src;
+    }
+  }, [isAuthenticated]);
+
   const handleGateSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (gatePassword === PILOT_PASSWORD) {
