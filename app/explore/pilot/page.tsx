@@ -4,16 +4,15 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { Lock, Eye, EyeOff } from "lucide-react";
 import styles from "./fragrance-map.module.css";
 import DATA from "./fragrance-map-data";
+import { IMAGE_CONFIG, CATEGORY_ORDER, fitLabel } from "./image-config";
 
-/** Same password as whiteboard (UFH Unilever study) */
 const PILOT_PASSWORD = "UFH2026";
 const SESSION_KEY = "explore_pilot_access_granted";
 
 const FEELS = DATA.feels;
-const IMAGES = DATA.images;
 
-const DEFAULT_Y = "Soothing";
-const DEFAULT_X = "Product-Format-This-leaves-me-feeling-soft-and-smooth";
+const DEFAULT_Y: string | null = null;
+const DEFAULT_X: string | null = null;
 
 const W = 860,
   H = 560;
@@ -77,7 +76,7 @@ function axisRange(dim: string): [number, number] {
   return [Math.max(0, min - pad), max + pad];
 }
 
-function ticks(a: number, b: number, n = 5): number[] {
+function ticks(a: number, b: number, n = 6): number[] {
   const out: number[] = [];
   const step = (b - a) / (n - 1);
   for (let i = 0; i < n; i++) out.push(a + step * i);
@@ -93,10 +92,15 @@ export default function FragranceMapPage() {
   const [gateError, setGateError] = useState("");
   const [isCheckingSession, setIsCheckingSession] = useState(true);
 
-  const [yDim, setYDim] = useState(DEFAULT_Y);
-  const [xDim, setXDim] = useState(DEFAULT_X);
+  const [yDim, setYDim] = useState<string | null>(DEFAULT_Y);
+  const [xDim, setXDim] = useState<string | null>(DEFAULT_X);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+
+  const getProxiedImageUrl = (url: string) => {
+    return `/api/proxy-image?url=${encodeURIComponent(url)}`;
+  };
 
   useEffect(() => {
     if (typeof sessionStorage !== "undefined") {
@@ -119,8 +123,20 @@ export default function FragranceMapPage() {
   };
 
   const visibleId = activeId ?? hoveredId;
+  const hasY = yDim != null && yDim !== "";
+  const hasX = xDim != null && xDim !== "";
 
   const { xScale, yScale, xMin, xMax, yMin, yMax } = useMemo(() => {
+    if (!hasY || !hasX) {
+      return {
+        xScale: (v: number) => 0,
+        yScale: (v: number) => 0,
+        xMin: 0,
+        xMax: 100,
+        yMin: 0,
+        yMax: 100,
+      };
+    }
     const [yMin, yMax] = axisRange(yDim);
     const [xMin, xMax] = axisRange(xDim);
     return {
@@ -131,7 +147,7 @@ export default function FragranceMapPage() {
       yMin,
       yMax,
     };
-  }, [yDim, xDim]);
+  }, [yDim, xDim, hasY, hasX]);
 
   const selectedStim = useMemo(
     () => (visibleId ? DATA.stimuli.find((s) => s.id === visibleId) : null),
@@ -155,6 +171,55 @@ export default function FragranceMapPage() {
     setActiveId(null);
     setHoveredId(null);
   }, []);
+
+  const groupedImages = useMemo(() => {
+    const byCategory: Record<string, typeof IMAGE_CONFIG> = {};
+    CATEGORY_ORDER.forEach((c) => (byCategory[c] = []));
+    IMAGE_CONFIG.forEach((row) => {
+      if (byCategory[row.category]) {
+        byCategory[row.category].push(row);
+      }
+    });
+    return byCategory;
+  }, []);
+
+  const stageMeta = useMemo(() => {
+    if (!hasY && !hasX) {
+      return (
+        <>
+          Start by picking either a <em className={styles.stageMetaAccent}>Feel</em> on the
+          left or a <em className={styles.stageMetaAccent}>Fit</em> image below, or both.
+          One axis gives you a ranking of the 15 stimuli; two axes give you a 2D map. Every
+          circle is coloured by how much people liked it.
+        </>
+      );
+    } else if (hasY && hasX) {
+      return (
+        <>
+          Each of the 15 stimuli is positioned by its score on the{" "}
+          <em className={styles.stageMetaAccent}>Feel</em> you chose and the{" "}
+          <em className={styles.stageMetaAccent}>Fit</em> image you chose. Colour = liking.
+          Hover any circle for its oil composition.
+        </>
+      );
+    } else if (hasY) {
+      return (
+        <>
+          The 15 stimuli ranked vertically by{" "}
+          <em className={styles.stageMetaAccent}>Feel · {prettify(yDim!)}</em>. Pick a Fit
+          image to add the horizontal dimension and build a 2D map.
+        </>
+      );
+    } else {
+      return (
+        <>
+          The 15 stimuli ranked horizontally by{" "}
+          <em className={styles.stageMetaAccent}>Fit · {fitLabel(xDim!)}</em>. Pick a Feel
+          to add the vertical dimension and build a 2D map.
+        </>
+      );
+    }
+  }, [hasY, hasX, yDim, xDim]);
 
   if (isCheckingSession) {
     return (
@@ -234,16 +299,30 @@ export default function FragranceMapPage() {
         <aside className={styles.controls}>
           <div className={styles.field}>
             <span className={styles.sectionLabel}>Vertical axis</span>
-            <h3 className={styles.fieldTitle}>Feel</h3>
+            <div className={styles.fieldHeader}>
+              <h3 className={styles.fieldTitle}>Feel</h3>
+              <button
+                type="button"
+                className={`${styles.clearBtn} ${hasY ? styles.visible : ""}`}
+                onClick={() => {
+                  setYDim(null);
+                  handleAxisChange();
+                }}
+                aria-label="Clear Feel axis"
+              >
+                × clear
+              </button>
+            </div>
             <div className={styles.hint}>How the fragrance makes people feel</div>
             <select
               className={styles.select}
-              value={yDim}
+              value={yDim ?? ""}
               onChange={(e) => {
-                setYDim(e.target.value);
+                setYDim(e.target.value || null);
                 handleAxisChange();
               }}
             >
+              <option value="">— pick a feel —</option>
               {FEELS.map((f) => (
                 <option key={f} value={f}>
                   {prettify(f)}
@@ -252,24 +331,83 @@ export default function FragranceMapPage() {
             </select>
           </div>
 
-          <div className={styles.field}>
+          <div className={`${styles.field} ${styles.galleryField}`}>
             <span className={styles.sectionLabel}>Horizontal axis</span>
-            <h3 className={styles.fieldTitle}>Fit</h3>
-            <div className={styles.hint}>Which image associations fit the fragrance</div>
-            <select
-              className={styles.select}
-              value={xDim}
-              onChange={(e) => {
-                setXDim(e.target.value);
-                handleAxisChange();
-              }}
-            >
-              {IMAGES.map((img) => (
-                <option key={img} value={img}>
-                  {prettify(img)}
-                </option>
-              ))}
-            </select>
+            <div className={styles.fieldHeader}>
+              <h3 className={styles.fieldTitle}>Fit</h3>
+              <button
+                type="button"
+                className={`${styles.clearBtn} ${hasX ? styles.visible : ""}`}
+                onClick={() => {
+                  setXDim(null);
+                  handleAxisChange();
+                }}
+                aria-label="Clear Fit axis"
+              >
+                × clear
+              </button>
+            </div>
+            <div className={styles.hint}>
+              Pick an image — the map redraws against how well the 15 stimuli fit that
+              image
+            </div>
+            <div className={styles.gallery}>
+              {CATEGORY_ORDER.map((cat) => {
+                const rows = groupedImages[cat];
+                if (!rows || rows.length === 0) return null;
+                return (
+                  <div key={cat} className={styles.galleryGroup}>
+                    <div className={styles.galleryGroupTitle}>{cat}</div>
+                    <div className={styles.galleryTiles}>
+                      {rows.map((r) => {
+                        const active = r.data_key === xDim;
+                        const hasError = imageErrors.has(r.data_key);
+                        return (
+                          <div
+                            key={r.data_key}
+                            className={`${styles.galleryTile} ${active ? styles.active : ""}`}
+                            onClick={() => {
+                              setXDim(r.data_key);
+                              handleAxisChange();
+                            }}
+                            title={r.description}
+                          >
+                            {hasError ? (
+                              <div className={styles.galleryThumb}>
+                                <span style={{ fontSize: "10px", color: "var(--muted)" }}>
+                                  {r.attribute}
+                                </span>
+                              </div>
+                            ) : (
+                              <div className={styles.galleryThumb}>
+                                <img
+                                  src={getProxiedImageUrl(r.url)}
+                                  alt={r.attribute}
+                                  style={{
+                                    width: "100%",
+                                    height: "100%",
+                                    objectFit: "cover",
+                                    objectPosition: "center",
+                                  }}
+                                  onError={(e) => {
+                                    console.error(`Failed to load image: ${r.attribute}`, r.url);
+                                    setImageErrors((prev) => new Set(prev).add(r.data_key));
+                                  }}
+                                  onLoad={() => {
+                                    console.log(`Successfully loaded: ${r.attribute}`);
+                                  }}
+                                />
+                              </div>
+                            )}
+                            <div className={styles.galleryLabel}>{r.attribute}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <hr className={styles.divider} />
@@ -293,21 +431,21 @@ export default function FragranceMapPage() {
           <div className={styles.legend}>
             <h4>How to read</h4>
             <p className={styles.legendCaption}>
-              Each of the 15 stimuli is positioned by its score on the two axes
-              you&apos;ve chosen. Stimulus names are labelled. Hover or tap a stimulus
-              to see its oil composition and exact scores.
+              Each of the 15 stimuli is positioned by its score on the two axes you&apos;ve
+              chosen. Stimulus names are labelled. Hover or tap a stimulus to see its oil
+              composition and exact scores.
             </p>
             <p className={styles.legendCaption} style={{ marginTop: 8 }}>
-              <strong className={styles.legendCaptionStrong}>Empty space</strong> on
-              the map means positions we didn&apos;t test — territories the optimiser
-              can predict into.
+              <strong className={styles.legendCaptionStrong}>Empty space</strong> on the map
+              means positions we didn&apos;t test — territories the optimiser can predict
+              into.
             </p>
             <p className={styles.legendCaptionNote}>
               <strong className={styles.legendCaptionStrong}>Note on fit scores:</strong>{" "}
-              images were shown in permuted collages of 2–4 at a time, so raw YES rates
-              sit on a smaller scale than liking or feel. Fit scores here are multiplied
-              by 3 (the average collage size) to put all three lenses on roughly
-              comparable 0–100 scales.
+              images were shown in permuted collages of 2–4 at a time, so raw YES rates sit
+              on a smaller scale than liking or feel. Fit scores here are multiplied by 3
+              (the average collage size) to put all three lenses on roughly comparable 0–100
+              scales.
             </p>
           </div>
         </aside>
@@ -320,14 +458,7 @@ export default function FragranceMapPage() {
             <div className={styles.stageSubtitle}>15 stimuli · 4 oils · 3 lenses</div>
           </div>
 
-          <p className={styles.stageMeta}>
-            Each stimulus is a blend of four oil families — Citrus (lemon), Gourmand
-            (vanilla), Marine (calone), Woody (cedarwood) — at varying proportions.
-            Pick any <em className={styles.stageMetaAccent}>Feel</em> and any{" "}
-            <em className={styles.stageMetaAccent}>Fit</em> dimension from the left
-            panel; the 15 stimuli will arrange themselves in that 2D space, coloured
-            by liking.
-          </p>
+          <p className={styles.stageMeta}>{stageMeta}</p>
 
           <div className={styles.plotWrap}>
             <svg
@@ -336,191 +467,214 @@ export default function FragranceMapPage() {
               preserveAspectRatio="xMidYMid meet"
               onClick={handlePlotClick}
             >
-              {/* Gridlines */}
-              {ticks(xMin, xMax, 6).map((v) => {
-                const x = xScale(v);
-                return (
+              {!hasY && !hasX ? (
+                <>
+                  <text
+                    x={MARGIN.left + PW / 2}
+                    y={MARGIN.top + PH / 2 - 16}
+                    textAnchor="middle"
+                    className={styles.emptyHead}
+                  >
+                    Pick a Feel or a Fit to begin
+                  </text>
+                  <text
+                    x={MARGIN.left + PW / 2}
+                    y={MARGIN.top + PH / 2 + 16}
+                    textAnchor="middle"
+                    className={styles.emptySub}
+                  >
+                    Pick both for a 2D map · pick one for a ranking
+                  </text>
+                </>
+              ) : hasY && hasX ? (
+                <>
+                  {/* Gridlines */}
+                  {ticks(xMin, xMax, 6).map((v) => {
+                    const x = xScale(v);
+                    return (
+                      <line
+                        key={`gx-${v}`}
+                        stroke="#d7d3c8"
+                        strokeWidth={0.5}
+                        strokeDasharray="2 3"
+                        x1={x}
+                        y1={MARGIN.top}
+                        x2={x}
+                        y2={MARGIN.top + PH}
+                      />
+                    );
+                  })}
+                  {ticks(yMin, yMax, 6).map((v) => {
+                    const y = yScale(v);
+                    return (
+                      <line
+                        key={`gy-${v}`}
+                        stroke="#d7d3c8"
+                        strokeWidth={0.5}
+                        strokeDasharray="2 3"
+                        x1={MARGIN.left}
+                        y1={y}
+                        x2={MARGIN.left + PW}
+                        y2={y}
+                      />
+                    );
+                  })}
+
+                  {/* Axis lines */}
                   <line
-                    key={`gx-${v}`}
-                    stroke="#d7d3c8"
-                    strokeWidth={0.5}
-                    strokeDasharray="2 3"
-                    x1={x}
-                    y1={MARGIN.top}
-                    x2={x}
+                    stroke="#3a3a44"
+                    strokeWidth={1}
+                    x1={MARGIN.left}
+                    y1={MARGIN.top + PH}
+                    x2={MARGIN.left + PW}
                     y2={MARGIN.top + PH}
                   />
-                );
-              })}
-              {ticks(yMin, yMax, 6).map((v) => {
-                const y = yScale(v);
-                return (
                   <line
-                    key={`gy-${v}`}
-                    stroke="#d7d3c8"
-                    strokeWidth={0.5}
-                    strokeDasharray="2 3"
+                    stroke="#3a3a44"
+                    strokeWidth={1}
                     x1={MARGIN.left}
-                    y1={y}
-                    x2={MARGIN.left + PW}
-                    y2={y}
+                    y1={MARGIN.top}
+                    x2={MARGIN.left}
+                    y2={MARGIN.top + PH}
                   />
-                );
-              })}
 
-              {/* Axis lines */}
-              <line
-                stroke="#3a3a44"
-                strokeWidth={1}
-                x1={MARGIN.left}
-                y1={MARGIN.top + PH}
-                x2={MARGIN.left + PW}
-                y2={MARGIN.top + PH}
-              />
-              <line
-                stroke="#3a3a44"
-                strokeWidth={1}
-                x1={MARGIN.left}
-                y1={MARGIN.top}
-                x2={MARGIN.left}
-                y2={MARGIN.top + PH}
-              />
-
-              {/* Tick labels X */}
-              {ticks(xMin, xMax, 6).map((v) => (
-                <text
-                  key={`tx-${v}`}
-                  x={xScale(v)}
-                  y={MARGIN.top + PH + 16}
-                  textAnchor="middle"
-                  style={{
-                    fontFamily: '"IBM Plex Mono", monospace',
-                    fontSize: 10,
-                    fill: "#74747e",
-                  }}
-                >
-                  {fmt(v)}
-                </text>
-              ))}
-              {/* Tick labels Y */}
-              {ticks(yMin, yMax, 6).map((v) => (
-                <text
-                  key={`ty-${v}`}
-                  x={MARGIN.left - 10}
-                  y={yScale(v) + 3}
-                  textAnchor="end"
-                  style={{
-                    fontFamily: '"IBM Plex Mono", monospace',
-                    fontSize: 10,
-                    fill: "#74747e",
-                  }}
-                >
-                  {fmt(v)}
-                </text>
-              ))}
-
-              {/* X axis labels */}
-              <text
-                x={MARGIN.left + PW / 2}
-                y={MARGIN.top + PH + 40}
-                textAnchor="middle"
-                style={{
-                  fontFamily: '"IBM Plex Mono", monospace',
-                  fontSize: 10,
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  fill: "#74747e",
-                }}
-              >
-                Fit · scaled score
-              </text>
-              <text
-                x={MARGIN.left + PW / 2}
-                y={MARGIN.top + PH + 56}
-                textAnchor="middle"
-                style={{
-                  fontFamily: '"Fraunces", serif',
-                  fontStyle: "italic",
-                  fontSize: 14,
-                  fill: "#14141a",
-                }}
-              >
-                {prettify(xDim)}
-              </text>
-
-              {/* Y axis labels */}
-              <text
-                x={MARGIN.left - 52}
-                y={MARGIN.top + PH / 2 - 14}
-                textAnchor="middle"
-                transform={`rotate(-90 ${MARGIN.left - 52} ${MARGIN.top + PH / 2 - 14})`}
-                style={{
-                  fontFamily: '"IBM Plex Mono", monospace',
-                  fontSize: 10,
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  fill: "#74747e",
-                }}
-              >
-                Feel · % yes
-              </text>
-              <text
-                x={MARGIN.left - 36}
-                y={MARGIN.top + PH / 2}
-                textAnchor="middle"
-                transform={`rotate(-90 ${MARGIN.left - 36} ${MARGIN.top + PH / 2})`}
-                style={{
-                  fontFamily: '"Fraunces", serif',
-                  fontStyle: "italic",
-                  fontSize: 14,
-                  fill: "#14141a",
-                }}
-              >
-                {prettify(yDim)}
-              </text>
-
-              {/* Data dots */}
-              {DATA.stimuli.map((s) => {
-                const xv = stimValue(s, xDim);
-                const yv = stimValue(s, yDim);
-                if (xv == null || yv == null) return null;
-                const cx = xScale(xv);
-                const cy = yScale(yv);
-                const isActive = s.id === activeId;
-                return (
-                  <g key={s.id}>
-                    <circle
-                      cx={cx}
-                      cy={cy}
-                      r={18}
-                      fill={likingColour(s.liking)}
-                      stroke="#14141a"
-                      strokeWidth={isActive ? 2.5 : 1}
-                      style={{ cursor: "pointer", transition: "stroke-width 0.15s" }}
-                      onMouseEnter={() => setHoveredId(s.id)}
-                      onMouseLeave={() => setHoveredId(null)}
-                      onClick={() => handleDotClick(s.id)}
-                    />
+                  {/* Tick labels X */}
+                  {ticks(xMin, xMax, 6).map((v) => (
                     <text
-                      x={cx}
-                      y={cy + 3}
+                      key={`tx-${v}`}
+                      x={xScale(v)}
+                      y={MARGIN.top + PH + 16}
                       textAnchor="middle"
                       style={{
                         fontFamily: '"IBM Plex Mono", monospace',
-                        fontSize: 10.5,
-                        fontWeight: 500,
-                        fill: "#14141a",
-                        pointerEvents: "none",
-                        paintOrder: "stroke",
-                        stroke: "#fdfbf6",
-                        strokeWidth: 3,
+                        fontSize: 10,
+                        fill: "#74747e",
                       }}
                     >
-                      {s.id}
+                      {fmt(v)}
                     </text>
-                  </g>
-                );
-              })}
+                  ))}
+                  {/* Tick labels Y */}
+                  {ticks(yMin, yMax, 6).map((v) => (
+                    <text
+                      key={`ty-${v}`}
+                      x={MARGIN.left - 10}
+                      y={yScale(v) + 3}
+                      textAnchor="end"
+                      style={{
+                        fontFamily: '"IBM Plex Mono", monospace',
+                        fontSize: 10,
+                        fill: "#74747e",
+                      }}
+                    >
+                      {fmt(v)}
+                    </text>
+                  ))}
+
+                  {/* X axis labels */}
+                  <text
+                    x={MARGIN.left + PW / 2}
+                    y={MARGIN.top + PH + 40}
+                    textAnchor="middle"
+                    style={{
+                      fontFamily: '"IBM Plex Mono", monospace',
+                      fontSize: 10,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      fill: "#74747e",
+                    }}
+                  >
+                    Fit · scaled score
+                  </text>
+                  <text
+                    x={MARGIN.left + PW / 2}
+                    y={MARGIN.top + PH + 56}
+                    textAnchor="middle"
+                    style={{
+                      fontFamily: '"Fraunces", serif',
+                      fontStyle: "italic",
+                      fontSize: 14,
+                      fill: "#14141a",
+                    }}
+                  >
+                    {fitLabel(xDim!)}
+                  </text>
+
+                  {/* Y axis labels */}
+                  <text
+                    x={MARGIN.left - 52}
+                    y={MARGIN.top + PH / 2 - 14}
+                    textAnchor="middle"
+                    transform={`rotate(-90 ${MARGIN.left - 52} ${MARGIN.top + PH / 2 - 14})`}
+                    style={{
+                      fontFamily: '"IBM Plex Mono", monospace',
+                      fontSize: 10,
+                      letterSpacing: "0.1em",
+                      textTransform: "uppercase",
+                      fill: "#74747e",
+                    }}
+                  >
+                    Feel · % yes
+                  </text>
+                  <text
+                    x={MARGIN.left - 36}
+                    y={MARGIN.top + PH / 2}
+                    textAnchor="middle"
+                    transform={`rotate(-90 ${MARGIN.left - 36} ${MARGIN.top + PH / 2})`}
+                    style={{
+                      fontFamily: '"Fraunces", serif',
+                      fontStyle: "italic",
+                      fontSize: 14,
+                      fill: "#14141a",
+                    }}
+                  >
+                    {prettify(yDim!)}
+                  </text>
+
+                  {/* Data dots */}
+                  {DATA.stimuli.map((s) => {
+                    const xv = stimValue(s, xDim!);
+                    const yv = stimValue(s, yDim!);
+                    if (xv == null || yv == null) return null;
+                    const cx = xScale(xv);
+                    const cy = yScale(yv);
+                    const isActive = s.id === activeId;
+                    return (
+                      <g key={s.id}>
+                        <circle
+                          cx={cx}
+                          cy={cy}
+                          r={18}
+                          fill={likingColour(s.liking)}
+                          stroke="#14141a"
+                          strokeWidth={isActive ? 2.5 : 1}
+                          style={{ cursor: "pointer", transition: "stroke-width 0.15s" }}
+                          onMouseEnter={() => setHoveredId(s.id)}
+                          onMouseLeave={() => setHoveredId(null)}
+                          onClick={() => handleDotClick(s.id)}
+                        />
+                        <text
+                          x={cx}
+                          y={cy + 3}
+                          textAnchor="middle"
+                          style={{
+                            fontFamily: '"IBM Plex Mono", monospace',
+                            fontSize: 10.5,
+                            fontWeight: 500,
+                            fill: "#14141a",
+                            pointerEvents: "none",
+                            paintOrder: "stroke",
+                            stroke: "#fdfbf6",
+                            strokeWidth: 3,
+                          }}
+                        >
+                          {s.id}
+                        </text>
+                      </g>
+                    );
+                  })}
+                </>
+              ) : null}
             </svg>
 
             {/* Info card */}
@@ -553,36 +707,36 @@ export default function FragranceMapPage() {
                   );
                 })}
               </div>
-              <div className={styles.axisVals}>
-                <div className={styles.axisValsRow}>
-                  <span className={styles.axisValsLabel}>{prettify(yDim)}</span>
-                  <span className={styles.axisValsVal}>
-                    {selectedStim
-                      ? `${stimValue(selectedStim, yDim)?.toFixed(1)}%`
-                      : "—"}
-                  </span>
+              {hasY && hasX && (
+                <div className={styles.axisVals}>
+                  <div className={styles.axisValsRow}>
+                    <span className={styles.axisValsLabel}>{prettify(yDim!)}</span>
+                    <span className={styles.axisValsVal}>
+                      {selectedStim
+                        ? `${stimValue(selectedStim, yDim!)?.toFixed(1)}%`
+                        : "—"}
+                    </span>
+                  </div>
+                  <div className={styles.axisValsRow}>
+                    <span className={styles.axisValsLabel}>{fitLabel(xDim!)}</span>
+                    <span className={styles.axisValsVal}>
+                      {selectedStim
+                        ? `${stimValue(selectedStim, xDim!)?.toFixed(1)}%`
+                        : "—"}
+                    </span>
+                  </div>
                 </div>
-                <div className={styles.axisValsRow}>
-                  <span className={styles.axisValsLabel}>{prettify(xDim)}</span>
-                  <span className={styles.axisValsVal}>
-                    {selectedStim
-                      ? `${stimValue(selectedStim, xDim)?.toFixed(1)}%`
-                      : "—"}
-                  </span>
-                </div>
-              </div>
+              )}
             </div>
           </div>
 
           <p className={styles.stageFoot}>
             <strong className={styles.stageFootStrong}>For facilitators:</strong> let
-            participants call out Feel and Fit pairs. Watch for axis combinations
-            where liking travels cleanly along a diagonal — those are dimensions that
-            co-move with preference. Watch for combinations where liking is scattered
-            — those dimensions carry{" "}
-            <em className={styles.stageFootAccent}>independent</em> information about
-            the fragrance, and are candidates for a perfumer brief the optimiser can
-            act on.
+            participants call out Feel and Fit pairs. Watch for axis combinations where
+            liking travels cleanly along a diagonal — those are dimensions that co-move with
+            preference. Watch for combinations where liking is scattered — those dimensions
+            carry <em className={styles.stageFootAccent}>independent</em> information about
+            the fragrance, and are candidates for a perfumer brief the optimiser can act on.
           </p>
         </main>
       </div>
