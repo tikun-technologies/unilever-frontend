@@ -6,6 +6,8 @@ import styles from "./fragrance-map.module.css";
 import DATA from "./fragrance-map-data";
 import { IMAGE_CONFIG, CATEGORY_ORDER, fitLabel } from "./image-config";
 
+type ImageConfigRow = (typeof IMAGE_CONFIG)[number];
+
 const PILOT_PASSWORD = "UFH2026";
 const SESSION_KEY = "explore_pilot_access_granted";
 
@@ -173,8 +175,10 @@ export default function FragranceMapPage() {
   }, []);
 
   const groupedImages = useMemo(() => {
-    const byCategory: Record<string, typeof IMAGE_CONFIG> = {};
-    CATEGORY_ORDER.forEach((c) => (byCategory[c] = []));
+    const byCategory: Record<string, ImageConfigRow[]> = {};
+    CATEGORY_ORDER.forEach((c) => {
+      byCategory[c] = [];
+    });
     IMAGE_CONFIG.forEach((row) => {
       if (byCategory[row.category]) {
         byCategory[row.category].push(row);
