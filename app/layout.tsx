@@ -209,7 +209,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className="scroll-smooth">
       <body
         className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} ${poppins.variable} ${roboto.variable} ${montserrat.variable} ${openSans.variable} ${lato.variable} ${oswald.variable} ${raleway.variable} ${merriweather.variable} ${playfairDisplay.variable} ${rubik.variable} ${ubuntu.variable} ${nunito.variable} ${sourceSans3.variable} ${ptSans.variable} ${notoSans.variable} ${workSans.variable} ${quicksand.variable} ${bebasNeue.variable} ${dancingScript.variable} ${pacifico.variable} ${lobster.variable} ${greatVibes.variable} ${satisfy.variable} ${caveat.variable} ${indieFlower.variable} antialiased`}
       >
