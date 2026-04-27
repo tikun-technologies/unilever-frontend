@@ -7,7 +7,6 @@ import {
   ArrowRight,
   BookOpen,
   Heart,
-  Linkedin,
   Menu,
   ShieldCheck,
   ShoppingCart,
@@ -36,33 +35,6 @@ function Logo() {
     </button>
   )
 }
-
-const team = [
-  {
-    name: "Howard Moskowitz",
-    role: "President & Founder",
-    photo: "/howard.jpg",
-    href: "https://www.linkedin.com/search/results/all/?keywords=Howard%20Moskowitz",
-  },
-  {
-    name: "Dave Stevens, MFA",
-    role: "Chief Strategy Officer (CSO)",
-    photo: "/dave.jpg",
-    href: "https://www.linkedin.com/search/results/all/?keywords=Dave%20Stevens%20MFA",
-  },
-  {
-    name: "J. Brown Fitterman",
-    role: "Chief Technology Officer (CTO)",
-    photo: "/jbrown.jpg",
-    href: "https://www.linkedin.com/search/results/all/?keywords=J.%20Brown%20Fitterman",
-  },
-  {
-    name: "Danny Moskowitz",
-    role: "Chief Operating Officer (COO)",
-    photo: "/danny.jpg",
-    href: "https://www.linkedin.com/search/results/all/?keywords=Danny%20Moskowitz",
-  },
-] as const
 
 const outcomeCards = [
   {
@@ -134,9 +106,6 @@ export function LandingPage() {
               <a href="#impact" className="font-medium text-gray-600 transition-colors hover:text-[rgba(38,116,186,1)]">
                 Impact
               </a>
-              <a href="#team" className="font-medium text-gray-600 transition-colors hover:text-[rgba(38,116,186,1)]">
-                Team
-              </a>
               <Link
                 href={LOGIN_HREF}
                 className="rounded-full bg-[rgba(38,116,186,1)] px-5 py-2.5 font-semibold text-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#1a5f96] hover:shadow-lg"
@@ -169,7 +138,6 @@ export function LandingPage() {
                 ["#challenge", "The Challenge"],
                 ["#outcomes", "Outcomes"],
                 ["#impact", "Impact"],
-                ["#team", "Team"],
               ].map(([href, label]) => (
                 <a
                   key={href}
@@ -340,44 +308,6 @@ export function LandingPage() {
                 ))}
               </ul>
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Team */}
-      <section id="team" className="scroll-mt-24 bg-[#1A1A1A] py-24 text-white">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="mb-16 text-center">
-            <h2 className="mb-6 text-3xl font-bold md:text-5xl">The Mind Genomics team</h2>
-            <div className="mx-auto mb-6 h-1 w-20 bg-[rgba(38,116,186,1)]" />
-            <p className="text-xl text-gray-400">Pioneers in experimental psychology and data-driven strategy.</p>
-          </div>
-          <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-4">
-            {team.map((m) => (
-              <a
-                key={m.name}
-                href={m.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group block rounded-xl border border-gray-700 bg-gray-800 p-6 text-center transition-all duration-300 hover:border-[rgba(38,116,186,1)] hover:bg-gray-700"
-              >
-                <div className="relative mx-auto mb-4 h-24 w-24 overflow-hidden rounded-full border-4 border-gray-700 bg-gray-700 transition-colors group-hover:border-[rgba(38,116,186,1)]">
-                  <Image
-                    src={m.photo}
-                    alt={m.name}
-                    fill
-                    className="object-cover"
-                    sizes="96px"
-                  />
-                </div>
-                <h3 className="mb-1 text-xl font-bold text-white">{m.name}</h3>
-                <p className="mb-4 text-sm font-medium text-blue-300">{m.role}</p>
-                <div className="inline-flex items-center text-sm text-gray-400 transition-colors group-hover:text-white">
-                  View on LinkedIn
-                  <Linkedin className="ml-1 h-4 w-4" />
-                </div>
-              </a>
-            ))}
           </div>
         </div>
       </section>
