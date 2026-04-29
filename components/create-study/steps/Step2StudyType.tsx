@@ -111,7 +111,6 @@ export function GridStudy() {
     </div>
   )
 }
-
 // Visual preview for Hybrid Study
 export function HybridStudy() {
   return (
