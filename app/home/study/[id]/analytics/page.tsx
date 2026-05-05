@@ -7,7 +7,7 @@ import { AuthGuard } from "@/components/auth/AuthGuard"
 import { getStudyBasicDetails, StudyDetails } from "@/lib/api/StudyAPI"
 import { downloadStudyResponsesCsv, getStudyAnalysisJson } from "@/lib/api/ResponseAPI"
 import { AnimatePresence, motion } from "framer-motion"
-import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard } from "lucide-react"
+import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard, Sparkles } from "lucide-react"
 import Link from "next/link"
 import { AnalyticsToolbar } from "./components/AnalyticsToolbar"
 import { AnalyticsTable } from "./components/AnalyticsTable"
@@ -20,6 +20,7 @@ import { AnalyticsTopBottomPerformers } from "./components/AnalyticsTopBottomPer
 import { AnalyticsFatiguePredictor } from "./components/AnalyticsFatiguePredictor"
 import { AnalyticsPersonaBlueprints } from "./components/AnalyticsPersonaBlueprints"
 import { AnalyticsFilterAnalysis } from "./components/AnalyticsFilterAnalysis"
+import { AnalyticsDesignConfigurator } from "./components/AnalyticsDesignConfigurator"
 
 export default function StudyAnalyticsPage() {
     const params = useParams()
@@ -95,7 +96,7 @@ export default function StudyAnalyticsPage() {
         }
     }
 
-    const [analyticsView, setAnalyticsView] = useState<"overview" | "filter" | "detail">("overview")
+    const [analyticsView, setAnalyticsView] = useState<"overview" | "configurator" | "filter" | "detail">("overview")
     const [activeView, setActiveView] = useState("table")
 
     // Smooth scroll to top when switching tabs to prevent jarring layout shift (Overview/Detail have scroll, Filter is shorter)
@@ -282,6 +283,19 @@ export default function StudyAnalyticsPage() {
                                     </button>
                                     <button
                                         type="button"
+                                        onClick={() => setAnalyticsView("configurator")}
+                                        className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 ${
+                                            analyticsView === "configurator"
+                                                ? "text-white shadow-sm"
+                                                : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
+                                        }`}
+                                        style={analyticsView === "configurator" ? { backgroundColor: "#2674BA" } : undefined}
+                                    >
+                                        <Sparkles className="w-4 h-4" />
+                                        Design Configurator
+                                    </button>
+                                    <button
+                                        type="button"
                                         onClick={() => setAnalyticsView("detail")}
                                         className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 ${
                                             analyticsView === "detail"
@@ -360,6 +374,11 @@ export default function StudyAnalyticsPage() {
                                     </motion.div>
                                 )}
                             </AnimatePresence>
+
+                            {/* Keep mounted when not active so configurator selections persist when switching tabs */}
+                            <div className={analyticsView !== "configurator" ? "hidden" : undefined}>
+                                <AnalyticsDesignConfigurator analysisData={analysisData} studyType={studyType} />
+                            </div>
 
                             {/* Keep mounted when not active so filter state and results persist when switching tabs */}
                             <div className={analyticsView !== "filter" ? "hidden" : undefined}>
