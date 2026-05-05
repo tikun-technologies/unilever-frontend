@@ -67,6 +67,8 @@ export default function TasksPage() {
   const [bgFitDesktop, setBgFitDesktop] = useState({ left: 0, top: 0, width: 0, height: 0 })
   const bgReadyRefDesktop = useRef(false)
   const [isBgLandscape, setIsBgLandscape] = useState(false)
+  const gridPreviewContainerRef = useRef<HTMLDivElement>(null)
+  const [gridPreviewSize, setGridPreviewSize] = useState({ width: 0, height: 0 })
 
   useEffect(() => {
     firstViewTimeRef.current = new Date().toISOString()
@@ -442,6 +444,38 @@ export default function TasksPage() {
     return () => observer.disconnect()
   }, [studyType])
 
+  // Keep mobile grid cells square without stretching row gaps on taller screens.
+  useEffect(() => {
+    if (!gridPreviewContainerRef.current) return
+
+    const updateSize = () => {
+      if (gridPreviewContainerRef.current) {
+        setGridPreviewSize({
+          width: gridPreviewContainerRef.current.offsetWidth,
+          height: gridPreviewContainerRef.current.offsetHeight,
+        })
+      }
+    }
+
+    const observer = new ResizeObserver(() => {
+      requestAnimationFrame(updateSize)
+    })
+
+    observer.observe(gridPreviewContainerRef.current)
+    updateSize()
+
+    if (typeof window !== "undefined" && window.visualViewport) {
+      const handleResize = () => requestAnimationFrame(updateSize)
+      window.visualViewport.addEventListener("resize", handleResize)
+      return () => {
+        observer.disconnect()
+        window.visualViewport?.removeEventListener("resize", handleResize)
+      }
+    }
+
+    return () => observer.disconnect()
+  }, [currentTaskIndex, studyType, isInitialLoading])
+
   // Compute background fit box using useLayoutEffect (mobile)
   useLayoutEffect(() => {
     if (!bgImgRef.current || !previewContainerRef.current || studyType !== "layer" || !backgroundUrl) {
@@ -607,13 +641,17 @@ export default function TasksPage() {
 
   const task = tasks[currentTaskIndex]
   const ratingScaleValues = isSpecialCreator ? [1, 5] : [1, 2, 3, 4, 5]
+  const mobileGridFrameSize = Math.max(0, Math.min(gridPreviewSize.width, gridPreviewSize.height)) || undefined
+  const mobileGridFrameStyle = mobileGridFrameSize
+    ? { width: mobileGridFrameSize, height: mobileGridFrameSize, zIndex: 1 }
+    : { zIndex: 1 }
 
   return (
     <div
       className="h-[100dvh] lg:h-screen lg:bg-white overflow-hidden"
       style={{ paddingTop: "max(10px, env(safe-area-inset-top))" }}
     >
-      <div className={`max-w-6xl mx-auto lg:h-full ${isBgLandscape ? 'px-0 sm:px-6 lg:px-8' : 'px-4 sm:px-6 lg:px-8'} pt-2 sm:pt-12 md:pt-14 lg:pt-2 pb-16 lg:pb-2 lg:flex lg:flex-col`}>
+      <div className={`max-w-6xl mx-auto h-full flex flex-col ${isBgLandscape ? 'px-0 sm:px-6 lg:px-8' : 'px-4 sm:px-6 lg:px-8'} pt-2 sm:pt-12 md:pt-14 lg:pt-2 pb-2 lg:flex lg:flex-col`}>
         {isFetching ? (
           <div className="p-10 text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgba(38,116,186,1)] mx-auto mb-4" />
@@ -627,8 +665,8 @@ export default function TasksPage() {
           <>
             {/* Mobile Layout */}
             <div
-              className="lg:hidden flex flex-col h-[calc(100vh-140px)] overflow-hidden"
-              style={{ paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}
+              className="lg:hidden flex flex-col flex-1 min-h-0 overflow-hidden"
+              style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}
             >
               {/* Progress Section */}
               <div className={`mb-2 sm:mb-4 flex-shrink-0 ${isBgLandscape ? 'px-4 sm:px-0' : ''}`}>
@@ -666,7 +704,7 @@ export default function TasksPage() {
                     <div className={`flex-1 flex items-center justify-center min-h-0 overflow-hidden ${(task?.type === 'layer') && isBgLandscape ? 'px-0' : 'px-2'}`}>
                       {task?.type === "layer" ? (
                         <div className="relative w-full h-full flex items-center justify-center">
-                          <div ref={previewContainerRef} className={`relative w-full aspect-square ${isBgLandscape ? '' : 'max-w-xs sm:max-w-sm md:max-w-md'}`} style={{ minHeight: 240 }}>
+                          <div ref={previewContainerRef} className={`relative aspect-square h-full max-h-full w-auto max-w-full min-h-0 ${isBgLandscape ? '' : 'sm:max-w-sm md:max-w-md'}`}>
                             {backgroundUrl && (
                               <img
                                 ref={bgImgRef}
@@ -786,7 +824,7 @@ export default function TasksPage() {
                           ))}
                         </div>
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center overflow-hidden relative">
+                        <div ref={gridPreviewContainerRef} className="w-full h-full flex items-center justify-center overflow-hidden relative">
                           {backgroundUrl && (
                             <img
                               src={getCachedUrl(backgroundUrl) || "/placeholder.svg"}
@@ -800,16 +838,16 @@ export default function TasksPage() {
                           )}
                           {task?.gridUrls && task.gridUrls.length === 3 ? (
                             // Keep a consistent minimal gap without forcing square cells
-                            <div className="relative mx-auto flex w-full max-w-lg flex-col gap-2" style={{ zIndex: 1 }}>
-                              <div className="grid grid-cols-2 gap-2 items-start">
+                            <div className="relative mx-auto grid max-w-full grid-cols-2 grid-rows-2 gap-2" style={mobileGridFrameStyle}>
+                              <div className="contents">
                                 {task.gridUrls.slice(0, 2).map((url: string, i: number) => (
-                                  <div key={i} className="w-full overflow-hidden">
+                                  <div key={i} className="flex h-full w-full items-center justify-center overflow-hidden">
                                     <Image
                                       src={getCachedUrl(url) || "/placeholder.svg"}
                                       alt={`element-${i + 1}`}
                                       width={299}
                                       height={299}
-                                      className="h-auto w-full object-contain"
+                                      className="h-full w-full object-contain"
                                       loading="eager"
                                       fetchPriority="high"
                                       unoptimized={url?.includes('blob.core.windows.net')}
@@ -817,14 +855,14 @@ export default function TasksPage() {
                                   </div>
                                 ))}
                               </div>
-                              <div className="flex w-full justify-center">
-                                <div className="w-[calc((100%-0.5rem)/2)] overflow-hidden">
+                              <div className="col-span-2 flex h-full w-full justify-center">
+                                <div className="flex h-full w-[calc((100%-0.5rem)/2)] items-center justify-center overflow-hidden">
                                   <Image
                                     src={getCachedUrl(task.gridUrls[2]) || "/placeholder.svg"}
                                     alt="element-3"
                                     width={299}
                                     height={299}
-                                    className="h-auto w-full object-contain"
+                                    className="h-full w-full object-contain"
                                     loading="eager"
                                     fetchPriority="high"
                                     unoptimized={task.gridUrls[2]?.includes('blob.core.windows.net')}
@@ -833,15 +871,15 @@ export default function TasksPage() {
                               </div>
                             </div>
                           ) : task?.gridUrls && task.gridUrls.length > 3 ? (
-                            <div className="grid grid-cols-2 gap-2 w-full overflow-hidden place-items-center relative" style={{ zIndex: 1 }}>
+                            <div className="grid max-w-full grid-cols-2 grid-rows-2 gap-2 overflow-hidden place-items-center relative" style={mobileGridFrameStyle}>
                               {task.gridUrls.slice(0, 4).map((url: string, i: number) => (
-                                <div key={i} className="w-full overflow-hidden">
+                                <div key={i} className="flex h-full w-full items-center justify-center overflow-hidden">
                                   <Image
                                     src={getCachedUrl(url) || "/placeholder.svg"}
                                     alt={`element-${i + 1}`}
                                     width={299}
                                     height={299}
-                                    className="h-auto w-full object-contain"
+                                    className="h-full w-full object-contain"
                                     loading="eager"
                                     fetchPriority="high"
                                     unoptimized={url?.includes('blob.core.windows.net')}
@@ -850,8 +888,8 @@ export default function TasksPage() {
                               ))}
                             </div>
                           ) : (
-                            <div className="grid grid-cols-2 gap-2 w-full h-full max-h-full overflow-hidden place-items-center relative min-w-0" style={{ zIndex: 1 }}>
-                              <div className="aspect-square w-full min-w-0 overflow-hidden">
+                            <div className="grid max-w-full grid-cols-2 gap-2 overflow-hidden place-items-center relative min-w-0" style={mobileGridFrameStyle}>
+                              <div className="flex h-full w-full min-w-0 items-center justify-center overflow-hidden">
                                 {task?.leftImageUrl ? (
                                   <Image
                                     src={getCachedUrl(task.leftImageUrl) || "/placeholder.svg"}
@@ -865,7 +903,7 @@ export default function TasksPage() {
                                   />
                                 ) : null}
                               </div>
-                              <div className="aspect-square w-full min-w-0 overflow-hidden">
+                              <div className="flex h-full w-full min-w-0 items-center justify-center overflow-hidden">
                                 {task?.rightImageUrl ? (
                                   <Image
                                     src={getCachedUrl(task.rightImageUrl) || "/placeholder.svg"}
