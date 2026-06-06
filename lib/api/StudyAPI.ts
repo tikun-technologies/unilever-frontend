@@ -2191,10 +2191,21 @@ export async function getPublicPreviewDetails(studyId: string): Promise<any> {
   return data
 }
 
-// NEW: Public share details for id/share page
-export async function getPublicShareDetails(studyId: string): Promise<{ id: string; title: string; study_type: string; status: string; share_url: string }> {
+// Share page details for study owners
+export interface StudyShareDetails {
+  id: string
+  title: string
+  study_type: string
+  status: string
+  share_url?: string
+  user_plan?: 'free' | 'pro' | 'enterprise'
+  live_participants_paid?: boolean
+}
+
+// Public share details for id/share page
+export async function getPublicShareDetails(studyId: string): Promise<StudyShareDetails> {
   const url = `${API_BASE_URL}/studies/share/details?study_id=${encodeURIComponent(studyId)}`
-  const res = await fetch(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } })
+  const res = await fetchWithAuth(url, { method: 'GET', headers: { 'Content-Type': 'application/json' } })
   if (!res.ok) {
     const text = await res.text().catch(() => '')
     throw new Error(`Failed to fetch share details: ${res.status} ${text}`)

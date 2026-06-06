@@ -16,6 +16,9 @@ import {
   Users,
   X,
   Zap,
+  Check,
+  Sparkles,
+  Building2,
 } from "lucide-react"
 
 /** App theme blue (matches dashboard / participate headers) */
@@ -111,6 +114,61 @@ const impactRows = [
   },
 ] as const
 
+const pricingPlans = [
+  {
+    id: "free",
+    name: "Free",
+    price: "$0",
+    period: "forever",
+    description: "Get started with AI-powered studies and pay only when you need live participants.",
+    highlighted: false,
+    cta: "Get started free",
+    ctaHref: LOGIN_HREF,
+    features: [
+      "Create and launch studies",
+      "Up to 50 AI respondents",
+      "$10 per study for live participants",
+      "Up to 4 categories / 4 layers",
+      "Basic export report",
+    ],
+  },
+  {
+    id: "pro",
+    name: "Pro",
+    price: "$99",
+    period: "per month",
+    description: "For teams running regular studies with live panels and advanced analysis.",
+    highlighted: true,
+    cta: "Upgrade to Pro",
+    ctaHref: LOGIN_HREF,
+    features: [
+      "Everything in Free",
+      "No $10 live participant fee",
+      "Share studies with your team",
+      "Analysis & project exports",
+      "Up to 8 categories / 8 layers",
+      "Higher AI respondent limits",
+    ],
+  },
+  {
+    id: "enterprise",
+    name: "Enterprise",
+    price: "Contact Us",
+    period: "custom pricing",
+    description: "Custom limits, SSO, dedicated support, and contract billing for large organizations.",
+    highlighted: false,
+    cta: "Contact Us",
+    ctaHref: "mailto:hello@mindsurve.com?subject=MindSurve%20Enterprise",
+    features: [
+      "Custom design limits",
+      "SSO & seat management",
+      "Dedicated support",
+      "Custom exports & integrations",
+      "Annual billing options",
+    ],
+  },
+] as const
+
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -133,6 +191,9 @@ export function LandingPage() {
               </a>
               <a href="#impact" className="font-medium text-gray-600 transition-colors hover:text-[rgba(38,116,186,1)]">
                 Impact
+              </a>
+              <a href="#pricing" className="font-medium text-gray-600 transition-colors hover:text-[rgba(38,116,186,1)]">
+                Pricing
               </a>
               <a href="#team" className="font-medium text-gray-600 transition-colors hover:text-[rgba(38,116,186,1)]">
                 Team
@@ -169,6 +230,7 @@ export function LandingPage() {
                 ["#challenge", "The Challenge"],
                 ["#outcomes", "Outcomes"],
                 ["#impact", "Impact"],
+                ["#pricing", "Pricing"],
                 ["#team", "Team"],
               ].map(([href, label]) => (
                 <a
@@ -341,6 +403,107 @@ export function LandingPage() {
               </ul>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Pricing */}
+      <section id="pricing" className="scroll-mt-24 bg-gray-50 py-24">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="mb-16 text-center">
+            <h2 className="mb-6 text-3xl font-bold text-[#1A1A1A] md:text-5xl">Simple, transparent pricing</h2>
+            <p className="mx-auto max-w-2xl text-xl text-gray-600">
+              Start free, upgrade when you need live participants and advanced exports. Launch studies anytime on any plan.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 items-stretch gap-8 lg:grid-cols-3">
+            {pricingPlans.map((plan) => (
+              <div
+                key={plan.id}
+                className={`relative flex flex-col rounded-2xl border bg-white p-8 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl ${
+                  plan.highlighted
+                    ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)]"
+                    : "border-gray-100"
+                }`}
+              >
+                {plan.highlighted && (
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 rounded-full bg-[rgba(38,116,186,1)] px-4 py-1 text-xs font-semibold uppercase tracking-wide text-white">
+                    Most popular
+                  </div>
+                )}
+                <div className="mb-6 flex items-center gap-3">
+                  <div
+                    className={`flex h-12 w-12 items-center justify-center rounded-xl ${
+                      plan.highlighted ? "bg-[rgba(38,116,186,1)]" : "bg-[rgba(38,116,186,0.12)]"
+                    }`}
+                  >
+                    {plan.id === "enterprise" ? (
+                      <Building2
+                        className={`h-6 w-6 ${plan.highlighted ? "text-white" : "text-[rgba(38,116,186,1)]"}`}
+                        strokeWidth={2}
+                      />
+                    ) : plan.id === "pro" ? (
+                      <Sparkles
+                        className={`h-6 w-6 ${plan.highlighted ? "text-white" : "text-[rgba(38,116,186,1)]"}`}
+                        strokeWidth={2}
+                      />
+                    ) : (
+                      <Zap
+                        className={`h-6 w-6 ${plan.highlighted ? "text-white" : "text-[rgba(38,116,186,1)]"}`}
+                        strokeWidth={2}
+                      />
+                    )}
+                  </div>
+                  <h3 className="text-2xl font-bold text-[#1A1A1A]">{plan.name}</h3>
+                </div>
+                <div className="mb-4">
+                  <span className="text-4xl font-extrabold tracking-tight text-[#1A1A1A] md:text-5xl">
+                    {plan.price}
+                  </span>
+                  {plan.id !== "enterprise" && (
+                    <span className="ml-2 text-sm font-medium text-gray-500">/ {plan.period}</span>
+                  )}
+                  {plan.id === "enterprise" && (
+                    <p className="mt-1 text-sm font-medium text-gray-500">{plan.period}</p>
+                  )}
+                </div>
+                <p className="mb-8 min-h-[4.5rem] text-gray-600">{plan.description}</p>
+                <ul className="mb-8 flex-1 space-y-3">
+                  {plan.features.map((feature) => (
+                    <li key={feature} className="flex items-start gap-3 text-sm text-gray-700">
+                      <Check
+                        className="mt-0.5 h-5 w-5 shrink-0 text-[rgba(38,116,186,1)]"
+                        strokeWidth={2.5}
+                        aria-hidden
+                      />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+                {plan.ctaHref.startsWith("mailto:") ? (
+                  <a
+                    href={plan.ctaHref}
+                    className="inline-flex w-full items-center justify-center rounded-full border-2 border-[rgba(38,116,186,1)] bg-white px-6 py-3.5 text-center font-semibold text-[rgba(38,116,186,1)] transition-all duration-300 hover:bg-[rgba(38,116,186,0.06)]"
+                  >
+                    {plan.cta}
+                  </a>
+                ) : (
+                  <Link
+                    href={plan.ctaHref}
+                    className={`inline-flex w-full items-center justify-center rounded-full px-6 py-3.5 text-center font-semibold transition-all duration-300 ${
+                      plan.highlighted
+                        ? "bg-[rgba(38,116,186,1)] text-white shadow-lg shadow-[rgba(38,116,186,0.35)] hover:-translate-y-0.5 hover:bg-[#1a5f96]"
+                        : "border-2 border-[rgba(38,116,186,1)] bg-white text-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.06)]"
+                    }`}
+                  >
+                    {plan.cta}
+                  </Link>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="mt-10 text-center text-sm text-gray-500">
+            Live participant studies on the Free plan require a one-time $10 unlock per study. Pro includes unlimited live access.
+          </p>
         </div>
       </section>
 

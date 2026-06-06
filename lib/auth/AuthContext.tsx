@@ -4,10 +4,17 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { useRouter } from 'next/navigation'
 import { signOut } from 'next-auth/react'
 import { Tokens, User, API_BASE_URL } from '@/lib/api/LoginApi'
+import {
+  getPlanFromAccessToken,
+  getSubscriptionStatusFromAccessToken,
+} from '@/lib/auth/jwtUtils'
+import type { PlanTier } from '@/lib/config/planLimits'
 
 interface AuthContextType {
   user: User | null
   tokens: Tokens | null
+  plan: PlanTier
+  subscriptionStatus: string | null
   isAuthenticated: boolean
   isLoading: boolean
   login: (user: User, tokens: Tokens) => void
@@ -24,9 +31,16 @@ interface AuthProviderProps {
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null)
   const [tokens, setTokens] = useState<Tokens | null>(null)
+  const [plan, setPlan] = useState<PlanTier>('free')
+  const [subscriptionStatus, setSubscriptionStatus] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const router = useRouter()
+
+  const syncPlanFromToken = (accessToken: string | undefined) => {
+    setPlan(getPlanFromAccessToken(accessToken))
+    setSubscriptionStatus(getSubscriptionStatusFromAccessToken(accessToken))
+  }
 
   const isAuthenticated = !!user && !!tokens?.access_token
 
@@ -45,6 +59,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (parsedTokens.access_token) {
             setUser(parsedUser)
             setTokens(parsedTokens)
+            syncPlanFromToken(parsedTokens.access_token)
           } else {
             // Clear invalid tokens
             localStorage.removeItem('user')
@@ -127,6 +142,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     setUser(userData)
     setTokens(tokenData)
+    syncPlanFromToken(tokenData.access_token)
 
     // Store in localStorage
     localStorage.setItem('user', JSON.stringify(userData))
@@ -144,6 +160,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Clear state immediately
     setUser(null)
     setTokens(null)
+    setPlan('free')
+    setSubscriptionStatus(null)
 
     // Clear from localStorage (handle both regular login and OAuth login)
     localStorage.removeItem('user')
@@ -187,6 +205,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       if (response.ok) {
         const newTokens = await response.json()
         setTokens(newTokens)
+        syncPlanFromToken(newTokens.access_token)
         localStorage.setItem('tokens', JSON.stringify(newTokens))
         return true
       } else {
@@ -204,6 +223,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const value: AuthContextType = {
     user,
     tokens,
+    plan,
+    subscriptionStatus,
     isAuthenticated,
     isLoading,
     login,

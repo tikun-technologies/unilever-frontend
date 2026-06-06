@@ -6,8 +6,11 @@ import { DashboardHeader } from "@/app/home/components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
 import { getStudyBasicDetails, StudyDetails } from "@/lib/api/StudyAPI"
 import { downloadStudyResponsesCsv, getStudyAnalysisJson } from "@/lib/api/ResponseAPI"
+import { isPlanUpgradeRequiredError } from "@/lib/errors/planUpgradeError"
+import { UpgradeModal } from "@/components/billing/UpgradeModal"
+import { useAuth } from "@/lib/auth/AuthContext"
 import { AnimatePresence, motion } from "framer-motion"
-import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard, Sparkles } from "lucide-react"
+import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard, Sparkles, Crown } from "lucide-react"
 import Link from "next/link"
 import { AnalyticsToolbar } from "./components/AnalyticsToolbar"
 import { AnalyticsTable } from "./components/AnalyticsTable"
@@ -26,6 +29,7 @@ export default function StudyAnalyticsPage() {
     const params = useParams()
     const router = useRouter()
     const searchParams = useSearchParams()
+    const { plan } = useAuth()
     const studyId = params.id as string
     const projId = searchParams.get('proj_id') || searchParams.get('projectId')
     const projectQuery = projId ? `?proj_id=${encodeURIComponent(projId)}` : ''
@@ -40,6 +44,8 @@ export default function StudyAnalyticsPage() {
     const [analysisData, setAnalysisData] = useState<any>(null)
     const [analysisLoading, setAnalysisLoading] = useState(true)
     const [analysisError, setAnalysisError] = useState<string | null>(null)
+    const [planUpgradeRequired, setPlanUpgradeRequired] = useState(false)
+    const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false)
 
     useEffect(() => {
         if (!studyId) return
@@ -50,10 +56,16 @@ export default function StudyAnalyticsPage() {
         if (!studyId) return
         setAnalysisLoading(true)
         setAnalysisError(null)
+        setPlanUpgradeRequired(false)
         getStudyAnalysisJson(studyId)
             .then(setAnalysisData)
             .catch((e) => {
                 console.warn("Failed to load analysis:", e)
+                if (isPlanUpgradeRequiredError(e)) {
+                    setPlanUpgradeRequired(true)
+                    setAnalysisError(null)
+                    return
+                }
                 setAnalysisError((e as Error)?.message ?? "Failed to load analysis")
             })
             .finally(() => setAnalysisLoading(false))
@@ -238,7 +250,7 @@ export default function StudyAnalyticsPage() {
                 </div>
 
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                    {analysisError && (
+                    {analysisError && !planUpgradeRequired && (
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
                             <p className="font-medium">Analysis could not be loaded</p>
                             <p className="text-sm mt-1">{analysisError}</p>
@@ -254,6 +266,35 @@ export default function StudyAnalyticsPage() {
                             <p className="mt-1 text-sm text-gray-500">
                                 Something good is cooking…
                             </p>
+                        </div>
+                    ) : planUpgradeRequired && !analysisData ? (
+                        <div className="flex flex-col items-center justify-center min-h-[55vh]">
+                            <div className="w-full max-w-lg rounded-2xl border border-[#E5EEF6] bg-gradient-to-br from-[#F6FAFF] to-white p-8 sm:p-10 text-center shadow-sm">
+                                <div
+                                    className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-2xl"
+                                    style={{ backgroundColor: "rgba(38,116,186,0.12)" }}
+                                >
+                                    <Crown className="h-8 w-8" style={{ color: "#2674BA" }} strokeWidth={2} />
+                                </div>
+                                <h2 className="text-xl sm:text-2xl font-semibold text-gray-900">
+                                    Please upgrade to Pro for complete analysis
+                                </h2>
+                                <p className="mt-3 text-sm sm:text-base text-gray-600 leading-relaxed">
+                                    Full study analytics, detailed breakdowns, and export insights are available on the Pro plan and above.
+                                </p>
+                                <button
+                                    type="button"
+                                    onClick={() => setIsUpgradeModalOpen(true)}
+                                    className="mt-6 inline-flex items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold text-white shadow-md transition-all hover:shadow-lg"
+                                    style={{ backgroundColor: "#2674BA" }}
+                                >
+                                    <Sparkles className="h-4 w-4" />
+                                    Upgrade to Pro
+                                </button>
+                                <p className="mt-4 text-xs text-gray-500">
+                                    You can still view basic study details from the study page.
+                                </p>
+                            </div>
                         </div>
                     ) : (
                         <>
@@ -402,6 +443,12 @@ export default function StudyAnalyticsPage() {
                     )}
                 </div>
             </div>
+
+            <UpgradeModal
+                isOpen={isUpgradeModalOpen}
+                onClose={() => setIsUpgradeModalOpen(false)}
+                currentPlan={plan}
+            />
         </AuthGuard>
     )
 }

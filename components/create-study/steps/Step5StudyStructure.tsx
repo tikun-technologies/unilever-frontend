@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { uploadImages, putUpdateStudyAsync, buildStudyPayloadFromLocalStorage } from "@/lib/api/StudyAPI"
 import { renderLayersToCanvas } from "@/lib/canvas-export"
+import { usePlanLimits } from "@/lib/hooks/usePlanLimits"
 
 interface ElementItem {
   id: string
@@ -125,13 +126,14 @@ interface Step5StudyStructureProps {
 }
 
 export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChange, isReadOnly = false }: Step5StudyStructureProps) {
+  const planLimits = usePlanLimits()
   // Dynamic limits from env with sensible defaults
   // const GRID_MIN = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MIN_ELEMENTS || '4') || 4
   const GRID_MAX = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MAX_ELEMENTS || '20') || 20
   const CATEGORY_MIN = 3
-  const CATEGORY_MAX = 15
+  const CATEGORY_MAX = planLimits.maxCategories
   const ELEMENT_MIN = 3
-  const ELEMENT_MAX = 10
+  const ELEMENT_MAX = planLimits.maxElementsPerCategory
 
   const [categories, setCategories] = useState<CategoryItem[]>(() => {
     try {
@@ -1358,11 +1360,11 @@ type LayerTextModalState =
   | { layerId: string; mode: 'edit'; imageId: string }
 
 function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerModeProps) {
-  // Dynamic limits from env with sensible defaults
+  const planLimits = usePlanLimits()
   const LAYER_MIN = 3
-  const LAYER_MAX = 15
+  const LAYER_MAX = planLimits.maxLayers
   const ELEMENT_MIN = 3
-  const ELEMENT_MAX = 10
+  const ELEMENT_MAX = planLimits.maxElementsPerLayer
   const [layers, setLayers] = useState<Layer[]>(() => {
     try {
       const raw = localStorage.getItem('cs_step5_layer')

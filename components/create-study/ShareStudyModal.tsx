@@ -20,6 +20,8 @@ import {
     StudyMember
 } from "@/lib/api/StudyAPI"
 import { useAuth } from "@/lib/auth/AuthContext"
+import { canCollaborateWithTeam } from "@/lib/config/planLimits"
+import { CollaborationUpgradeModal } from "@/components/billing/CollaborationUpgradeModal"
 
 interface ShareStudyModalProps {
     isOpen: boolean
@@ -29,13 +31,13 @@ interface ShareStudyModalProps {
 }
 
 export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }: ShareStudyModalProps) {
+    const { plan, user: authUser } = useAuth()
     const [email, setEmail] = useState("")
     const [role, setRole] = useState("viewer")
     const [members, setMembers] = useState<StudyMember[]>([])
     const [isLoading, setIsLoading] = useState(false)
     const [isActionLoading, setIsActionLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
-    const { user: authUser } = useAuth()
 
     // Robust user detection: Hook > LocalStorage
     const currentUser = authUser || (() => {
@@ -179,6 +181,17 @@ export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }
             // Rollback on failure
             setMembers(previousMembers)
         }
+    }
+
+    if (!canCollaborateWithTeam(plan)) {
+        return (
+            <CollaborationUpgradeModal
+                isOpen={isOpen}
+                onClose={onClose}
+                context="study"
+                currentPlan={plan}
+            />
+        )
     }
 
     return (

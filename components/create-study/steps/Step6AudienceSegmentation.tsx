@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { putUpdateStudyAsync } from "@/lib/api/StudyAPI"
 
+const MAX_RESPONDENTS = 1500
+
 const COUNTRIES = [
 	"Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
 	"Bahamas", "Bahrain", "Bangladesh", "Barbados", "Belarus", "Belgium", "Belize", "Benin", "Bhutan", "Bolivia", "Bosnia and Herzegovina", "Botswana", "Brazil", "Brunei", "Bulgaria", "Burkina Faso", "Burundi",
@@ -50,7 +52,7 @@ interface Step6AudienceSegmentationProps {
 }
 
 export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isReadOnly = false, lastStepNumber = 6 }: Step6AudienceSegmentationProps) {
-	const [respondents, setRespondents] = useState<number | ''>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); if (typeof o.respondents === 'number' && o.respondents > 0) return Math.min(1500, o.respondents); return '' } } catch { }; return '' })
+	const [respondents, setRespondents] = useState<number | ''>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); if (typeof o.respondents === 'number' && o.respondents > 0) return Math.min(MAX_RESPONDENTS, o.respondents); return '' } } catch { }; return '' })
 	const [countryQuery, setCountryQuery] = useState("")
 	const [countries, setCountries] = useState<string[]>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); return Array.isArray(o.countries) ? o.countries : [] } } catch { }; return [] })
 	const [genderMale, setGenderMale] = useState<number | ''>(() => { try { const v = localStorage.getItem('cs_step6'); if (v) { const o = JSON.parse(v); return typeof o.genderMale === 'number' ? o.genderMale : 50 } } catch { }; return 50 })
@@ -201,12 +203,12 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 					<Input
 						type="number"
 						min={1}
-						max={1500}
+						max={MAX_RESPONDENTS}
 						value={respondents}
 						onChange={(e) => {
 							const v = e.target.value
 							if (v === '') { setRespondents(''); return }
-							const n = Math.max(1, Math.min(1500, Number(v)))
+							const n = Math.max(1, Math.min(MAX_RESPONDENTS, Number(v)))
 							setRespondents(Number.isNaN(n) ? 1 : n)
 						}}
 						className="rounded-lg"
@@ -338,7 +340,7 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 								last_step: lastStepNumber,
 								audience_segmentation: {
 
-									number_of_respondents: Math.min(1500, Math.max(1, Number(respondents || 0))),
+									number_of_respondents: Math.min(MAX_RESPONDENTS, Math.max(1, Number(respondents || 0))),
 									country: Array.isArray(countries) ? countries.join(', ') : String(countries || ''),
 									gender_distribution: { male: Number(genderMale || 0), female: Number(genderFemale || 0) },
 									age_distribution,

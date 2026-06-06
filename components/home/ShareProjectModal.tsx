@@ -20,6 +20,8 @@ import {
     ProjectMember
 } from "@/api/projectApi"
 import { useAuth } from "@/lib/auth/AuthContext"
+import { canCollaborateWithTeam } from "@/lib/config/planLimits"
+import { CollaborationUpgradeModal } from "@/components/billing/CollaborationUpgradeModal"
 
 interface ShareProjectModalProps {
     isOpen: boolean
@@ -37,7 +39,7 @@ export function ShareProjectModal({ isOpen, onClose, projectId, userRole = 'view
     const [error, setError] = useState<string | null>(null)
     const [effectiveRole, setEffectiveRole] = useState(userRole)
     const lastActionTimeRef = useRef<number>(0)
-    const { user: authUser } = useAuth()
+    const { user: authUser, plan } = useAuth()
 
     const currentUser = authUser || (() => {
         if (typeof window !== 'undefined') {
@@ -240,6 +242,17 @@ export function ShareProjectModal({ isOpen, onClose, projectId, userRole = 'view
         } finally {
             setIsActionLoading(false)
         }
+    }
+
+    if (!canCollaborateWithTeam(plan)) {
+        return (
+            <CollaborationUpgradeModal
+                isOpen={isOpen}
+                onClose={onClose}
+                context="project"
+                currentPlan={plan}
+            />
+        )
     }
 
     return (

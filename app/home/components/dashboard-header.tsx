@@ -4,17 +4,22 @@ import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ChevronDown, Plus, LogOut, Share2, Trash2 } from "lucide-react"
+import { ChevronDown, Plus, LogOut, Share2, Trash2, Crown } from "lucide-react"
 import { useAuth } from "@/lib/auth/AuthContext"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ShareStudyModal } from "@/components/create-study/ShareStudyModal"
 import { ShareProjectModal } from "@/components/home/ShareProjectModal"
 import { deleteStudy } from "@/lib/api/StudyAPI"
+import { UpgradeModal } from "@/components/billing/UpgradeModal"
+import { waitForActiveSubscription } from "@/lib/api/BillingAPI"
 
 export function DashboardHeader() {
-  const { user, logout } = useAuth()
+  const { user, logout, plan, refreshToken } = useAuth()
   const [showDropdown, setShowDropdown] = useState(false)
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false)
+  const [subscriptionNotice, setSubscriptionNotice] = useState<string | null>(null)
+  const [isConfirmingSubscription, setIsConfirmingSubscription] = useState(false)
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
   const [isProjectShareModalOpen, setIsProjectShareModalOpen] = useState(false)
   const [isDisposeModalOpen, setIsDisposeModalOpen] = useState(false)
@@ -129,6 +134,67 @@ export function DashboardHeader() {
   }
 
   const canDisposeStudy = userRole === 'admin' || userRole === 'editor'
+  const upgradeLabel =
+    plan === 'pro' ? 'Pro Plan' : plan === 'enterprise' ? 'Enterprise' : 'Upgrade'
+  const subscriptionStatus = searchParams.get('subscription')
+
+  useEffect(() => {
+    if (subscriptionStatus !== 'success' && subscriptionStatus !== 'cancelled') return
+
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete('subscription')
+    const cleanPath = pathname + (params.toString() ? `?${params.toString()}` : '')
+
+    if (subscriptionStatus === 'cancelled') {
+      router.replace(cleanPath)
+      setSubscriptionNotice('Checkout cancelled. You can upgrade anytime from the navbar.')
+      return
+    }
+
+    let cancelled = false
+
+    const confirmSubscription = async () => {
+      setIsConfirmingSubscription(true)
+      setSubscriptionNotice(null)
+
+      try {
+        const billing = await waitForActiveSubscription()
+        await refreshToken()
+
+        if (cancelled) return
+
+        if (
+          billing.has_active_subscription ||
+          billing.plan === 'pro' ||
+          billing.plan === 'enterprise'
+        ) {
+          setSubscriptionNotice('Welcome to Pro! Your plan has been upgraded.')
+        } else {
+          setSubscriptionNotice(
+            'Payment received. Your plan is still updating — refresh in a moment if Pro features are not available yet.'
+          )
+        }
+      } catch (error) {
+        console.error('Subscription confirmation failed:', error)
+        if (!cancelled) {
+          setSubscriptionNotice(
+            'Payment received. Plan confirmation is still processing — refresh in a moment if needed.'
+          )
+        }
+      } finally {
+        if (!cancelled) {
+          setIsConfirmingSubscription(false)
+          router.replace(cleanPath)
+        }
+      }
+    }
+
+    confirmSubscription()
+
+    return () => {
+      cancelled = true
+    }
+  }, [subscriptionStatus, pathname, router, searchParams, refreshToken])
 
   const handleDisposeStudyConfirm = async () => {
     if (!studyId) return
@@ -166,42 +232,41 @@ export function DashboardHeader() {
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.3 }}
-        className="bg-white border-b border-[rgba(209,223,235,1)] px-4 sm:px-6 lg:px-8"
+        className="bg-white border-b border-[rgba(209,223,235,1)] px-3 sm:px-6 lg:px-8"
       >
-        <div className="max-w-7xl mx-auto flex items-center justify-between h-16">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4 h-14 sm:h-16 min-w-0">
 
-          <Link href={homeHref}>
+          <Link href={homeHref} className="shrink-0 min-w-0">
             <div className="flex items-center">
-              <motion.div whileHover={{ scale: 1.05 }} className="text-2xl font-bold">
+              <motion.div whileHover={{ scale: 1.05 }} className="text-lg sm:text-xl md:text-2xl font-bold whitespace-nowrap">
                 <span className="text-[rgba(38,116,186,1)]">Mind</span>
                 <span className="text-gray-800">Surve</span>
               </motion.div>
             </div>
-
           </Link>
 
-
           {/* Right side */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-1 sm:gap-2 md:gap-3 shrink-0">
             {/* Share + Dispose Study (Create Study Route Only) */}
             {isCreateStudyRoute && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="mr-2 flex items-center gap-2"
+                className="flex items-center"
               >
                 <Button
                   onClick={() => setIsShareModalOpen(true)}
                   disabled={!studyId || !userRole}
                   variant="outline"
-                  className={`${studyId
-                    ? "border-blue-200 text-blue-600 hover:bg-blue-50"
-                    : "opacity-50 cursor-not-allowed text-gray-400 border-gray-200"
-                    } px-4 py-2 rounded-lg flex items-center space-x-2 transition-all`}
                   title={!studyId ? "Create a study first to share" : "Share study"}
+                  className={`h-9 w-9 p-0 shrink-0 sm:w-auto sm:px-4 rounded-lg flex items-center justify-center ${
+                    studyId
+                      ? "border-blue-200 text-blue-600 hover:bg-blue-50"
+                      : "opacity-50 cursor-not-allowed text-gray-400 border-gray-200"
+                  }`}
                 >
                   <Share2 className="w-4 h-4" />
-                  <span className="hidden sm:inline">Share</span>
+                  <span className="hidden sm:inline sm:ml-2">Share</span>
                 </Button>
                 {/* <Button
                   onClick={() => canDisposeStudy && setIsDisposeModalOpen(true)}
@@ -220,40 +285,50 @@ export function DashboardHeader() {
             )}
 
             {!isCreateStudyRoute && (
-              <div className="flex items-center space-x-2">
-
-
-                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                  <Button
-                    onClick={handleCreateNewStudy}
-                    disabled={!!projId && userRole === 'viewer'}
-                    className={`bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-4 py-2 rounded-lg flex items-center space-x-2 ${!!projId && userRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    title={!!projId && userRole === 'viewer' ? "Viewers cannot create studies" : "Create new study"}
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span className="hidden sm:inline cursor-pointer">Create New Study</span>
-                    <span className="sm:hidden cursor-pointer">Create</span>
-                  </Button>
-                </motion.div>
-              </div>
+              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                <Button
+                  onClick={handleCreateNewStudy}
+                  disabled={!!projId && userRole === 'viewer'}
+                  title={!!projId && userRole === 'viewer' ? "Viewers cannot create studies" : "Create new study"}
+                  className={`h-9 w-9 p-0 shrink-0 sm:w-auto sm:px-4 rounded-lg flex items-center justify-center bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white ${
+                    !!projId && userRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                >
+                  <Plus className="w-4 h-4 shrink-0" />
+                  <span className="hidden sm:inline sm:ml-2">Create New Study</span>
+                </Button>
+              </motion.div>
             )}
 
-            <div className="relative" ref={dropdownRef}>
+            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+              <Button
+                onClick={() => setIsUpgradeModalOpen(true)}
+                variant="outline"
+                title={upgradeLabel}
+                aria-label={upgradeLabel}
+                className="h-9 w-9 p-0 shrink-0 sm:w-auto sm:px-4 rounded-lg flex items-center justify-center border-[rgba(38,116,186,0.35)] text-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.06)]"
+              >
+                <Crown className="w-4 h-4 shrink-0" />
+                <span className="hidden sm:inline sm:ml-2">{upgradeLabel}</span>
+              </Button>
+            </motion.div>
+
+            <div className="relative shrink-0" ref={dropdownRef}>
               <motion.div
                 whileHover={{ scale: 1.02 }}
-                className="flex items-center space-x-2 cursor-pointer"
+                className="flex items-center gap-1 sm:gap-2 cursor-pointer p-0.5 sm:p-0 rounded-lg"
                 onClick={() => setShowDropdown(!showDropdown)}
               >
-                <Avatar className="w-8 h-8">
+                <Avatar className="w-8 h-8 sm:w-9 sm:h-9">
                   <AvatarImage src="/professional-headshot.png" />
-                  <AvatarFallback>
+                  <AvatarFallback className="text-xs sm:text-sm">
                     {user?.name ? user.name.split(' ').map(n => n[0]).join('').toUpperCase() : 'U'}
                   </AvatarFallback>
                 </Avatar>
-                <span className="hidden sm:inline text-sm font-medium text-gray-700">
+                <span className="hidden md:inline text-sm font-medium text-gray-700 max-w-[120px] truncate">
                   {user?.name || 'User'}
                 </span>
-                <ChevronDown className="w-4 h-4 text-gray-500" />
+                <ChevronDown className="hidden sm:block w-4 h-4 text-gray-500 shrink-0" />
               </motion.div>
 
               {/* Dropdown Menu */}
@@ -268,6 +343,9 @@ export function DashboardHeader() {
                     <div className="px-4 py-2 text-sm text-gray-700 border-b border-gray-100">
                       <div className="font-medium">{user?.name || 'User'}</div>
                       <div className="text-gray-500 break-all whitespace-normal">{user?.email || ''}</div>
+                      <div className="mt-1 text-xs font-medium capitalize text-[rgba(38,116,186,1)]">
+                        {plan} plan
+                      </div>
                     </div>
                     <button
                       onClick={() => {
@@ -287,6 +365,20 @@ export function DashboardHeader() {
         </div>
       </motion.header>
 
+      {(isConfirmingSubscription || subscriptionNotice) && (
+        <div
+          className={`border-b px-4 py-2 text-center text-sm ${
+            subscriptionNotice?.includes('cancelled') || subscriptionNotice?.includes('processing')
+              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              : 'border-green-200 bg-green-50 text-green-800'
+          }`}
+        >
+          {isConfirmingSubscription
+            ? 'Confirming your Pro subscription…'
+            : subscriptionNotice}
+        </div>
+      )}
+
       {isShareModalOpen && studyId && (
         <ShareStudyModal
           isOpen={isShareModalOpen}
@@ -304,6 +396,12 @@ export function DashboardHeader() {
           userRole={userRole}
         />
       )}
+
+      <UpgradeModal
+        isOpen={isUpgradeModalOpen}
+        onClose={() => setIsUpgradeModalOpen(false)}
+        currentPlan={plan}
+      />
 
       {/* Dispose Study confirmation modal */}
       {isDisposeModalOpen && (

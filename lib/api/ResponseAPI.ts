@@ -5,6 +5,12 @@ import { API_BASE_URL } from './LoginApi'
 
 // Import fetchWithAuth from StudyAPI for authenticated requests
 import { fetchWithAuth } from './StudyAPI'
+import {
+  parsePlanUpgradeError,
+  PlanUpgradeRequiredError,
+} from '@/lib/errors/planUpgradeError'
+
+export { PlanUpgradeRequiredError }
 
 export interface StudyInfo {
 	id: string
@@ -522,6 +528,8 @@ export async function getStudyAnalysisJson(studyId: string): Promise<any> {
 	)
 	if (!response.ok) {
 		const errorData = await response.json().catch(() => ({}))
+		const planError = parsePlanUpgradeError(response.status, errorData)
+		if (planError) throw planError
 		throw new Error(
 			`Failed to load analysis: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
 		)
