@@ -3,9 +3,28 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
+import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
-import { CheckCircle2, ChevronDown, Download, Eye, ImageIcon, RotateCcw, Sparkles, Type, X } from "lucide-react"
+import { CheckCircle2, ChevronDown, Download, Eye, FileCode2, GitCompare, ImageIcon, Loader2, RotateCcw, Save, Sparkles, Trash2, Type, X } from "lucide-react"
 import { renderLayersToCanvas } from "@/lib/canvas-export"
+import {
+  compareSavedDesigns,
+  createSavedDesign,
+  deleteSavedDesign,
+  listSavedDesigns,
+  SavedDesignConfigurationPayload,
+  SavedDesignPayload,
+  SavedDesignType,
+  StudyType,
+} from "@/lib/api/StudyAPI"
+import {
+  compareLocalSavedDesigns,
+  createLocalDesignId,
+  createLocalSavedDesign,
+  deleteLocalSavedDesign,
+  listLocalSavedDesigns,
+  type LocalSavedDesignsStore,
+} from "@/lib/export/savedDesignLocalStorage"
 
 type Metric = "Top Down" | "Bottom Up" | "Response Time"
 
@@ -13,6 +32,7 @@ type ConfiguratorElement = {
   id: string
   name: string
   category: string
+  categoryKey: string
   value: number
   imageUrl?: string | null
   content?: string | null
@@ -22,6 +42,7 @@ type ConfiguratorElement = {
 }
 
 type ConfiguratorCategory = {
+  key: string
   name: string
   code?: string
   zIndex: number
@@ -33,6 +54,12 @@ type SegmentOption = {
   label: string
   sectionKey: string
   valueKey?: string
+}
+
+type InputInsightRow = {
+  segment_id: string
+  label: string
+  value: number
 }
 
 const METRIC_OPTIONS: { value: Metric; label: string; description: string }[] = [
@@ -65,6 +92,7 @@ function safeFileName(value: string, fallback = "download"): string {
 
 function getProxiedImageUrl(url: string): string {
   if (!isHttpUrl(url)) return url
+  if (typeof window !== "undefined" && window.location.protocol === "file:") return url
   if (typeof window !== "undefined" && url.includes(window.location.host)) return url
   return `/api/proxy-image?url=${encodeURIComponent(url)}`
 }
@@ -218,6 +246,48 @@ async function drawTextElementsOnLayerCanvas(
   }
 }
 
+async function renderLayerSelectionToCanvas(
+  selectedElements: ConfiguratorElement[],
+  backgroundUrl: string | null,
+  aspectRatio: string
+): Promise<HTMLCanvasElement> {
+  const canvas = await renderLayersToCanvas(
+    backgroundUrl ? { secureUrl: backgroundUrl, previewUrl: backgroundUrl } : null,
+    selectedElements
+      .filter((element) => element.imageUrl)
+      .map((element) => {
+        const transform = element.transform || { x: 0, y: 0, width: 100, height: 100 }
+        return {
+          id: element.id,
+          name: element.name,
+          z: element.zIndex,
+          transform,
+          images: [
+            {
+              id: element.id,
+              previewUrl: element.imageUrl || "",
+              secureUrl: element.imageUrl || "",
+              x: transform.x,
+              y: transform.y,
+              width: transform.width,
+              height: transform.height,
+            },
+          ],
+        }
+      }),
+    Object.fromEntries(selectedElements.map((element) => [element.id, element.id])),
+    getCanvasAspect(aspectRatio)
+  )
+
+  await drawTextElementsOnLayerCanvas(
+    canvas,
+    selectedElements.filter((element) => !element.imageUrl || element.elementType?.toLowerCase() === "text"),
+    backgroundUrl
+  )
+
+  return canvas
+}
+
 function toNumber(value: unknown, fallback = 0): number {
   const n = Number(value)
   return Number.isFinite(n) ? n : fallback
@@ -231,6 +301,10 @@ function isHttpUrl(value: unknown): value is string {
   return typeof value === "string" && /^https?:\/\//i.test(value)
 }
 
+function isImageUrl(value: unknown): value is string {
+  return typeof value === "string" && (/^https?:\/\//i.test(value) || /^data:image\//i.test(value))
+}
+
 function getBackgroundUrl(analysisData: any): string | null {
   const info = analysisData?.["Information Block"] || {}
   const candidates = [
@@ -241,7 +315,7 @@ function getBackgroundUrl(analysisData: any): string | null {
     analysisData?.background_image_url,
     analysisData?.metadata?.background_image_url,
   ]
-  return candidates.find(isHttpUrl) || null
+  return candidates.find(isImageUrl) || null
 }
 
 function getLayerAspectRatio(analysisData: any): string {
@@ -361,12 +435,14 @@ function pickElementImage(element: any): string | null {
     element?.content,
     element?.url,
     element?.imageUrl,
+    element?.image_url,
     element?.imageLink,
+    element?.image_link,
     element?.image,
     element?.secureUrl,
     element?.previewUrl,
   ]
-  return candidates.find(isHttpUrl) || null
+  return candidates.find(isImageUrl) || null
 }
 
 function pickTransform(element: any): ConfiguratorElement["transform"] | undefined {
@@ -399,6 +475,27 @@ function getScoreMap(analysisData: any, metric: Metric, segment: SegmentOption):
   return scoreMap
 }
 
+function getCategoryIdentity(category: any, categoryName: string, categoryIndex: number): string {
+  const explicitId = normalizeText(
+    category?.category_id ??
+      category?.categoryId ??
+      category?.id ??
+      category?.layer_id ??
+      category?.layerId ??
+      category?.code
+  )
+  const phaseType = normalizeText(
+    category?.phase_type ??
+      category?.phaseType ??
+      category?.study_type ??
+      category?.studyType ??
+      category?.type ??
+      category?.mode
+  )
+  const prefix = [phaseType, explicitId].filter(Boolean).join("::")
+  return [prefix || `idx-${categoryIndex}`, categoryName].join("::")
+}
+
 function getCategoriesForMetric(analysisData: any, metric: Metric, segment: SegmentOption): ConfiguratorCategory[] {
   const infoCategories = getInfoCategories(analysisData)
   const scoreMap = getScoreMap(analysisData, metric, segment)
@@ -408,11 +505,13 @@ function getCategoriesForMetric(analysisData: any, metric: Metric, segment: Segm
     return (section?.categories || [])
       .map((category: any, categoryIndex: number) => {
         const categoryName = normalizeText(category?.name) || `Category ${categoryIndex + 1}`
+        const categoryKey = getCategoryIdentity(category, categoryName, categoryIndex)
         const zIndex = toNumber(category?.z_index ?? category?.z ?? categoryIndex + 1, categoryIndex + 1)
       const elements = getRawElements(category).map((element: any, elementIndex: number) => ({
-          id: getElementKey(categoryName, normalizeText(element?.name) || `Element ${elementIndex + 1}`),
+          id: getElementKey(categoryKey, normalizeText(element?.name) || `Element ${elementIndex + 1}`),
           name: normalizeText(element?.name) || `Element ${elementIndex + 1}`,
           category: categoryName,
+          categoryKey,
           value: segment?.valueKey ? toNumber(element?.values?.[segment.valueKey], 0) : toNumber(element?.value, 0),
           imageUrl: pickElementImage(element),
           content: normalizeText(element?.content) || null,
@@ -421,7 +520,7 @@ function getCategoriesForMetric(analysisData: any, metric: Metric, segment: Segm
           transform: pickTransform(element),
         }))
 
-        return { name: categoryName, code: normalizeText(category?.code) || undefined, zIndex, elements }
+        return { key: categoryKey, name: categoryName, code: normalizeText(category?.code) || undefined, zIndex, elements }
       })
       .filter((category: ConfiguratorCategory) => category.elements.length > 0)
   }
@@ -429,6 +528,7 @@ function getCategoriesForMetric(analysisData: any, metric: Metric, segment: Segm
   return infoCategories
     .map((category: any, categoryIndex: number) => {
       const categoryName = normalizeText(category?.name) || normalizeText(category?.title) || `Category ${categoryIndex + 1}`
+      const categoryKey = getCategoryIdentity(category, categoryName, categoryIndex)
       const zIndex = toNumber(category?.z_index ?? category?.z ?? categoryIndex + 1, categoryIndex + 1)
       const elements = getRawElements(category).map((element: any, elementIndex: number) => {
         const name = normalizeText(element?.name) || normalizeText(element?.alt_text) || `Element ${elementIndex + 1}`
@@ -437,9 +537,10 @@ function getCategoriesForMetric(analysisData: any, metric: Metric, segment: Segm
         const imageUrl = elementType.toLowerCase() === "text" ? null : pickElementImage(element)
 
         return {
-          id: getElementKey(categoryName, name),
+          id: getElementKey(categoryKey, name),
           name,
           category: categoryName,
+          categoryKey,
           value: score?.value ?? 0,
           imageUrl,
           content: normalizeText(element?.content) || null,
@@ -450,6 +551,7 @@ function getCategoriesForMetric(analysisData: any, metric: Metric, segment: Segm
       })
 
       return {
+        key: categoryKey,
         name: categoryName,
         code: normalizeText(category?.code) || undefined,
         zIndex,
@@ -474,16 +576,50 @@ function buildDefaultSelection(categories: ConfiguratorCategory[], isLayerStudy:
 
   const limit = isLayerStudy ? rankedCategories.length : MAX_NON_LAYER_SELECTIONS
   rankedCategories.slice(0, limit).forEach(({ category, best }) => {
-    selected[category.name] = best.id
+    selected[category.key] = best.id
   })
 
   return selected
+}
+
+function buildInputDesignInsights(
+  analysisData: any,
+  selectedByCategory: Record<string, string>
+): Record<Metric, InputInsightRow[]> {
+  return METRIC_OPTIONS.reduce<Record<Metric, InputInsightRow[]>>((next, metric) => {
+    const segments = getAvailableSegmentOptions(analysisData || {}, metric.value)
+    next[metric.value] = segments.map((segment) => {
+      const categories = getCategoriesForMetric(analysisData || {}, metric.value, segment)
+      const value = categories.reduce((sum, category) => {
+        const selectedId = selectedByCategory[category.key]
+        const element = category.elements.find((candidate) => candidate.id === selectedId)
+        return sum + (element?.value || 0)
+      }, 0)
+      return {
+        segment_id: segment.id,
+        label: segment.label,
+        value,
+      }
+    })
+    return next
+  }, {} as Record<Metric, InputInsightRow[]>)
 }
 
 function formatValue(value: number, metric: Metric): string {
   if (!Number.isFinite(value)) return "0"
   if (metric === "Response Time") return Math.abs(value) < 1 ? value.toFixed(3) : value.toFixed(1)
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
+}
+
+function BodyPortal({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted || typeof document === "undefined") return null
+  return createPortal(children, document.body)
 }
 
 function PreviewFullscreenModal({
@@ -514,25 +650,27 @@ function PreviewFullscreenModal({
   if (!isOpen) return null
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Full screen preview"
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-8"
-    >
-      <div className="absolute inset-0 bg-black" aria-hidden="true" onClick={onClose} />
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
-        aria-label="Close preview"
+    <BodyPortal>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Full screen preview"
+        className="fixed inset-0 z-[240] flex items-center justify-center p-4 sm:p-8"
       >
-        <X className="h-6 w-6" />
-      </button>
-      <div className="relative z-10 w-full max-w-6xl" onClick={(event) => event.stopPropagation()}>
-        {children}
+        <div className="absolute inset-0 bg-black" aria-hidden="true" onClick={onClose} />
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
+          aria-label="Close preview"
+        >
+          <X className="h-6 w-6" />
+        </button>
+        <div className="relative z-10 flex w-full max-w-6xl items-center justify-center" onClick={(event) => event.stopPropagation()}>
+          {children}
+        </div>
       </div>
-    </div>
+    </BodyPortal>
   )
 }
 
@@ -626,8 +764,14 @@ function SelectionPreview({
     return (
       <div
         ref={containerRef}
-        className="relative mx-auto w-full overflow-hidden bg-transparent"
-        style={{ aspectRatio, maxHeight: layerMaxHeight, maxWidth: layerMaxWidth }}
+        className="relative mx-auto overflow-hidden bg-transparent"
+        style={{
+          aspectRatio,
+          height: isFullscreen ? layerMaxHeight : undefined,
+          maxHeight: layerMaxHeight,
+          maxWidth: layerMaxWidth,
+          width: isFullscreen ? "auto" : "100%",
+        }}
       >
         {backgroundUrl && (
           // eslint-disable-next-line @next/next/no-img-element
@@ -823,17 +967,532 @@ function SelectionPreview({
   )
 }
 
+function getSavedDesignElements(
+  design: SavedDesignPayload,
+  mediaLookup?: Record<string, Partial<ConfiguratorElement>>
+): ConfiguratorElement[] {
+  const elements = design.configuration?.selected_elements || []
+  return elements.map((element: any, index: number) => {
+    const id = String(element.id || element.element_id || `${design.id}-${index}`)
+    const media = mediaLookup?.[id]
+    return {
+      id,
+      name: String(element.name || element.element_name || `Element ${index + 1}`),
+      category: String(element.category || "Selection"),
+      categoryKey: String(element.categoryKey || element.category_key || element.category || `selection-${index}`),
+      value: toNumber(element.value, 0),
+      imageUrl: media?.imageUrl ?? element.imageUrl ?? element.image_url ?? null,
+      content: media?.content ?? element.content ?? null,
+      elementType: media?.elementType ?? element.elementType ?? element.element_type,
+      zIndex: toNumber(element.zIndex ?? element.z_index ?? media?.zIndex, index),
+      transform: element.transform ?? media?.transform,
+    }
+  })
+}
+
+function SelectionImageLightbox({
+  image,
+  onClose,
+}: {
+  image: { url: string; name: string } | null
+  onClose: () => void
+}) {
+  useEffect(() => {
+    if (!image) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose()
+    }
+    document.addEventListener("keydown", handleKeyDown)
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown)
+      document.body.style.overflow = ""
+    }
+  }, [image, onClose])
+
+  if (!image) return null
+
+  return (
+    <BodyPortal>
+      <div role="dialog" aria-modal="true" aria-label={image.name} className="fixed inset-0 z-[230] flex items-center justify-center bg-black p-4">
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+          aria-label="Close image preview"
+        >
+          <X className="h-6 w-6" />
+        </button>
+        <div className="max-h-[86vh] max-w-[92vw] text-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={image.url} alt={image.name} className="max-h-[78vh] max-w-full rounded-2xl object-contain shadow-2xl" />
+          <p className="mt-4 text-sm font-semibold text-white">{image.name}</p>
+        </div>
+      </div>
+    </BodyPortal>
+  )
+}
+
+function SaveDesignModal({
+  isOpen,
+  defaultName,
+  error,
+  isSaving,
+  onClose,
+  onSave,
+}: {
+  isOpen: boolean
+  defaultName: string
+  error: string | null
+  isSaving: boolean
+  onClose: () => void
+  onSave: (name: string) => void
+}) {
+  const [name, setName] = useState(defaultName)
+
+  useEffect(() => {
+    if (isOpen) setName(defaultName)
+  }, [defaultName, isOpen])
+
+  if (!isOpen) return null
+
+  return (
+    <BodyPortal>
+      <div className="fixed inset-0 z-[210] flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-black/50" aria-hidden="true" onClick={onClose} />
+        <div role="dialog" aria-modal="true" aria-label="Save design" className="relative z-10 w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+        <div className="mb-5 flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">Save design</h3>
+            <p className="mt-1 text-sm text-gray-500">Give this selection a unique name for this study.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close save dialog">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <label className="block text-sm font-semibold text-gray-700" htmlFor="saved-design-name">
+          Design name
+        </label>
+        <input
+          id="saved-design-name"
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          className="mt-2 w-full rounded-xl border border-gray-200 px-4 py-3 text-sm font-medium text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+          placeholder="Design 1"
+          autoFocus
+        />
+        {error && <p className="mt-3 text-sm font-medium text-red-600">{error}</p>}
+
+        <div className="mt-6 flex justify-end gap-3">
+          <button type="button" onClick={onClose} className="rounded-xl border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave(name)}
+            disabled={isSaving || name.trim().length === 0}
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save
+          </button>
+        </div>
+      </div>
+      </div>
+    </BodyPortal>
+  )
+}
+
+function SavedDesignComparePanel({
+  isOpen,
+  savedDesigns,
+  selectedIds,
+  error,
+  isLoading,
+  isComparing,
+  onClose,
+  onToggle,
+  onCompare,
+  onDelete,
+}: {
+  isOpen: boolean
+  savedDesigns: SavedDesignPayload[]
+  selectedIds: string[]
+  error: string | null
+  isLoading: boolean
+  isComparing: boolean
+  onClose: () => void
+  onToggle: (designId: string) => void
+  onCompare: () => void
+  onDelete: (designId: string) => void
+}) {
+  if (!isOpen) return null
+
+  return (
+    <BodyPortal>
+      <div className="fixed inset-0 z-[205]">
+        <div className="absolute inset-0 bg-black/30" aria-hidden="true" onClick={onClose} />
+        <aside className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-gray-100 p-5">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900">Compare saved designs</h3>
+            <p className="mt-1 text-sm text-gray-500">Select 2 to 4 designs to compare.</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close compare panel">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12 text-sm font-medium text-gray-500">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading saved designs...
+            </div>
+          ) : savedDesigns.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-gray-200 p-6 text-center">
+              <Sparkles className="mx-auto mb-3 h-8 w-8 text-blue-300" />
+              <p className="text-sm font-semibold text-gray-700">No saved designs yet</p>
+              <p className="mt-1 text-xs text-gray-500">Save a design first, then return here to compare.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {savedDesigns.map((design) => {
+                const checked = selectedIds.includes(design.id)
+                const disabled = !checked && selectedIds.length >= 4
+                return (
+                  <div key={design.id} className={`rounded-2xl border p-4 transition ${checked ? "border-blue-500 bg-blue-50/60" : "border-gray-200 bg-white"}`}>
+                    <label className={`flex cursor-pointer items-start gap-3 ${disabled ? "cursor-not-allowed opacity-60" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={disabled}
+                        onChange={() => onToggle(design.id)}
+                        className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold text-gray-900">{design.name}</span>
+                        <span className="mt-1 block text-xs text-gray-500">
+                          {design.design_type === "input"
+                            ? `${design.selection_count} selected`
+                            : `${design.metric} · ${design.segment_label || design.configuration?.segment?.label || "Overall"} · ${design.selection_count} selected`}
+                        </span>
+                      </span>
+                    </label>
+                    <div className="mt-3 flex items-center justify-between">
+                      {design.design_type === "input" ? (
+                        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-600">Input Design</span>
+                      ) : (
+                        <span className="text-sm font-black tabular-nums text-gray-900">
+                          {formatValue(design.total_coefficient ?? design.configuration?.total_coefficient ?? 0, design.metric)}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onDelete(design.id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-red-500 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Delete
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {error && <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600">{error}</p>}
+        </div>
+
+        <div className="border-t border-gray-100 p-5">
+          <button
+            type="button"
+            onClick={onCompare}
+            disabled={isComparing || selectedIds.length < 2 || selectedIds.length > 4}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isComparing ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitCompare className="h-4 w-4" />}
+            Compare {selectedIds.length > 0 ? `(${selectedIds.length})` : ""}
+          </button>
+        </div>
+      </aside>
+      </div>
+    </BodyPortal>
+  )
+}
+
+function SavedInputDesignInsights({
+  design,
+  analysisData,
+}: {
+  design: SavedDesignPayload
+  analysisData: any
+}) {
+  const [metric, setMetric] = useState<Metric>("Top Down")
+  const insights = useMemo(() => {
+    const stored = design.configuration?.input_insights
+    if (stored && Object.keys(stored).length > 0) return stored
+
+    const selectedByCategory = design.configuration?.selected_by_category || {}
+    if (analysisData && Object.keys(selectedByCategory).length > 0) {
+      return buildInputDesignInsights(analysisData, selectedByCategory)
+    }
+    return {}
+  }, [analysisData, design.configuration?.input_insights, design.configuration?.selected_by_category])
+  const rows = insights[metric] || []
+
+  return (
+    <div className="mt-4 rounded-2xl border border-blue-100 bg-blue-50/30">
+      <div className="flex items-center justify-between gap-3 border-b border-blue-100 p-3">
+        <span className="text-sm font-black text-gray-900">Segment Insights</span>
+        <div className="relative min-w-[145px]">
+          <select
+            value={metric}
+            onChange={(event) => setMetric(event.target.value as Metric)}
+            className="h-9 w-full appearance-none rounded-xl border border-blue-100 bg-white px-3 pr-8 text-xs font-bold text-gray-700 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+          >
+            {METRIC_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        </div>
+      </div>
+      <div className="max-h-52 space-y-2 overflow-y-auto p-3">
+        {rows.length === 0 ? (
+          <p className="text-xs font-medium text-gray-500">No insight data saved for this design.</p>
+        ) : (
+          rows.map((row) => (
+            <div key={`${design.id}-${metric}-${row.segment_id}`} className="flex items-center justify-between rounded-xl bg-white px-3 py-2">
+              <span className="min-w-0 truncate text-xs font-semibold text-gray-600">{row.label}</span>
+              <span className={`ml-3 tabular-nums text-xs font-black ${row.value >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                {row.value >= 0 ? "+" : ""}
+                {formatValue(row.value, metric)}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SavedDesignCompareOverlay({
+  designs,
+  analysisData,
+  elementMediaLookup,
+  onImageOpen,
+  onClose,
+}: {
+  designs: SavedDesignPayload[]
+  analysisData: any
+  elementMediaLookup?: Record<string, Partial<ConfiguratorElement>>
+  onImageOpen: (image: { url: string; name: string }) => void
+  onClose: () => void
+}) {
+  const [previewDesign, setPreviewDesign] = useState<SavedDesignPayload | null>(null)
+  const [downloadingDesignId, setDownloadingDesignId] = useState<string | null>(null)
+  const [highlightedElementKey, setHighlightedElementKey] = useState<string | null>(null)
+
+  const handleDownloadLayerDesign = async (design: SavedDesignPayload) => {
+    if (design.study_type !== "layer" || downloadingDesignId) return
+
+    const elements = getSavedDesignElements(design, elementMediaLookup)
+    const backgroundUrl = design.configuration?.show_layer_background
+      ? design.configuration?.background_url || getBackgroundUrl(analysisData)
+      : null
+    setDownloadingDesignId(design.id)
+    try {
+      const canvas = await renderLayerSelectionToCanvas(elements, backgroundUrl, design.configuration?.aspect_ratio || "9 / 16")
+      downloadCanvas(canvas, `${safeFileName(design.name, "saved-design")}.png`)
+    } catch (error) {
+      console.error("Saved design download failed", error)
+      alert("Failed to download this saved design. Please try again.")
+    } finally {
+      setDownloadingDesignId(null)
+    }
+  }
+
+  if (designs.length === 0) return null
+
+  const previewElements = previewDesign ? getSavedDesignElements(previewDesign, elementMediaLookup) : []
+  const previewIsLayer = previewDesign?.study_type === "layer"
+
+  return (
+    <BodyPortal>
+      <div role="dialog" aria-modal="true" aria-label="Saved design comparison" className="fixed inset-0 z-[220] overflow-y-auto bg-black p-4 text-white sm:p-6">
+        <button
+          type="button"
+          onClick={onClose}
+          className="fixed right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
+          aria-label="Close comparison"
+        >
+          <X className="h-6 w-6" />
+        </button>
+        <div className="mx-auto max-w-7xl pb-10 pt-10">
+        <div className="mb-6">
+          <h3 className="text-2xl font-black">Saved design comparison</h3>
+          <p className="mt-1 text-sm text-white/60">Showing {designs.length} saved designs side by side.</p>
+        </div>
+        <div className={`grid gap-5 ${designs.length === 2 ? "lg:grid-cols-2" : designs.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"}`}>
+          {designs.map((design) => {
+            const elements = getSavedDesignElements(design, elementMediaLookup)
+            const isLayer = design.study_type === "layer"
+            const compareBackgroundUrl = design.configuration?.show_layer_background
+              ? design.configuration?.background_url || getBackgroundUrl(analysisData)
+              : null
+            return (
+              <div key={design.id} className="rounded-3xl bg-white p-4 text-gray-900 shadow-xl">
+                <div className="mb-4 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h4 className="truncate text-lg font-black">{design.name}</h4>
+                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                      {design.design_type === "input"
+                        ? "Input Design"
+                        : `${design.metric} · ${design.segment_label || design.configuration?.segment?.label || "Overall"}`}
+                    </p>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPreviewDesign(design)}
+                      className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600 transition hover:bg-blue-100"
+                      aria-label={`Preview ${design.name}`}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
+                    {isLayer && (
+                      <button
+                        type="button"
+                        onClick={() => void handleDownloadLayerDesign(design)}
+                        disabled={downloadingDesignId === design.id}
+                        className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        aria-label={`Download ${design.name}`}
+                      >
+                        {downloadingDesignId === design.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <SelectionPreview
+                  selectedElements={elements}
+                  studyType={design.study_type}
+                  backgroundUrl={isLayer ? compareBackgroundUrl : design.configuration?.background_url || getBackgroundUrl(analysisData)}
+                  aspectRatio={design.configuration?.aspect_ratio || "9 / 16"}
+                />
+                {design.design_type === "input" ? (
+                  <SavedInputDesignInsights design={design} analysisData={analysisData} />
+                ) : (
+                  <div className="mt-4 rounded-2xl bg-gray-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Total Coefficient</span>
+                      <span className="text-xl font-black tabular-nums text-gray-900">
+                        {formatValue(design.total_coefficient ?? design.configuration?.total_coefficient ?? 0, design.metric)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+                <details className="mt-4 rounded-2xl border border-gray-200">
+                  <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-gray-900">Active Selection ({elements.length})</summary>
+                  <div className="space-y-3 border-t border-gray-100 p-4">
+                    {elements.map((element) => (
+                      <div key={`${design.id}-${element.id}`} className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!element.imageUrl) return
+                            setHighlightedElementKey(`${design.id}-${element.id}`)
+                            onImageOpen({ url: element.imageUrl, name: element.name })
+                          }}
+                          disabled={!element.imageUrl}
+                          className="flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg bg-gray-50 p-1 ring-1 ring-gray-100 transition hover:ring-blue-300 disabled:cursor-default disabled:hover:ring-gray-100"
+                        >
+                          {element.imageUrl ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={element.imageUrl} alt={element.name} className="h-full w-full object-contain" />
+                          ) : (
+                            <Type className="h-4 w-4 text-gray-400" />
+                          )}
+                        </button>
+                        <div className="min-w-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!element.imageUrl) return
+                              setHighlightedElementKey(`${design.id}-${element.id}`)
+                              onImageOpen({ url: element.imageUrl, name: element.name })
+                            }}
+                            disabled={!element.imageUrl}
+                            className={`truncate text-left text-sm font-semibold transition disabled:cursor-default ${
+                              highlightedElementKey === `${design.id}-${element.id}`
+                                ? "text-blue-600"
+                                : "text-gray-900 hover:text-blue-600 disabled:hover:text-gray-900"
+                            }`}
+                          >
+                            {element.name}
+                          </button>
+                          <p className="truncate text-xs text-gray-500">{element.category}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      <PreviewFullscreenModal
+        isOpen={Boolean(previewDesign)}
+        onClose={() => setPreviewDesign(null)}
+      >
+        {previewDesign && (
+          <SelectionPreview
+            selectedElements={previewElements}
+            studyType={previewDesign.study_type}
+            backgroundUrl={previewIsLayer ? (previewDesign.configuration?.show_layer_background ? previewDesign.configuration?.background_url || null : null) : previewDesign.configuration?.background_url || null}
+            aspectRatio={previewDesign.configuration?.aspect_ratio || "9 / 16"}
+            size="fullscreen"
+          />
+        )}
+      </PreviewFullscreenModal>
+      </div>
+    </BodyPortal>
+  )
+}
+
 interface AnalyticsDesignConfiguratorProps {
   analysisData: any
+  studyId: string
   studyType?: string
+  persistence?: "api" | "local"
+  initialSavedDesigns?: LocalSavedDesignsStore
+  onExportHtml?: () => void
+  isExportingHtml?: boolean
+  exportHtmlStage?: "preparing" | "embedding" | "generating" | "done"
 }
 
 export function AnalyticsDesignConfigurator({
   analysisData,
+  studyId,
   studyType = "grid",
+  persistence = "api",
+  initialSavedDesigns,
+  onExportHtml,
+  isExportingHtml = false,
+  exportHtmlStage = "preparing",
 }: AnalyticsDesignConfiguratorProps) {
+  const isLocalPersistence = persistence === "local"
+  const initialSavedDesignsRef = useRef<LocalSavedDesignsStore>(
+    initialSavedDesigns || { configurator: [], input: [] }
+  )
   const normalizedStudyType = (studyType || "grid").toLowerCase()
   const isLayerStudy = normalizedStudyType === "layer"
+  const [isInputDesignMode, setIsInputDesignMode] = useState(false)
+  const [showInputInsights, setShowInputInsights] = useState(false)
+  const [activeInputInsightMetric, setActiveInputInsightMetric] = useState<Metric>("Top Down")
+  const savedDesignType: SavedDesignType = isInputDesignMode ? "input" : "configurator"
   const [activeMetric, setActiveMetric] = useState<Metric>("Top Down")
   const segmentOptions = useMemo(
     () => getAvailableSegmentOptions(analysisData || {}, activeMetric),
@@ -859,7 +1518,72 @@ export function AnalyticsDesignConfigurator({
   const [isPreviewDownloading, setIsPreviewDownloading] = useState(false)
   const [isPreviewFullscreenOpen, setIsPreviewFullscreenOpen] = useState(false)
   const [downloadingElementId, setDownloadingElementId] = useState<string | null>(null)
+  const [savedDesigns, setSavedDesigns] = useState<SavedDesignPayload[]>([])
+  const [isLoadingSavedDesigns, setIsLoadingSavedDesigns] = useState(false)
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false)
+  const [isSavingDesign, setIsSavingDesign] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [isComparePanelOpen, setIsComparePanelOpen] = useState(false)
+  const [selectedCompareIds, setSelectedCompareIds] = useState<string[]>([])
+  const [isComparingDesigns, setIsComparingDesigns] = useState(false)
+  const [compareError, setCompareError] = useState<string | null>(null)
+  const [compareDesigns, setCompareDesigns] = useState<SavedDesignPayload[]>([])
+  const [activeSelectionImage, setActiveSelectionImage] = useState<{ url: string; name: string } | null>(null)
+  const [highlightedSelectionId, setHighlightedSelectionId] = useState<string | null>(null)
   const previewCaptureRef = useRef<HTMLDivElement>(null)
+  const elementMediaLookup = useMemo(() => {
+    const lookup: Record<string, Partial<ConfiguratorElement>> = {}
+    const rememberCategory = (category: any, categoryIndex: number) => {
+      const categoryName = normalizeText(category?.name || category?.title) || `Category ${categoryIndex + 1}`
+      const categoryKey = getCategoryIdentity(category, categoryName, categoryIndex)
+      const zIndex = toNumber(category?.z_index ?? category?.z, categoryIndex + 1)
+      getRawElements(category).forEach((element: any, elementIndex: number) => {
+        const name = normalizeText(element?.name || element?.alt_text) || `Element ${elementIndex + 1}`
+        const elementType = normalizeText(element?.element_type ?? element?.elementType)
+        const id = getElementKey(categoryKey, name)
+        lookup[id] = {
+          imageUrl: elementType.toLowerCase() === "text" ? null : pickElementImage(element),
+          content: normalizeText(element?.content) || null,
+          elementType,
+          zIndex: toNumber(element?.z_index ?? element?.z ?? zIndex, zIndex),
+          transform: pickTransform(element),
+        }
+      })
+    }
+    getInfoCategories(analysisData || {}).forEach(rememberCategory)
+    METRIC_OPTIONS.forEach((metric) => {
+      const section = analysisData?.[METRIC_KEYS[metric.value]]
+      ;(section?.categories || []).forEach(rememberCategory)
+    })
+    return lookup
+  }, [analysisData])
+
+  const loadSavedDesigns = async () => {
+    if (!studyId) return
+    setIsLoadingSavedDesigns(true)
+    setCompareError(null)
+    try {
+      if (isLocalPersistence) {
+        const designs = listLocalSavedDesigns(studyId, savedDesignType, initialSavedDesignsRef.current)
+        setSavedDesigns(designs)
+      } else {
+        const designs = await listSavedDesigns(studyId, savedDesignType)
+        setSavedDesigns(designs)
+      }
+    } catch (error) {
+      console.error("Failed to load saved designs", error)
+      setCompareError((error as Error)?.message || "Failed to load saved designs")
+    } finally {
+      setIsLoadingSavedDesigns(false)
+    }
+  }
+
+  useEffect(() => {
+    setSelectedCompareIds([])
+    setCompareDesigns([])
+    void loadSavedDesigns()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studyId, savedDesignType])
 
   useEffect(() => {
     if (!isLayerStudy) return
@@ -877,7 +1601,7 @@ export function AnalyticsDesignConfigurator({
   useEffect(() => {
     setOpenCategoryNames((current) =>
       categories.reduce<Record<string, boolean>>((next, category) => {
-        next[category.name] = current[category.name] ?? false
+        next[category.key] = current[category.key] ?? false
         return next
       }, {})
     )
@@ -886,7 +1610,7 @@ export function AnalyticsDesignConfigurator({
   const selectedElements = useMemo(
     () =>
       categories
-        .map((category) => category.elements.find((element) => element.id === selectedByCategory[category.name]))
+        .map((category) => category.elements.find((element) => element.id === selectedByCategory[category.key]))
         .filter((element): element is ConfiguratorElement => Boolean(element)),
     [categories, selectedByCategory]
   )
@@ -897,30 +1621,98 @@ export function AnalyticsDesignConfigurator({
   const hasPreviewContent =
     selectedElements.length > 0 || (isLayerStudy && showLayerBackground && Boolean(backgroundUrl))
 
+  const inputDesignInsights = useMemo(
+    () => buildInputDesignInsights(analysisData || {}, selectedByCategory),
+    [analysisData, selectedByCategory]
+  )
+
+  const currentSavedDesignConfiguration: SavedDesignConfigurationPayload = useMemo(
+    () => ({
+      metric: activeMetric,
+      study_type: (["grid", "layer", "text", "hybrid"].includes(normalizedStudyType)
+        ? normalizedStudyType
+        : "grid") as StudyType,
+      design_type: savedDesignType,
+      segment: activeSegment
+        ? {
+            id: activeSegment.id,
+            label: activeSegment.label,
+            section_key: activeSegment.sectionKey,
+            value_key: activeSegment.valueKey,
+          }
+        : undefined,
+      selected_by_category: selectedByCategory,
+      selected_elements: selectedElements.map((element) => ({
+        id: element.id,
+        name: element.name,
+        category: element.category,
+        category_key: element.categoryKey,
+        value: element.value,
+        image_url: element.imageUrl ?? null,
+        content: element.content ?? null,
+        element_type: element.elementType,
+        z_index: element.zIndex,
+        transform: element.transform,
+      })),
+      input_insights: isInputDesignMode ? inputDesignInsights : undefined,
+      show_layer_background: isLayerStudy ? showLayerBackground : false,
+      background_url: isLayerStudy ? backgroundUrl : backgroundUrl,
+      aspect_ratio: layerAspectRatio,
+      total_coefficient: totalCoefficient,
+    }),
+    [
+      activeMetric,
+      activeSegment,
+      backgroundUrl,
+      isLayerStudy,
+      isInputDesignMode,
+      inputDesignInsights,
+      layerAspectRatio,
+      normalizedStudyType,
+      savedDesignType,
+      selectedByCategory,
+      selectedElements,
+      showLayerBackground,
+      totalCoefficient,
+    ]
+  )
+
+  const defaultSavedDesignName = useMemo(() => {
+    const usedNames = new Set(savedDesigns.map((design) => design.name.trim().toLowerCase()))
+    let index = savedDesigns.length + 1
+    const prefix = isInputDesignMode ? "Input Design" : "Design"
+    let candidate = `${prefix} ${index}`
+    while (usedNames.has(candidate.toLowerCase())) {
+      index += 1
+      candidate = `${prefix} ${index}`
+    }
+    return candidate
+  }, [isInputDesignMode, savedDesigns])
+
   const handleSelect = (category: ConfiguratorCategory, element: ConfiguratorElement) => {
     setSelectedByCategory((current) => {
       const next = { ...current }
-      const alreadySelected = next[category.name] === element.id
+      const alreadySelected = next[category.key] === element.id
 
       if (alreadySelected) {
-        delete next[category.name]
+        delete next[category.key]
         return next
       }
 
       const currentCount = Object.keys(next).length
-      if (!isLayerStudy && !next[category.name] && currentCount >= MAX_NON_LAYER_SELECTIONS) {
+      if (!isLayerStudy && !next[category.key] && currentCount >= MAX_NON_LAYER_SELECTIONS) {
         return next
       }
 
-      next[category.name] = element.id
+      next[category.key] = element.id
       return next
     })
   }
 
-  const toggleCategoryOpen = (categoryName: string) => {
+  const toggleCategoryOpen = (categoryKey: string) => {
     setOpenCategoryNames((current) => ({
       ...current,
-      [categoryName]: !(current[categoryName] ?? false),
+      [categoryKey]: !(current[categoryKey] ?? false),
     }))
   }
 
@@ -929,7 +1721,7 @@ export function AnalyticsDesignConfigurator({
     setSelectedByCategory(bestSelection)
     setOpenCategoryNames(
       categories.reduce<Record<string, boolean>>((next, category) => {
-        next[category.name] = Boolean(bestSelection[category.name])
+        next[category.key] = Boolean(bestSelection[category.key])
         return next
       }, {})
     )
@@ -943,38 +1735,10 @@ export function AnalyticsDesignConfigurator({
     setIsPreviewDownloading(true)
     try {
       if (isLayerStudy) {
-        const canvas = await renderLayersToCanvas(
-          showLayerBackground && backgroundUrl ? { secureUrl: backgroundUrl, previewUrl: backgroundUrl } : null,
-          selectedElements
-            .filter((element) => element.imageUrl)
-            .map((element) => {
-              const transform = element.transform || { x: 0, y: 0, width: 100, height: 100 }
-              return {
-                id: element.id,
-                name: element.name,
-                z: element.zIndex,
-                transform,
-                images: [
-                  {
-                    id: element.id,
-                    previewUrl: element.imageUrl || "",
-                    secureUrl: element.imageUrl || "",
-                    x: transform.x,
-                    y: transform.y,
-                    width: transform.width,
-                    height: transform.height,
-                  },
-                ],
-              }
-            }),
-          Object.fromEntries(selectedElements.map((element) => [element.id, element.id])),
-          getCanvasAspect(layerAspectRatio)
-        )
-
-        await drawTextElementsOnLayerCanvas(
-          canvas,
-          selectedElements.filter((element) => !element.imageUrl || element.elementType?.toLowerCase() === "text"),
-          showLayerBackground ? backgroundUrl : null
+        const canvas = await renderLayerSelectionToCanvas(
+          selectedElements,
+          showLayerBackground ? backgroundUrl : null,
+          layerAspectRatio
         )
         downloadCanvas(canvas, `analytics-preview-${Date.now()}.png`)
         return
@@ -1035,6 +1799,114 @@ export function AnalyticsDesignConfigurator({
     }
   }
 
+  const handleSaveDesign = async (name: string) => {
+    const trimmedName = name.trim()
+    if (!trimmedName) {
+      setSaveError("Enter a design name.")
+      return
+    }
+    if (!hasPreviewContent) {
+      setSaveError("Select at least one element before saving.")
+      return
+    }
+
+    setIsSavingDesign(true)
+    setSaveError(null)
+    try {
+      if (isLocalPersistence) {
+        const now = new Date().toISOString()
+        const saved: SavedDesignPayload = {
+          id: createLocalDesignId(),
+          study_id: studyId,
+          name: trimmedName,
+          design_type: savedDesignType,
+          study_type: (["grid", "layer", "text", "hybrid"].includes(normalizedStudyType)
+            ? normalizedStudyType
+            : "grid") as StudyType,
+          metric: activeMetric,
+          segment_label: activeSegment?.label ?? null,
+          selection_count: selectedElements.length,
+          total_coefficient: totalCoefficient,
+          configuration: currentSavedDesignConfiguration,
+          created_at: now,
+          updated_at: now,
+        }
+        createLocalSavedDesign(studyId, saved, initialSavedDesignsRef.current)
+        initialSavedDesignsRef.current = {
+          ...initialSavedDesignsRef.current,
+          [savedDesignType]: [saved, ...(initialSavedDesignsRef.current[savedDesignType] || [])],
+        }
+        setSavedDesigns((current) => [saved, ...current])
+      } else {
+        const saved = await createSavedDesign(studyId, trimmedName, currentSavedDesignConfiguration, savedDesignType)
+        setSavedDesigns((current) => [saved, ...current])
+      }
+      setIsSaveModalOpen(false)
+    } catch (error) {
+      const message = (error as Error)?.message || "Failed to save design"
+      setSaveError(message)
+    } finally {
+      setIsSavingDesign(false)
+    }
+  }
+
+  const handleOpenComparePanel = async () => {
+    setIsComparePanelOpen(true)
+    await loadSavedDesigns()
+  }
+
+  const handleToggleCompareDesign = (designId: string) => {
+    setSelectedCompareIds((current) => {
+      if (current.includes(designId)) return current.filter((id) => id !== designId)
+      if (current.length >= 4) return current
+      return [...current, designId]
+    })
+  }
+
+  const handleCompareDesigns = async () => {
+    if (selectedCompareIds.length < 2 || selectedCompareIds.length > 4) {
+      setCompareError("Select between 2 and 4 saved designs.")
+      return
+    }
+
+    setIsComparingDesigns(true)
+    setCompareError(null)
+    try {
+      const designs = isLocalPersistence
+        ? compareLocalSavedDesigns(studyId, selectedCompareIds, savedDesignType, initialSavedDesignsRef.current)
+        : await compareSavedDesigns(studyId, selectedCompareIds, savedDesignType)
+      setCompareDesigns(designs)
+      setIsComparePanelOpen(false)
+    } catch (error) {
+      setCompareError((error as Error)?.message || "Failed to compare saved designs")
+    } finally {
+      setIsComparingDesigns(false)
+    }
+  }
+
+  const handleDeleteSavedDesign = async (designId: string) => {
+    const confirmed = window.confirm("Delete this saved design?")
+    if (!confirmed) return
+
+    try {
+      if (isLocalPersistence) {
+        deleteLocalSavedDesign(studyId, designId, initialSavedDesignsRef.current)
+        initialSavedDesignsRef.current = {
+          configurator: initialSavedDesignsRef.current.configurator.filter((design) => design.id !== designId),
+          input: initialSavedDesignsRef.current.input.filter((design) => design.id !== designId),
+          deleted_ids: Array.from(new Set([...(initialSavedDesignsRef.current.deleted_ids || []), designId])),
+        }
+      } else {
+        await deleteSavedDesign(studyId, designId)
+      }
+      setSavedDesigns((current) => current.filter((design) => design.id !== designId))
+      setSelectedCompareIds((current) => current.filter((id) => id !== designId))
+      setCompareDesigns((current) => current.filter((design) => design.id !== designId))
+    } catch (error) {
+      setCompareError((error as Error)?.message || "Failed to delete saved design")
+    }
+  }
+
   if (!analysisData || categories.length === 0) return null
 
   return (
@@ -1043,7 +1915,7 @@ export function AnalyticsDesignConfigurator({
       animate={{ opacity: 1, y: 0 }}
       className="mb-10"
     >
-      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="mb-2 flex items-center gap-3">
             <div className="h-8 w-1.5 rounded-full bg-blue-600" />
@@ -1056,95 +1928,174 @@ export function AnalyticsDesignConfigurator({
           </p>
         </div>
 
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-          <div className="flex rounded-xl bg-gray-100 p-1 shadow-inner">
-            {METRIC_OPTIONS.map((metric) => (
-              <button
-                key={metric.value}
-                type="button"
-                onClick={() => setActiveMetric(metric.value)}
-                className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-                  activeMetric === metric.value
-                    ? "bg-white text-blue-600 shadow-sm"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                {metric.label}
-              </button>
-            ))}
-          </div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:pt-0.5">
+          {!isInputDesignMode && (
+            <>
+              <div className="flex rounded-xl bg-gray-100 p-1 shadow-inner">
+                {METRIC_OPTIONS.map((metric) => (
+                  <button
+                    key={metric.value}
+                    type="button"
+                    onClick={() => setActiveMetric(metric.value)}
+                    className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
+                      activeMetric === metric.value
+                        ? "bg-white text-blue-600 shadow-sm"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    {metric.label}
+                  </button>
+                ))}
+              </div>
 
-          <div className="relative min-w-[180px]">
-            <select
-              value={activeSegment?.id || ""}
-              onChange={(event) => setActiveSegmentId(event.target.value)}
-              className="h-10 w-full appearance-none rounded-xl border border-gray-200 bg-white px-4 pr-10 text-sm font-medium text-gray-700 shadow-sm outline-none transition-colors hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+              <div className="relative min-w-[180px]">
+                <select
+                  value={activeSegment?.id || ""}
+                  onChange={(event) => setActiveSegmentId(event.target.value)}
+                  className="h-10 w-full appearance-none rounded-xl border border-gray-200 bg-white px-4 pr-10 text-sm font-medium text-gray-700 shadow-sm outline-none transition-colors hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                >
+                  {segmentOptions.map((segment) => (
+                    <option key={segment.id} value={segment.id}>
+                      {segment.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              </div>
+            </>
+          )}
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsInputDesignMode((current) => !current)
+              setShowInputInsights(false)
+            }}
+            className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-bold shadow-sm transition ${
+              isInputDesignMode
+                ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
+                : "border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+            }`}
+          >
+            <Sparkles className="h-4 w-4" />
+            {isInputDesignMode ? "Input Design On" : "Input Design"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void handleOpenComparePanel()}
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 text-sm font-bold text-blue-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-100"
+          >
+            <GitCompare className="h-4 w-4" />
+            Compare Saved
+            {savedDesigns.length > 0 && (
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-blue-600">{savedDesigns.length}</span>
+            )}
+          </button>
+
+          {onExportHtml && (
+            <button
+              type="button"
+              onClick={onExportHtml}
+              disabled={isExportingHtml || !analysisData}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 text-sm font-bold text-blue-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {segmentOptions.map((segment) => (
-                <option key={segment.id} value={segment.id}>
-                  {segment.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-          </div>
+              {isExportingHtml ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>
+                    {exportHtmlStage === "preparing" && "Preparing..."}
+                    {exportHtmlStage === "embedding" && "Embedding images..."}
+                    {exportHtmlStage === "generating" && "Generating HTML..."}
+                    {exportHtmlStage === "done" && "Done"}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <FileCode2 className="h-4 w-4" />
+                  <span>Export HTML</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="flex flex-col gap-8 lg:h-[calc(100vh-180px)] lg:flex-row">
+      <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
         {/* Left Column - Preview & Selected Elements */}
-        <div className="flex flex-col gap-6 lg:w-5/12 lg:h-full lg:overflow-y-auto lg:pr-2 lg:pb-4">
+        <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:w-5/12 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:pr-2 lg:pb-4">
           {/* Preview Card */}
           <div className="flex flex-shrink-0 flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/50 px-5 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 bg-gray-50/50 px-3 py-3 sm:px-5">
               {isLayerStudy ? (
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:gap-2">
                   <button
                     type="button"
                     onClick={() => setShowLayerBackground((current) => !current)}
                     disabled={!backgroundUrl}
-                    className={`flex cursor-pointer items-center gap-2 text-sm font-medium transition-colors ${
-                      showLayerBackground ? "text-blue-600" : "text-gray-600 hover:text-gray-900"
+                    className={`inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-full px-2 py-1.5 text-xs font-semibold transition-colors sm:px-2.5 sm:text-sm ${
+                      showLayerBackground ? "bg-blue-50 text-blue-600" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
                     } disabled:cursor-not-allowed disabled:opacity-50`}
                     aria-pressed={showLayerBackground}
                   >
-                    <ImageIcon className="h-4 w-4" /> Background
+                    <ImageIcon className="h-4 w-4 flex-shrink-0" />
+                    <span className="hidden min-w-0 truncate min-[420px]:inline">Background</span>
                   </button>
-                  <div className="h-4 w-px bg-gray-300" />
                   <button
                     type="button"
                     onClick={handleDownloadPreview}
                     disabled={isPreviewDownloading || (selectedElements.length === 0 && !showLayerBackground)}
-                    className="flex cursor-pointer items-center gap-2 text-sm font-medium text-blue-600 transition-colors hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-full bg-blue-50 px-2 py-1.5 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-100 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:px-2.5 sm:text-sm"
                   >
-                    <Download className="h-4 w-4" /> {isPreviewDownloading ? "Downloading..." : "Download"}
+                    <Download className="h-4 w-4 flex-shrink-0" />
+                    <span className="hidden min-w-0 truncate min-[420px]:inline">{isPreviewDownloading ? "Downloading..." : "Download"}</span>
                   </button>
                 </div>
               ) : (
-                <button
-                  type="button"
-                  onClick={handleDownloadPreview}
-                  disabled={isPreviewDownloading || selectedElements.length === 0}
-                  className="flex cursor-pointer items-center gap-2 text-sm font-medium text-blue-600 transition-colors hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Download className="h-4 w-4" /> {isPreviewDownloading ? "Downloading..." : "Download"}
-                </button>
+                <div className="min-w-0 flex-1" />
               )}
-              <div className="ml-auto flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleBestMix}
-                  className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-blue-600 transition-colors hover:text-blue-700"
-                >
-                  <Sparkles className="h-4 w-4" /> Best Mix
-                </button>
-                <div className="mx-1 h-4 w-px bg-gray-300" />
+              <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1 sm:gap-2">
+                {!isLayerStudy && hasPreviewContent && (
+                  <div className="mr-1 flex items-center gap-1 rounded-full bg-gray-100 p-1 shadow-inner">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSaveError(null)
+                        setIsSaveModalOpen(true)
+                      }}
+                      disabled={isSavingDesign}
+                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-60"
+                      aria-label="Save current design"
+                    >
+                      {isSavingDesign ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsPreviewFullscreenOpen(true)}
+                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white text-gray-700 shadow-sm transition hover:bg-gray-50 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      aria-label="Open full screen preview"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+                {!isInputDesignMode && (
+                  <button
+                    type="button"
+                    onClick={handleBestMix}
+                    className="inline-flex min-w-0 cursor-pointer items-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700 sm:gap-1.5 sm:px-3 sm:text-sm"
+                  >
+                    <Sparkles className="h-4 w-4 flex-shrink-0" />
+                    <span className="hidden min-w-0 truncate min-[420px]:inline">Best Mix</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setSelectedByCategory({})}
-                  className="flex cursor-pointer items-center gap-1.5 text-sm font-medium text-gray-500 transition-colors hover:text-gray-800"
+                  className="inline-flex min-w-0 cursor-pointer items-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 sm:gap-1.5 sm:px-3 sm:text-sm"
                 >
-                  <RotateCcw className="h-4 w-4" /> Clear
+                  <RotateCcw className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden min-w-0 truncate min-[420px]:inline">Clear</span>
                 </button>
               </div>
             </div>
@@ -1162,15 +2113,29 @@ export function AnalyticsDesignConfigurator({
                     aspectRatio={layerAspectRatio}
                   />
                 </div>
-                {hasPreviewContent && (
-                  <button
-                    type="button"
-                    onClick={() => setIsPreviewFullscreenOpen(true)}
-                    className="absolute right-2 top-2 z-10 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white shadow-md backdrop-blur-sm transition hover:bg-black/75 focus:outline-none focus:ring-2 focus:ring-blue-500/50 sm:right-3 sm:top-3"
-                    aria-label="Open full screen preview"
-                  >
-                    <Eye className="h-4 w-4" />
-                  </button>
+                {isLayerStudy && hasPreviewContent && (
+                  <div className="absolute right-2 top-2 z-10 flex items-center gap-2 sm:right-3 sm:top-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSaveError(null)
+                        setIsSaveModalOpen(true)
+                      }}
+                      disabled={isSavingDesign}
+                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-blue-600 text-white shadow-md backdrop-blur-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-60"
+                      aria-label="Save current design"
+                    >
+                      {isSavingDesign ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsPreviewFullscreenOpen(true)}
+                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white shadow-md backdrop-blur-sm transition hover:bg-black/75 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                      aria-label="Open full screen preview"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -1189,15 +2154,70 @@ export function AnalyticsDesignConfigurator({
             </PreviewFullscreenModal>
 
             <div className="flex items-center justify-between border-t border-gray-100 bg-white px-6 py-4">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Total Coefficient</p>
-                <p className="mt-0.5 text-sm font-medium text-gray-400">{activeSegment?.label || "Overall"}</p>
-              </div>
-              <div className="tabular-nums text-3xl font-black text-gray-900">
-                {formatValue(totalCoefficient, activeMetric)}
-              </div>
+              {isInputDesignMode ? (
+                <>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Input Design</p>
+                    <p className="mt-0.5 text-sm font-medium text-gray-400">{selectedElements.length} selected</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowInputInsights(true)}
+                    disabled={selectedElements.length === 0}
+                    className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Check Insights
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Total Coefficient</p>
+                    <p className="mt-0.5 text-sm font-medium text-gray-400">{activeSegment?.label || "Overall"}</p>
+                  </div>
+                  <div className="tabular-nums text-3xl font-black text-gray-900">
+                    {formatValue(totalCoefficient, activeMetric)}
+                  </div>
+                </>
+              )}
             </div>
           </div>
+
+          {isInputDesignMode && showInputInsights && selectedElements.length > 0 && (
+            <div className="rounded-3xl border border-blue-100 bg-white shadow-sm">
+              <div className="flex flex-col gap-3 border-b border-gray-100 p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">Input Design Insights</h3>
+                  <p className="mt-1 text-xs text-gray-500">Summed coefficients for your selected elements across all segments.</p>
+                </div>
+                <div className="relative min-w-[180px]">
+                  <select
+                    value={activeInputInsightMetric}
+                    onChange={(event) => setActiveInputInsightMetric(event.target.value as Metric)}
+                    className="h-10 w-full appearance-none rounded-xl border border-gray-200 bg-white px-4 pr-10 text-sm font-bold text-gray-700 shadow-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  >
+                    {METRIC_OPTIONS.map((metric) => (
+                      <option key={metric.value} value={metric.value}>
+                        {metric.label}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                </div>
+              </div>
+              <div className="max-h-72 space-y-2 overflow-y-auto p-5">
+                {(inputDesignInsights[activeInputInsightMetric] || []).map((row) => (
+                  <div key={row.segment_id} className="flex items-center justify-between rounded-2xl bg-gray-50 px-4 py-3">
+                    <span className="min-w-0 truncate text-sm font-semibold text-gray-700">{row.label}</span>
+                    <span className={`ml-3 tabular-nums text-sm font-black ${row.value >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                      {row.value >= 0 ? "+" : ""}
+                      {formatValue(row.value, activeInputInsightMetric)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Selected Elements Card */}
           {selectedElements.length > 0 && (
@@ -1215,34 +2235,60 @@ export function AnalyticsDesignConfigurator({
                   {selectedElements.map((element) => (
                     <div key={`selected-${element.id}`} className="group flex items-center justify-between">
                       <div className="flex min-w-0 items-center gap-3">
-                        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-gray-50 p-1 ring-1 ring-gray-100">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!element.imageUrl) return
+                            setHighlightedSelectionId(element.id)
+                            setActiveSelectionImage({ url: element.imageUrl, name: element.name })
+                          }}
+                          disabled={!element.imageUrl}
+                          className="flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg bg-gray-50 p-1 ring-1 ring-gray-100 transition hover:ring-blue-300 disabled:cursor-default disabled:hover:ring-gray-100"
+                        >
                           {element.imageUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
                             <img src={element.imageUrl} alt={element.name} className="h-full w-full object-contain" />
                           ) : (
                             <Type className="h-4 w-4 text-gray-400" />
                           )}
-                        </div>
+                        </button>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 break-words">{element.name}</p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (!element.imageUrl) return
+                              setHighlightedSelectionId(element.id)
+                              setActiveSelectionImage({ url: element.imageUrl, name: element.name })
+                            }}
+                            disabled={!element.imageUrl}
+                            className={`break-words text-left text-sm font-medium transition disabled:cursor-default ${
+                              highlightedSelectionId === element.id
+                                ? "text-blue-600"
+                                : "text-gray-900 hover:text-blue-600 disabled:hover:text-gray-900"
+                            }`}
+                          >
+                            {element.name}
+                          </button>
                           <p className="truncate text-xs text-gray-500">{element.category}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <span
-                          className={`tabular-nums text-sm font-bold ${
-                            element.value >= 0 ? "text-emerald-600" : "text-red-600"
-                          }`}
-                        >
-                          {element.value >= 0 ? "+" : ""}
-                          {formatValue(element.value, activeMetric)}
-                        </span>
+                        {!isInputDesignMode && (
+                          <span
+                            className={`tabular-nums text-sm font-bold ${
+                              element.value >= 0 ? "text-emerald-600" : "text-red-600"
+                            }`}
+                          >
+                            {element.value >= 0 ? "+" : ""}
+                            {formatValue(element.value, activeMetric)}
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={() =>
                             setSelectedByCategory((current) => {
                               const next = { ...current }
-                              delete next[element.category]
+                              delete next[element.categoryKey]
                               return next
                             })
                           }
@@ -1261,7 +2307,7 @@ export function AnalyticsDesignConfigurator({
         </div>
 
         {/* Right Column - Categories */}
-        <div className="space-y-4 pb-10 lg:w-7/12 lg:h-full lg:overflow-y-auto lg:pr-4">
+        <div className="space-y-4 pb-10 lg:w-7/12 lg:pr-4">
           {!isLayerStudy && selectedCount >= MAX_NON_LAYER_SELECTIONS && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-medium text-amber-800">
               Maximum 4 elements can be selected. Remove one to add another category.
@@ -1269,13 +2315,13 @@ export function AnalyticsDesignConfigurator({
           )}
 
           {categories.map((category) => {
-            const selectedId = selectedByCategory[category.name]
-            const isOpen = openCategoryNames[category.name] ?? false
+            const selectedId = selectedByCategory[category.key]
+            const isOpen = openCategoryNames[category.key] ?? false
             return (
-              <div key={category.name} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
+              <div key={category.key} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
                 <button
                   type="button"
-                  onClick={() => toggleCategoryOpen(category.name)}
+                  onClick={() => toggleCategoryOpen(category.key)}
                   className="flex w-full cursor-pointer items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-gray-50 sm:px-6"
                   aria-expanded={isOpen}
                 >
@@ -1301,8 +2347,7 @@ export function AnalyticsDesignConfigurator({
                 {isOpen && (
                   <div className="border-t border-gray-100 p-5 sm:p-6">
                     <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                      {[...category.elements]
-                        .sort((a, b) => b.value - a.value)
+                      {(isInputDesignMode ? [...category.elements] : [...category.elements].sort((a, b) => b.value - a.value))
                         .map((element) => {
                           const isSelected = selectedId === element.id
                           const disabled =
@@ -1359,14 +2404,16 @@ export function AnalyticsDesignConfigurator({
                                   {/* <span className="text-xs text-gray-500">
                                     {isLayerStudy ? `Stack ${element.zIndex}` : isText ? "Text" : "Image"}
                                   </span> */}
-                                  <span
-                                    className={`rounded-md px-2 py-0.5 text-sm font-bold tabular-nums ${
-                                      element.value >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
-                                    }`}
-                                  >
-                                    {element.value >= 0 ? "+" : ""}
-                                    {formatValue(element.value, activeMetric)}
-                                  </span>
+                                  {!isInputDesignMode && (
+                                    <span
+                                      className={`rounded-md px-2 py-0.5 text-sm font-bold tabular-nums ${
+                                        element.value >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+                                      }`}
+                                    >
+                                      {element.value >= 0 ? "+" : ""}
+                                      {formatValue(element.value, activeMetric)}
+                                    </span>
+                                  )}
                                   {!isText && (
                                     <button
                                       type="button"
@@ -1394,6 +2441,41 @@ export function AnalyticsDesignConfigurator({
           })}
         </div>
       </div>
+
+      <SaveDesignModal
+        isOpen={isSaveModalOpen}
+        defaultName={defaultSavedDesignName}
+        error={saveError}
+        isSaving={isSavingDesign}
+        onClose={() => setIsSaveModalOpen(false)}
+        onSave={(name) => void handleSaveDesign(name)}
+      />
+
+      <SavedDesignComparePanel
+        isOpen={isComparePanelOpen}
+        savedDesigns={savedDesigns}
+        selectedIds={selectedCompareIds}
+        error={compareError}
+        isLoading={isLoadingSavedDesigns}
+        isComparing={isComparingDesigns}
+        onClose={() => setIsComparePanelOpen(false)}
+        onToggle={handleToggleCompareDesign}
+        onCompare={() => void handleCompareDesigns()}
+        onDelete={(designId) => void handleDeleteSavedDesign(designId)}
+      />
+
+      <SavedDesignCompareOverlay
+        designs={compareDesigns}
+        analysisData={analysisData}
+        elementMediaLookup={elementMediaLookup}
+        onImageOpen={(image) => setActiveSelectionImage(image)}
+        onClose={() => setCompareDesigns([])}
+      />
+
+      <SelectionImageLightbox
+        image={activeSelectionImage}
+        onClose={() => setActiveSelectionImage(null)}
+      />
     </motion.section>
   )
 }

@@ -1,0 +1,4 @@
+@import "tailwindcss";
+
+@source "../app/home/study/[id]/analytics/components/AnalyticsDesignConfigurator.tsx";
+@source "../lib/export/ExportConfiguratorRoot.tsx";

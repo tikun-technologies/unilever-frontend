@@ -110,6 +110,46 @@ export interface CreateStudyPayload {
   product_keys?: Array<{ name: string; percentage: number }> // Optional; special creators only
 }
 
+export type DesignMetric = "Top Down" | "Bottom Up" | "Response Time"
+export type SavedDesignType = "configurator" | "input"
+
+export interface SavedDesignSegmentPayload {
+  id?: string
+  label?: string
+  section_key?: string
+  value_key?: string
+}
+
+export interface SavedDesignConfigurationPayload {
+  metric: DesignMetric
+  study_type: StudyType
+  design_type?: SavedDesignType
+  segment?: SavedDesignSegmentPayload
+  selected_by_category: Record<string, string>
+  selected_elements: Array<Record<string, any>>
+  input_insights?: Record<string, Array<{ segment_id: string; label: string; value: number }>>
+  show_layer_background?: boolean
+  background_url?: string | null
+  aspect_ratio?: string | null
+  total_coefficient?: number
+}
+
+export interface SavedDesignPayload {
+  id: string
+  study_id: string
+  created_by_id?: string | null
+  name: string
+  design_type: SavedDesignType
+  study_type: StudyType
+  metric: DesignMetric
+  segment_label?: string | null
+  selection_count: number
+  total_coefficient?: number | null
+  configuration: SavedDesignConfigurationPayload
+  created_at: string
+  updated_at: string
+}
+
 export interface UploadImageResult {
   secure_url: string
   public_id: string
@@ -1883,6 +1923,76 @@ export async function getStudyPreview(studyId: string): Promise<StudyDetails> {
   }
 
   return data
+}
+
+export async function listSavedDesigns(studyId: string, designType: SavedDesignType = "configurator"): Promise<SavedDesignPayload[]> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/saved-designs?design_type=${encodeURIComponent(designType)}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  })
+  if (res.status === 204) return []
+  const text = await res.text().catch(() => "")
+  let data: any = []
+  try { data = text ? JSON.parse(text) : [] } catch { data = { detail: text } }
+  if (!res.ok) {
+    const msg = (data && (data.detail || data.message)) || text || `Failed to load saved designs (${res.status})`
+    throw Object.assign(new Error(typeof msg === "string" ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+  return data
+}
+
+export async function createSavedDesign(
+  studyId: string,
+  name: string,
+  configuration: SavedDesignConfigurationPayload,
+  designType: SavedDesignType = "configurator"
+): Promise<SavedDesignPayload> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/saved-designs`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, design_type: designType, configuration }),
+  })
+  const text = await res.text().catch(() => "")
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+  if (!res.ok) {
+    const msg = (data && (data.detail || data.message)) || text || `Failed to save design (${res.status})`
+    throw Object.assign(new Error(typeof msg === "string" ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+  return data
+}
+
+export async function compareSavedDesigns(studyId: string, designIds: string[], designType: SavedDesignType = "configurator"): Promise<SavedDesignPayload[]> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/saved-designs/compare`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ design_ids: designIds, design_type: designType }),
+  })
+  const text = await res.text().catch(() => "")
+  let data: any = []
+  try { data = text ? JSON.parse(text) : [] } catch { data = { detail: text } }
+  if (!res.ok) {
+    const msg = (data && (data.detail || data.message)) || text || `Failed to compare saved designs (${res.status})`
+    throw Object.assign(new Error(typeof msg === "string" ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+  return data
+}
+
+export async function deleteSavedDesign(studyId: string, designId: string): Promise<void> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/saved-designs/${designId}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+  })
+  if (res.ok || res.status === 204) return
+  const text = await res.text().catch(() => "")
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+  const msg = (data && (data.detail || data.message)) || text || `Failed to delete saved design (${res.status})`
+  throw Object.assign(new Error(typeof msg === "string" ? msg : JSON.stringify(msg)), { status: res.status, data })
 }
 
 // Update study status (pause/activate/complete)

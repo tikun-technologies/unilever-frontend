@@ -8,6 +8,7 @@ import { getStudyBasicDetails, StudyDetails } from "@/lib/api/StudyAPI"
 import { downloadStudyResponsesCsv, getStudyAnalysisJson } from "@/lib/api/ResponseAPI"
 import { AnimatePresence, motion } from "framer-motion"
 import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard, Sparkles } from "lucide-react"
+import { exportDesignConfiguratorHtml, ExportHtmlStage } from "@/lib/export/designConfiguratorHtmlExport"
 import Link from "next/link"
 import { AnalyticsToolbar } from "./components/AnalyticsToolbar"
 import { AnalyticsTable } from "./components/AnalyticsTable"
@@ -37,6 +38,8 @@ export default function StudyAnalyticsPage() {
     const [error, setError] = useState<string | null>(null)
     const [exporting, setExporting] = useState(false)
     const [exportStage, setExportStage] = useState(0)
+    const [exportingHtml, setExportingHtml] = useState(false)
+    const [exportHtmlStage, setExportHtmlStage] = useState<ExportHtmlStage>("preparing")
     const [analysisData, setAnalysisData] = useState<any>(null)
     const [analysisLoading, setAnalysisLoading] = useState(true)
     const [analysisError, setAnalysisError] = useState<string | null>(null)
@@ -70,6 +73,33 @@ export default function StudyAnalyticsPage() {
             setError((err as Error)?.message || "Failed to load study details")
         } finally {
             setLoading(false)
+        }
+    }
+
+    const buildHtmlExport = async () => {
+        if (!study || !analysisData) return
+
+        const exportTitle =
+            study.title || analysisData?.["Information Block"]?.["Study Title"] || "Study Analytics"
+        const exportStudyType =
+            (study.study_type || analysisData?.["Information Block"]?.["Study Type"] || "text").toLowerCase()
+
+        try {
+            setExportingHtml(true)
+            setExportHtmlStage("preparing")
+            await exportDesignConfiguratorHtml({
+                studyId,
+                studyTitle: exportTitle,
+                studyType: exportStudyType,
+                analysisData,
+                onStageChange: setExportHtmlStage,
+            })
+        } catch (e) {
+            console.error("Export HTML failed:", e)
+            alert((e as Error)?.message || "Failed to export HTML")
+        } finally {
+            setExportingHtml(false)
+            setExportHtmlStage("preparing")
         }
     }
 
@@ -232,6 +262,7 @@ export default function StudyAnalyticsPage() {
                                         </>
                                     )}
                                 </button>
+
                             </div>
                         </div>
                     </div>
@@ -382,7 +413,14 @@ export default function StudyAnalyticsPage() {
 
                             {/* Keep mounted when not active so configurator selections persist when switching tabs */}
                             <div className={analyticsView !== "configurator" ? "hidden" : undefined}>
-                                <AnalyticsDesignConfigurator analysisData={analysisData} studyType={studyType} />
+                                <AnalyticsDesignConfigurator
+                                    analysisData={analysisData}
+                                    studyId={studyId}
+                                    studyType={studyType}
+                                    onExportHtml={() => void buildHtmlExport()}
+                                    isExportingHtml={exportingHtml}
+                                    exportHtmlStage={exportHtmlStage}
+                                />
                             </div>
 
                             {/* Keep mounted when not active so filter state and results persist when switching tabs */}

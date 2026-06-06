@@ -7,7 +7,8 @@
     "clean": "rm -rf .next",
     "dev:clean": "rm -rf .next && next dev",
     "dev:turbo": "next dev --turbopack",
-    "build": "next build --turbopack",
+    "build:export-assets": "node scripts/build-export-configurator.mjs",
+    "build": "npm run build:export-assets && next build --turbopack",
     "start": "next start",
     "lint": "eslint"
   },
@@ -53,6 +54,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.0",
     "eslint": "^9",
     "eslint-config-next": "15.5.2",
     "tailwindcss": "^4",
