@@ -508,16 +508,16 @@ export async function getStudyAnalytics(studyId: string): Promise<StudyAnalytics
 }
 
 /**
- * Get study analysis JSON (same shape as analysis.json for grid/text/hybrid studies).
- * Used by the analytics page for KPIs, heatmaps, tables, etc.
+ * Get optimized study analysis JSON for the analytics page.
+ * Same aggregate shape as analysis.json, but replaces heavy RawData with dashboard_summary.
  * @param studyId - The study ID from route params
- * @returns Promise with analysis JSON (Information Block, RawData, (T) Overall, etc.)
+ * @returns Promise with analysis JSON (Information Block, dashboard_summary, (T) Overall, etc.)
  */
 export async function getStudyAnalysisJson(studyId: string): Promise<any> {
 	const cleanId = studyId?.trim?.()
 	if (!cleanId) throw new Error('Study ID is required')
 	const response = await fetchWithAuth(
-		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/analysis-json`,
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/optimized-analysis-json`,
 		{ method: 'GET', headers: { 'Content-Type': 'application/json' } }
 	)
 	if (!response.ok) {

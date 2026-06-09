@@ -25,16 +25,24 @@ interface AnalyticsResponseTimeSectionProps {
   rawDataOverride?: any[]
 }
 
+type ResponseTimeByTaskDatum = {
+  task: number | string
+  avg: number
+  count: number
+}
+
 export function AnalyticsResponseTimeSection({ analysisData, rawDataOverride }: AnalyticsResponseTimeSectionProps) {
+  const summary = rawDataOverride ? null : analysisData?.dashboard_summary
   const raw = rawDataOverride ?? analysisData?.RawData ?? []
-  const pieData = getResponseTimeDistribution(raw)
-  const taskData = getResponseTimeByTask(raw).map((d) => ({
+  const pieData = raw.length > 0 ? getResponseTimeDistribution(raw) : summary?.responseTimeDistribution ?? []
+  const taskSource: ResponseTimeByTaskDatum[] = raw.length > 0 ? getResponseTimeByTask(raw) : summary?.responseTimeByTask ?? []
+  const taskData = taskSource.map((d) => ({
     name: `Task ${d.task}`,
     "Avg Time (s)": Number(d.avg.toFixed(3)),
     count: d.count,
   }))
 
-  if (raw.length === 0) {
+  if (raw.length === 0 && !summary) {
     return (
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-gray-500">
         <p>No response time data available.</p>

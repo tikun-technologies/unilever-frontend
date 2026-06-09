@@ -20,6 +20,16 @@ const TAB_KEYS: Record<string, string> = {
   "3 Market Segments": "Mindsets",
 }
 
+type DashboardSummary = {
+  totalResponses?: number
+  uniquePanelists?: number
+  totalRespondents?: number
+  avgResponseTime?: number
+  avgRating?: number
+  taskCount?: number
+  categoryCount?: number
+}
+
 function getSection(analysis: any, metric: string, tab: string): any {
   const m = METRIC_KEYS[metric] || "(T)"
   const tabKey = TAB_KEYS[tab] || "Overall"
@@ -27,7 +37,7 @@ function getSection(analysis: any, metric: string, tab: string): any {
   return analysis?.[key] ?? null
 }
 
-/** Extract KPI stats from RawData */
+/** Extract KPI stats from dashboard_summary when available, otherwise RawData. */
 export function getKPIStats(analysis: any, rawOverride?: any[]): {
   totalResponses: number
   uniquePanelists: number
@@ -37,6 +47,19 @@ export function getKPIStats(analysis: any, rawOverride?: any[]): {
   taskCount: number
   categoryCount: number
 } {
+  const summary: DashboardSummary | undefined = rawOverride ? undefined : analysis?.dashboard_summary
+  if (summary) {
+    return {
+      totalResponses: Number(summary.totalResponses ?? 0),
+      uniquePanelists: Number(summary.uniquePanelists ?? 0),
+      totalRespondents: Number(summary.totalRespondents ?? 0),
+      avgResponseTime: Number(summary.avgResponseTime ?? 0),
+      avgRating: Number(summary.avgRating ?? 0),
+      taskCount: Number(summary.taskCount ?? 1),
+      categoryCount: Number(summary.categoryCount ?? analysis?.["Information Block"]?.Categories?.length ?? 0),
+    }
+  }
+
   const raw = rawOverride ?? analysis?.RawData ?? []
   const info = analysis?.["Information Block"]
   const categories = info?.Categories || []

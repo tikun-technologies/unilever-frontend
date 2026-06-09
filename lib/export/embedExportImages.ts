@@ -1,4 +1,5 @@
 const HTTP_URL_RE = /^https?:\/\//i
+const IMAGE_EMBED_CONCURRENCY = 5
 
 function isHttpUrl(value: unknown): value is string {
   return typeof value === "string" && HTTP_URL_RE.test(value)
@@ -73,13 +74,23 @@ export async function buildImageDataUrlMap(
   const failed: string[] = []
   let done = 0
 
-  for (const url of unique) {
-    const dataUrl = await fetchAsDataUrl(url)
-    if (dataUrl) map.set(url, dataUrl)
-    else failed.push(url)
-    done += 1
-    onProgress?.(done, unique.length)
-  }
+  let nextIndex = 0
+  const workerCount = Math.min(IMAGE_EMBED_CONCURRENCY, unique.length)
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < unique.length) {
+        const url = unique[nextIndex]
+        nextIndex += 1
+
+        const dataUrl = await fetchAsDataUrl(url)
+        if (dataUrl) map.set(url, dataUrl)
+        else failed.push(url)
+        done += 1
+        onProgress?.(done, unique.length)
+      }
+    })
+  )
 
   return { map, failed }
 }

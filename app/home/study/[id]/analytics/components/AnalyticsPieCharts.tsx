@@ -13,10 +13,11 @@ interface AnalyticsPieChartsProps {
 }
 
 export function AnalyticsPieCharts({ analysisData, rawDataOverride }: AnalyticsPieChartsProps) {
+  const summary = rawDataOverride ? null : analysisData?.dashboard_summary
   const raw = rawDataOverride ?? analysisData?.RawData ?? []
-  const ratingData = getRatingDistribution(raw)
-  const ageData = getAgeDistributionByRanges(raw)
-  const genderData = getSegmentParticipation(raw, "Gender")
+  const ratingData = raw.length > 0 ? getRatingDistribution(raw) : summary?.ratingDistribution ?? []
+  const ageData = raw.length > 0 ? getAgeDistributionByRanges(raw) : summary?.ageDistribution ?? []
+  const genderData = raw.length > 0 ? getSegmentParticipation(raw, "Gender") : summary?.genderDistribution ?? []
 
   const charts = [
     { title: "Rating Distribution", data: ratingData },
