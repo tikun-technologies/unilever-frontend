@@ -17,7 +17,6 @@ import {
 } from "recharts"
 import { getResponseTimeDistribution, getResponseTimeByTask } from "@/lib/utils/analysisDashboard"
 
-const COLORS = ["#22C55E", "#FCCD5B", "#F7945A", "#C04E35"]
 const BAR_COLOR = "#2674BA"
 
 interface AnalyticsResponseTimeSectionProps {
@@ -31,10 +30,16 @@ type ResponseTimeByTaskDatum = {
   count: number
 }
 
+type ResponseTimePieDatum = {
+  name: string
+  value: number
+  fill: string
+}
+
 export function AnalyticsResponseTimeSection({ analysisData, rawDataOverride }: AnalyticsResponseTimeSectionProps) {
   const summary = rawDataOverride ? null : analysisData?.dashboard_summary
   const raw = rawDataOverride ?? analysisData?.RawData ?? []
-  const pieData = raw.length > 0 ? getResponseTimeDistribution(raw) : summary?.responseTimeDistribution ?? []
+  const pieData: ResponseTimePieDatum[] = raw.length > 0 ? getResponseTimeDistribution(raw) : summary?.responseTimeDistribution ?? []
   const taskSource: ResponseTimeByTaskDatum[] = raw.length > 0 ? getResponseTimeByTask(raw) : summary?.responseTimeByTask ?? []
   const taskData = taskSource.map((d) => ({
     name: `Task ${d.task}`,
@@ -75,13 +80,13 @@ export function AnalyticsResponseTimeSection({ analysisData, rawDataOverride }: 
                   dataKey="value"
                   nameKey="name"
                 >
-                  {pieData.map((entry, index) => (
+                  {pieData.map((entry) => (
                     <Cell key={entry.name} fill={entry.fill} />
                   ))}
                 </Pie>
                 <Tooltip formatter={(value: number, name: string) => [`${value} responses`, name]} />
                 <Legend
-                  formatter={(value, entry) => {
+                  formatter={(value) => {
                     const item = pieData.find((d) => d.name === value)
                     const total = pieData.reduce((s, d) => s + d.value, 0)
                     const pct = item && total > 0 ? ((item.value / total) * 100).toFixed(0) : ""

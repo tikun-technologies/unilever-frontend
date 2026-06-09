@@ -7,6 +7,8 @@ import { getRatingDistribution, getSegmentParticipation, getAgeDistributionByRan
 
 const PIE_COLORS = ["#2674BA", "#22C55E", "#FCCD5B", "#F7945A", "#BB8FCE", "#82E0AA", "#C04E35"]
 
+type PieDatum = { name: string; value: number }
+
 interface AnalyticsPieChartsProps {
   analysisData: any
   rawDataOverride?: any[]
@@ -15,11 +17,11 @@ interface AnalyticsPieChartsProps {
 export function AnalyticsPieCharts({ analysisData, rawDataOverride }: AnalyticsPieChartsProps) {
   const summary = rawDataOverride ? null : analysisData?.dashboard_summary
   const raw = rawDataOverride ?? analysisData?.RawData ?? []
-  const ratingData = raw.length > 0 ? getRatingDistribution(raw) : summary?.ratingDistribution ?? []
-  const ageData = raw.length > 0 ? getAgeDistributionByRanges(raw) : summary?.ageDistribution ?? []
-  const genderData = raw.length > 0 ? getSegmentParticipation(raw, "Gender") : summary?.genderDistribution ?? []
+  const ratingData: PieDatum[] = raw.length > 0 ? getRatingDistribution(raw) : summary?.ratingDistribution ?? []
+  const ageData: PieDatum[] = raw.length > 0 ? getAgeDistributionByRanges(raw) : summary?.ageDistribution ?? []
+  const genderData: PieDatum[] = raw.length > 0 ? getSegmentParticipation(raw, "Gender") : summary?.genderDistribution ?? []
 
-  const charts = [
+  const charts: { title: string; data: PieDatum[] }[] = [
     { title: "Rating Distribution", data: ratingData },
     { title: "Age Distribution (participants)", data: ageData },
     { title: "Gender Distribution (participants)", data: genderData },
@@ -63,7 +65,7 @@ export function AnalyticsPieCharts({ analysisData, rawDataOverride }: AnalyticsP
                   isAnimationActive={true}
                 >
                   {chart.data.map((entry, i) => (
-                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                    <Cell key={entry.name} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip
@@ -74,7 +76,7 @@ export function AnalyticsPieCharts({ analysisData, rawDataOverride }: AnalyticsP
                   }}
                 />
                 <Legend
-                  formatter={(value, entry) => {
+                  formatter={(value) => {
                     const item = chart.data.find((d) => d.name === value)
                     const total = chart.data.reduce((s, d) => s + d.value, 0)
                     const pct = item && total > 0 ? ((item.value / total) * 100).toFixed(0) : ""
