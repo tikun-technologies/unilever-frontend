@@ -66,13 +66,12 @@ export function persistOnboardingStatusToUser(status: OnboardingStatus) {
       ...user,
       onboarding_completed: status.onboarding_completed,
       onboarding_skipped: status.onboarding_skipped,
-      create_study_onboarding_completed: status.create_study_onboarding_completed,
-      create_study_onboarding_skipped: status.create_study_onboarding_skipped,
       show_dashboard_onboarding: status.show_dashboard_onboarding,
       show_create_study_onboarding: status.show_create_study_onboarding,
       dashboard_onboarding_completed: status.onboarding_completed && !status.onboarding_skipped,
       dashboard_onboarding_skipped: status.onboarding_skipped,
-      create_study_onboarding_completed: status.create_study_onboarding_completed && !status.create_study_onboarding_skipped,
+      create_study_onboarding_completed:
+        status.create_study_onboarding_completed && !status.create_study_onboarding_skipped,
       create_study_onboarding_skipped: status.create_study_onboarding_skipped,
     }
     localStorage.setItem("user", JSON.stringify(nextUser))
