@@ -362,12 +362,18 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
         console.warn('Failed to clean up additional step7 keys:', error)
       }
 
+      try {
+        sessionStorage.removeItem('create_study_onboarding_active')
+        sessionStorage.removeItem('create_study_guide_shown_up_to')
+      } catch { }
+
       // Redirect to study page after activation, preserving project context.
       const currentParams = new URLSearchParams(window.location.search)
       const projId = currentParams.get('proj_id') || currentParams.get('projectId')
-      window.location.href = projId
-        ? `/home/study/${studyId}?proj_id=${encodeURIComponent(projId)}`
-        : `/home/study/${studyId}`
+      const query = new URLSearchParams()
+      if (projId) query.set('proj_id', projId)
+      query.set('launched', '1')
+      window.location.href = `/home/study/${studyId}?${query.toString()}`
     } catch (error: any) {
       console.error('Failed to launch study:', error)
       console.log('[Step8] Study launch failed, preserving study_id for retry')

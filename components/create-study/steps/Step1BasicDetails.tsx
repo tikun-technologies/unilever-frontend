@@ -169,7 +169,7 @@ export function Step1BasicDetails({ onNext, onCancel, onDataChange, isReadOnly =
   }
 
   return (
-    <div>
+    <div data-tour="step1-box">
       <div className="space-y-5">
         <div className={isReadOnly ? "opacity-70 pointer-events-none" : ""}>
           <label className="block text-sm font-semibold text-gray-800 mb-2">Study Title <span className="text-red-500">*</span></label>

@@ -128,10 +128,15 @@ export function RegisterForm({ onSwitchToLogin }: RegisterFormProps) {
             })
 
             login(response.user, response.tokens)
+            try {
+              localStorage.setItem("mindsurve_onboarding_pending", "true")
+              localStorage.setItem(`mindsurve_onboarding_pending:${response.user.id || response.user.email}`, "true")
+              sessionStorage.setItem("mindsurve_onboarding_pending", "true")
+            } catch { }
             setSuccessMessage("Account created successfully.")
 
             setTimeout(() => {
-              router.push('/home')
+              router.push('/home?onboarding=welcome')
             }, 1000)
 
           } catch (err: unknown) {

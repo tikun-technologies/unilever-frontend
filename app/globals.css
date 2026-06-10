@@ -142,4 +142,8 @@
     outline: none !important;
     border: none !important;
   }
+
+  .react-joyride__spotlight {
+    border-radius: 16px !important;
+  }
 }

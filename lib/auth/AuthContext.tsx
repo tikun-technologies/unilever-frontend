@@ -3,7 +3,8 @@
 import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { signOut } from 'next-auth/react'
-import { Tokens, User, API_BASE_URL } from '@/lib/api/LoginApi'
+import { User, Tokens, API_BASE_URL } from '@/lib/api/LoginApi'
+import { normalizeOnboardingStatus, persistOnboardingStatusToUser } from '@/lib/api/onboardingApi'
 
 interface AuthContextType {
   user: User | null
@@ -124,6 +125,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const login = (userData: User, tokenData: Tokens) => {
     // Clear any existing caches before logging in with new user
     clearCaches()
+
+    const onboardingStatus = normalizeOnboardingStatus(userData)
+    persistOnboardingStatusToUser(onboardingStatus)
 
     setUser(userData)
     setTokens(tokenData)

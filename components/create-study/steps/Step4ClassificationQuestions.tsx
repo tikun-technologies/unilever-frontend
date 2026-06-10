@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { normalizeClassificationId, updateStudyAsync, putUpdateStudyAsync } from "@/lib/api/StudyAPI"
 
@@ -189,6 +190,16 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 						<label htmlFor="toggle-shuffle" className="text-sm font-bold text-blue-800 cursor-pointer select-none">
 							Toggle Shuffle
 						</label>
+						<span className="relative group inline-flex cursor-pointer">
+							<Info
+								className="w-4 h-4 text-blue-600 cursor-help"
+								aria-label="Shuffle information"
+							/>
+							<div className="absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded-lg shadow-lg bg-gray-800 px-3 py-2 text-center text-xs text-white opacity-0 pointer-events-none transition-opacity duration-200 group-hover:opacity-100">
+								When enabled, classification questions are shown to participants in a random order.
+								<div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-gray-800" />
+							</div>
+						</span>
 					</div>
 					<Button
 						className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)]"

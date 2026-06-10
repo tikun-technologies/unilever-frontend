@@ -357,7 +357,7 @@ export function StudyGrid({
 
   if (error) {
     return (
-      <div className="text-center py-12">
+      <div data-tour="studies" className="text-center py-12">
         <div className="text-red-600 mb-4">Error loading studies: {error}</div>
         <Button onClick={() => window.location.reload()}>Try Again</Button>
       </div>
@@ -382,6 +382,7 @@ export function StudyGrid({
             </div>
             <Button
               onClick={handleCreateNewStudy}
+              data-tour="create-study"
               className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-6 py-2 rounded-lg"
             >
               Create Your First Study
@@ -412,6 +413,7 @@ export function StudyGrid({
               )}
               <Button
                 onClick={handleCreateNewStudy}
+                data-tour="create-study"
                 className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-4 py-2 rounded-lg"
               >
                 Create New Study
@@ -425,7 +427,7 @@ export function StudyGrid({
 
   return (
     <>
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div data-tour="studies" className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {filteredStudies.map((study, index) => (
         <motion.div
           key={study.id}

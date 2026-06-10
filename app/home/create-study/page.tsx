@@ -18,6 +18,9 @@ import { getStudyPreview, normalizeClassificationId, StudyType } from "@/lib/api
 import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 
+import { CreateStudyOnboarding } from "@/components/onboarding/CreateStudyOnboarding"
+import { shouldShowCreateStudyWalkthrough } from "@/lib/api/onboardingApi"
+
 // Type definitions for backend responses
 interface ClassificationQuestion {
   id?: string
@@ -736,6 +739,7 @@ export default function CreateStudyPage() {
     }
     return 'admin'
   })
+  const [showCreateStudyOnboarding] = useState(() => shouldShowCreateStudyWalkthrough())
 
   useEffect(() => {
     // Listen for storage changes in case it updates in another tab/component
@@ -1101,6 +1105,12 @@ export default function CreateStudyPage() {
           </div>
         </div>
       </motion.div>
+      <CreateStudyOnboarding
+        currentStep={currentStep}
+        isSpecialCreator={isSpecialCreator}
+        studyType={studyType}
+        showCreateStudyOnboarding={showCreateStudyOnboarding}
+      />
     </AuthGuard>
   )
 }

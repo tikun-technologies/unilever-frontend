@@ -177,7 +177,10 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
   return (
     <div>
       <div className={`space-y-6 ${isReadOnly ? "opacity-70 pointer-events-none" : ""}`}>
-        <div>
+        <div
+          data-tour="step2-study-types"
+          className="rounded-2xl p-1 sm:p-2"
+        >
           <label className="block text-sm font-semibold text-gray-800 mb-2">Study Type <span className="text-red-500">*</span></label>
           <p className="text-xs text-gray-500 mb-4">Choose whether your study will use images or text elements</p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">

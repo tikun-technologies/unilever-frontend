@@ -18,6 +18,14 @@ export interface User {
 	date_of_birth: string;
 	is_active: boolean;
 	is_verified: boolean;
+	dashboard_onboarding_completed?: boolean;
+	dashboard_onboarding_skipped?: boolean;
+	create_study_onboarding_completed?: boolean;
+	create_study_onboarding_skipped?: boolean;
+	onboarding_completed?: boolean;
+	onboarding_skipped?: boolean;
+	show_dashboard_onboarding?: boolean;
+	show_create_study_onboarding?: boolean;
 	created_at: string;
 	updated_at: string;
 	last_login: string;

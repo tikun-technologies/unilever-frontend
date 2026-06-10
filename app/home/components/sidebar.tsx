@@ -34,6 +34,10 @@ interface SidebarProps {
     fetchProjectStudies?: (projectId: string) => Promise<StudyListItem[]>;
     /** Called after copying a study from sidebar so parent can refetch studies */
     onStudyCopied?: () => void | Promise<void>;
+    /** Keeps the navigation visible while product tour targets sidebar content. */
+    forceExpanded?: boolean;
+    /** Current dashboard onboarding tour step (used for mobile sidebar behavior). */
+    tourStepIndex?: number | null;
 }
 
 export function Sidebar({
@@ -47,7 +51,9 @@ export function Sidebar({
     isLoading,
     studies = [],
     fetchProjectStudies,
-    onStudyCopied
+    onStudyCopied,
+    forceExpanded = false,
+    tourStepIndex = null,
 }: SidebarProps) {
     const [isCollapsed, setIsCollapsed] = useState(true);
     const [isMobile, setIsMobile] = useState(false);
@@ -68,6 +74,14 @@ export function Sidebar({
         window.addEventListener('resize', checkMobile);
         return () => window.removeEventListener('resize', checkMobile);
     }, []);
+
+    useEffect(() => {
+        if (forceExpanded) {
+            setIsCollapsed(false);
+        } else if (isMobile && tourStepIndex === 0) {
+            setIsCollapsed(true);
+        }
+    }, [forceExpanded, isMobile, tourStepIndex]);
 
     const studiesByProjectId = useMemo(() => {
         const map: Record<string, StudyListItem[]> = {};
@@ -176,6 +190,7 @@ export function Sidebar({
                         variant="ghost"
                         size="icon"
                         onClick={() => setIsCollapsed(!isCollapsed)}
+                        disabled={forceExpanded}
                         className="hover:bg-gray-100 rounded-full text-gray-500 hover:text-[rgba(38,116,186,1)] transition-colors"
                     >
                         {isCollapsed ? <Menu className="w-10 h-10 transition-transform" /> : <X className="w-5 h-5 transition-transform hover:rotate-90" />}
@@ -186,6 +201,7 @@ export function Sidebar({
                 <div className="p-4">
                     <Button
                         onClick={onCreateProject}
+                        data-tour="create-project"
                         className={`w-full bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white flex items-center transition-all ${isCollapsed ? 'justify-center p-0 h-10 w-10 mx-auto rounded-full' : 'justify-center gap-2 h-11 rounded-lg'}`}
                     >
                         <Plus className="w-5 h-5" />
@@ -195,7 +211,7 @@ export function Sidebar({
 
                 {/* Menu Sections */}
                 <div className="flex-1 overflow-y-auto px-2 py-4 space-y-6">
-                    <div>
+                    <div data-tour="studies-nav">
                         {!isCollapsed && (
                             <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">
                                 General

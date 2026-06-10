@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useSession } from 'next-auth/react'
 import { useAuth } from '@/lib/auth/AuthContext'
 import { useRouter } from 'next/navigation'
@@ -12,6 +12,14 @@ export default function AuthCallbackPage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [hasProcessed, setHasProcessed] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const markOAuthOnboardingPending = useCallback((userId?: string | null, email?: string | null) => {
+    try {
+      localStorage.setItem("mindsurve_onboarding_pending", "true")
+      localStorage.setItem(`mindsurve_onboarding_pending:${userId || email || "oauth"}`, "true")
+      sessionStorage.setItem("mindsurve_onboarding_pending", "true")
+    } catch { }
+  }, [])
 
   useEffect(() => {
     // Prevent multiple processing
@@ -60,8 +68,12 @@ export default function AuthCallbackPage() {
         
         setHasProcessed(true)
         setIsProcessing(false)
-        
-        router.push('/home')
+
+        if (session.isNewUser) {
+          markOAuthOnboardingPending(userData.id, userData.email)
+        }
+
+        router.push(session.isNewUser ? '/home?onboarding=welcome' : '/home')
         
       } else {
         // Make fallback API call
@@ -111,8 +123,12 @@ export default function AuthCallbackPage() {
               
               setHasProcessed(true)
               setIsProcessing(false)
-              
-              router.push('/home')
+
+              if (data.is_new_user) {
+                markOAuthOnboardingPending(userData.id, userData.email)
+              }
+
+              router.push(data.is_new_user ? '/home?onboarding=welcome' : '/home')
               
             } else {
               setError("Authentication failed. Please try again.")
@@ -127,7 +143,7 @@ export default function AuthCallbackPage() {
         makeFallbackCall()
       }
     }
-  }, [session, status, login, isAuthenticated, isProcessing, hasProcessed, router])
+  }, [session, status, login, isAuthenticated, isProcessing, hasProcessed, router, markOAuthOnboardingPending])
 
   // Show loading state while processing
   if (isProcessing) {

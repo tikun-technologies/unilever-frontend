@@ -29,6 +29,12 @@ import { getStudyProjectMapping } from "@/lib/utils/projectUtils"
 import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { FileDown, Link, PenTool } from "lucide-react"
+import { MindSurveOnboarding } from "@/components/onboarding/MindSurveOnboarding"
+import {
+  normalizeOnboardingStatus,
+  persistOnboardingStatusToUser,
+  readStoredOnboardingStatus,
+} from "@/lib/api/onboardingApi"
 
 // Redirect to login without showing error when auth fails (token expired, not authenticated, etc.)
 function redirectToLoginOnAuthError() {
@@ -94,6 +100,11 @@ function DashboardContent() {
   const [isPanelistModalOpen, setIsPanelistModalOpen] = useState(false)
   const [exportingPanelist, setExportingPanelist] = useState(false)
   const [panelistExportStatus, setPanelistExportStatus] = useState("Getting data...")
+  const [onboardingTourStep, setOnboardingTourStep] = useState<number | null>(null)
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
+  const [showDashboardOnboarding, setShowDashboardOnboarding] = useState(
+    () => (typeof window !== "undefined" ? readStoredOnboardingStatus().show_dashboard_onboarding : false)
+  )
 
   const { user } = useAuth()
   const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
@@ -123,12 +134,25 @@ function DashboardContent() {
           }),
         })
         const text = await res.text().catch(() => '')
-        let data: { valid?: boolean; access_token?: string } = {}
+        let data: {
+          valid?: boolean
+          access_token?: string
+          show_dashboard_onboarding?: boolean
+          onboarding_completed?: boolean
+          onboarding_skipped?: boolean
+          create_study_onboarding_completed?: boolean
+          create_study_onboarding_skipped?: boolean
+          show_create_study_onboarding?: boolean
+        } = {}
         try { data = text ? JSON.parse(text) : {} } catch { /* invalid or empty */ }
         if (data?.valid !== true) {
           redirectToLoginOnAuthError()
           return
         }
+
+        const onboardingStatus = normalizeOnboardingStatus(data)
+        persistOnboardingStatusToUser(onboardingStatus)
+        setShowDashboardOnboarding(onboardingStatus.show_dashboard_onboarding)
 
         // Update tokens if refresh returned new access_token
         if (data.access_token) {
@@ -177,6 +201,24 @@ function DashboardContent() {
     }
     validateAndLoad()
   }, [])
+
+  useEffect(() => {
+    if (searchParams.get("onboarding") !== "welcome") return
+
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete("onboarding")
+    const nextQuery = params.toString()
+    router.replace(nextQuery ? `/home?${nextQuery}` : "/home")
+  }, [searchParams, router])
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobileViewport(window.innerWidth < 1024)
+    checkMobile()
+    window.addEventListener("resize", checkMobile)
+    return () => window.removeEventListener("resize", checkMobile)
+  }, [])
+
+  const forceSidebarForTour = onboardingTourStep === 1 && isMobileViewport
 
   // Load projects and mappings (don't hydrate studies from cache - keep spinner until API confirms auth)
   useEffect(() => {
@@ -647,6 +689,8 @@ function DashboardContent() {
             return Array.isArray(data) ? (data as StudyListItem[]) : []
           }}
           onStudyCopied={refetchStudies}
+          forceExpanded={forceSidebarForTour}
+          tourStepIndex={onboardingTourStep}
         />
 
         <motion.div
@@ -800,6 +844,12 @@ function DashboardContent() {
           exportStatus={panelistExportStatus}
         />
       )}
+
+      <MindSurveOnboarding
+        showDashboardOnboarding={showDashboardOnboarding}
+        onDashboardOnboardingChange={setShowDashboardOnboarding}
+        onTourStepChange={setOnboardingTourStep}
+      />
     </AuthGuard>
   )
 }

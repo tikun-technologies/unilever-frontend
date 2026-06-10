@@ -4,13 +4,14 @@ import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ChevronDown, Plus, LogOut, Share2, Trash2 } from "lucide-react"
+import { ChevronDown, Plus, LogOut, PlayCircle, Share2, Trash2 } from "lucide-react"
 import { useAuth } from "@/lib/auth/AuthContext"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { ShareStudyModal } from "@/components/create-study/ShareStudyModal"
 import { ShareProjectModal } from "@/components/home/ShareProjectModal"
 import { deleteStudy } from "@/lib/api/StudyAPI"
+import { requestRestartWalkthrough } from "@/components/onboarding/MindSurveOnboarding"
 
 export function DashboardHeader() {
   const { user, logout } = useAuth()
@@ -227,6 +228,7 @@ export function DashboardHeader() {
                   <Button
                     onClick={handleCreateNewStudy}
                     disabled={!!projId && userRole === 'viewer'}
+                    data-tour="create-study-header"
                     className={`bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-4 py-2 rounded-lg flex items-center space-x-2 ${!!projId && userRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : ''}`}
                     title={!!projId && userRole === 'viewer' ? "Viewers cannot create studies" : "Create new study"}
                   >
@@ -269,6 +271,16 @@ export function DashboardHeader() {
                       <div className="font-medium">{user?.name || 'User'}</div>
                       <div className="text-gray-500 break-all whitespace-normal">{user?.email || ''}</div>
                     </div>
+                    <button
+                      onClick={() => {
+                        setShowDropdown(false)
+                        void requestRestartWalkthrough(homeHref, router)
+                      }}
+                      className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2 cursor-pointer"
+                    >
+                      <PlayCircle className="w-4 h-4" />
+                      <span>Restart Walkthrough</span>
+                    </button>
                     <button
                       onClick={() => {
                         setShowDropdown(false)

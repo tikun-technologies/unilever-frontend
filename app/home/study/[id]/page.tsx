@@ -11,6 +11,7 @@ import { StudyAnalytics, downloadStudyResponsesCsv, subscribeStudyAnalytics } fr
 import { Pause, Play, CheckCircle, Share, Download, BarChart3, ArrowLeft, ChevronDown, LineChart, Bot } from "lucide-react"
 import Link from "next/link"
 import { motion, AnimatePresence } from "framer-motion"
+import { StudyLaunchCongrats } from "@/components/onboarding/StudyLaunchCongrats"
 
 interface AccordionSectionProps {
   title: string
@@ -87,6 +88,7 @@ export default function StudyManagementPage() {
     "Almost there...",
   ]
   const [exportMessageIndex, setExportMessageIndex] = useState(0)
+  const [showLaunchCongrats, setShowLaunchCongrats] = useState(false)
 
   // Cache keys
   const STUDY_CACHE_KEY = `study_details_cache_${studyId}`
@@ -118,6 +120,17 @@ export default function StudyManagementPage() {
     }, 2200)
     return () => clearInterval(id)
   }, [exporting])
+
+  useEffect(() => {
+    if (searchParams.get("launched") !== "1") return
+
+    setShowLaunchCongrats(true)
+
+    const params = new URLSearchParams(searchParams.toString())
+    params.delete("launched")
+    const nextQuery = params.toString()
+    router.replace(`/home/study/${studyId}${nextQuery ? `?${nextQuery}` : ""}`)
+  }, [searchParams, studyId, router])
 
   // Live analytics subscription (SSE with fallback)
   useEffect(() => {
@@ -880,6 +893,13 @@ export default function StudyManagementPage() {
           </div> */}
         </div>
       </div>
+
+      <StudyLaunchCongrats
+        isOpen={showLaunchCongrats}
+        studyId={studyId}
+        projectQuery={projectQuery}
+        onClose={() => setShowLaunchCongrats(false)}
+      />
     </AuthGuard>
   )
 }
