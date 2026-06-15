@@ -6,12 +6,14 @@ import { useEffect, useRef, useState } from "react"
 import { CheckCircle, X } from "lucide-react"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
-import { API_BASE_URL } from "@/lib/api/LoginApi"
+import { getSessionStatus, submitTasksBulk } from "@/lib/api/ResponseAPI"
 import {
   clearParticipateProjectReturn,
   readParticipateProjectReturn,
 } from "@/lib/participate/projectReturnUrl"
 import { clearMergeState } from "@/lib/config/mergedStudies"
+
+const PENDING_TASKS_STORAGE_KEY = 'pending_task_responses'
 
 export default function ThankYouPage() {
   const router = useRouter()
@@ -109,16 +111,23 @@ export default function ThankYouPage() {
     imageCacheManager.clearCache()
 
 
-    // Background: attempt to flush any remaining queued task submissions (non-blocking)
+    // Background: attempt to flush any remaining task submissions (non-blocking)
     const flushOnce = async () => {
       try {
-        const sessionRaw = localStorage.getItem('study_session')
-        const queueRaw = localStorage.getItem('task_submit_queue')
-        if (!sessionRaw || !queueRaw) return
-        const { sessionId } = JSON.parse(sessionRaw)
-        const q: unknown[] = JSON.parse(queueRaw)
+        const queueRaw = localStorage.getItem(PENDING_TASKS_STORAGE_KEY)
+        if (!queueRaw) return
+
+        const stored = JSON.parse(queueRaw)
+        const sessionId = stored?.sessionId
+        const q: unknown[] = stored?.tasks
         if (!sessionId || !Array.isArray(q) || q.length === 0) return
 
+        const existingStatus = await getSessionStatus(String(sessionId))
+        if (existingStatus.is_completed) {
+          localStorage.removeItem(PENDING_TASKS_STORAGE_KEY)
+          return
+        }
+        
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const tasks = q.map((it: any) => ({
           task_id: it.task_id,
@@ -129,31 +138,13 @@ export default function ThankYouPage() {
           elements_shown_content: it.elements_shown_content || undefined,
         }))
 
-        const base = API_BASE_URL?.replace(/\/$/, "")
-        if (!base) return
-        const url = `${base}/responses/submit-tasks-bulk?session_id=${encodeURIComponent(String(sessionId))}`
-        const data = JSON.stringify({ tasks })
+        const result = await submitTasksBulk(String(sessionId), tasks)
+        const failed = result && typeof result === "object" && result.ok === false
+        if (failed) return
 
-        // Try sendBeacon first
-        let sent = false
-        try {
-          if (navigator.sendBeacon) {
-            sent = navigator.sendBeacon(url, new Blob([data], { type: 'application/json' }))
-          }
-        } catch { }
-
-        if (!sent) {
-          const controller = new AbortController()
-          const timeout = window.setTimeout(() => controller.abort(), 12000)
-          try {
-            const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: data, keepalive: true, signal: controller.signal })
-            if (res.ok) sent = true
-          } catch { }
-          window.clearTimeout(timeout)
-        }
-
-        if (sent) {
-          try { localStorage.removeItem('task_submit_queue') } catch { }
+        const status = await getSessionStatus(String(sessionId))
+        if (status.is_completed) {
+          localStorage.removeItem(PENDING_TASKS_STORAGE_KEY)
         }
       } catch { }
     }

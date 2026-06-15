@@ -41,6 +41,36 @@ const clearPendingStorage = () => {
   try { localStorage.removeItem(PENDING_TASKS_STORAGE_KEY) } catch { /* best effort */ }
 }
 
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const isBulkSubmitFailure = (result: any) =>
+  result && typeof result === "object" && result.ok === false
+
+const submitTasksBulkWithRetries = async (
+  sessionId: string,
+  tasks: any[],
+  maxAttempts: number,
+  context: string,
+): Promise<boolean> => {
+  if (tasks.length === 0) return true
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const result = await submitTasksBulk(sessionId, tasks)
+      if (!isBulkSubmitFailure(result)) return true
+    } catch (error) {
+      console.error(`${context} attempt ${attempt} failed:`, error)
+    }
+
+    if (attempt < maxAttempts) {
+      await wait(1000 * attempt)
+    }
+  }
+
+  console.error(`${context} failed after ${maxAttempts} attempts`)
+  return false
+}
+
 // Helper function to get cached URLs for display
 const getCachedUrl = (url: string | undefined): string => {
   if (!url) {
@@ -689,47 +719,47 @@ export default function TasksPage() {
           const finalChunk = [...pendingResponsesRef.current]
           pendingResponsesRef.current = []
           
-          // Send final batch with infinite retry until success
+          // Send final batch with bounded retries. If it still fails, thank-you
+          // will keep flushing the localStorage backup in the background.
           if (finalChunk.length > 0) {
-            while (true) {
-              const lastResult = await submitTasksBulk(sessionId, finalChunk)
-              const failed = lastResult && typeof lastResult === "object" && lastResult.ok === false
-              if (!failed) break
-              await new Promise((r) => setTimeout(r, 1000))
-            }
+            await submitTasksBulkWithRetries(sessionId, finalChunk, 5, "Final task batch submit")
           }
           
           // Finalize: verify all tasks were received by the backend
-          const status = await getSessionStatus(sessionId)
+          let finalStatus = await getSessionStatus(sessionId)
           
-          if (!status.is_completed) {
+          if (!finalStatus.is_completed) {
             // Some tasks missing - resend ALL from localStorage (backend dedup handles duplicates)
             const stored = getPendingFromStorage()
-            if (stored && stored.tasks.length > 0) {
-              let recoverySuccess = false
-              for (let attempt = 0; attempt < 3 && !recoverySuccess; attempt++) {
-                const result = await submitTasksBulk(sessionId, stored.tasks)
-                const failed = result && typeof result === "object" && result.ok === false
-                if (!failed) {
-                  recoverySuccess = true
-                } else {
-                  await new Promise((r) => setTimeout(r, 1000))
-                }
+            if (stored && stored.sessionId === sessionId && stored.tasks.length > 0) {
+              const recoverySuccess = await submitTasksBulkWithRetries(
+                sessionId,
+                stored.tasks,
+                3,
+                "LocalStorage task recovery submit",
+              )
+
+              if (recoverySuccess) {
+                finalStatus = await getSessionStatus(sessionId)
               }
             }
           }
-          
-          // Clear localStorage - session is done
-          clearPendingStorage()
           
           // Check for merged study transition - ONLY proceed if all tasks confirmed submitted
           const mergeConfig = getMergedStudyConfig(studyIdFromParams)
           const isMerged = isMergeStateActive()
           const doneById = getMergeDoneById()
           
-          // Re-verify final completion status before merge transition
-          const finalStatus = await getSessionStatus(sessionId)
           const allTasksSubmitted = finalStatus.is_completed
+
+          if (allTasksSubmitted) {
+            // Clear localStorage only after backend confirms the session is complete.
+            clearPendingStorage()
+          } else {
+            console.error(
+              `Task session still incomplete after final recovery: ${finalStatus.completed_tasks_count}/${finalStatus.total_tasks_assigned}`,
+            )
+          }
           
           if (isMerged && mergeConfig && doneById && allTasksSubmitted) {
             // Transition to second study
