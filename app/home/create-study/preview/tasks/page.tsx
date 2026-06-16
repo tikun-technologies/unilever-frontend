@@ -17,6 +17,28 @@ const getCachedUrl = (url: string | undefined): string => {
   return cachedUrl
 }
 
+const hasPreviewPostClassificationQuestions = () => {
+  try {
+    const raw = localStorage.getItem("cs_step6_optional_classification")
+    const questions = raw ? JSON.parse(raw) as Array<{
+      title?: string
+      text?: string
+      options?: Array<{ text?: string }>
+    }> : []
+    if (!Array.isArray(questions)) return false
+
+    return questions.some((question) => {
+      const title = String(question?.title || question?.text || "").trim()
+      const validOptions = Array.isArray(question?.options)
+        ? question.options.filter((option) => String(option?.text || "").trim().length > 0)
+        : []
+      return title.length > 0 && validOptions.length > 0
+    })
+  } catch {
+    return false
+  }
+}
+
 type Task = {
   id: string
   type?: "grid" | "layer" | "text"
@@ -627,7 +649,10 @@ export default function TasksPage() {
       setTimeout(() => setCurrentTaskIndex((i) => i + 1), 80)
     } else {
       setIsLoading(true)
-      setTimeout(() => router.push(`/home/create-study/preview/thank-you`), 600)
+      const nextRoute = hasPreviewPostClassificationQuestions()
+        ? "/home/create-study/preview/post-classification-questions"
+        : "/home/create-study/preview/thank-you"
+      setTimeout(() => router.push(nextRoute), 600)
     }
   }
 
@@ -1304,111 +1329,113 @@ export default function TasksPage() {
                       })()
                     )}
 
-                    {/* Labels - fixed section */}
-                    <div className="grid grid-cols-2 gap-4 text-sm font-semibold text-gray-800 flex-shrink-0 mt-2">
-                      <div className="text-center text-balance">{task?.leftLabel ?? ""}</div>
-                      <div className="text-center text-balance">{task?.rightLabel ?? ""}</div>
-                    </div>
+                    <div className="w-full flex-shrink-0 mt-auto">
+                      {/* Labels - fixed section */}
+                      <div className="grid grid-cols-2 gap-4 text-sm font-semibold text-gray-800 flex-shrink-0 mt-2">
+                        <div className="text-center text-balance">{task?.leftLabel ?? ""}</div>
+                        <div className="text-center text-balance">{task?.rightLabel ?? ""}</div>
+                      </div>
 
-                    {/* Scale labels - fixed section - hidden for special creators */}
-                    {!isSpecialCreator && (
-                      <div className="flex flex-col items-center justify-center gap-1 px-2 flex-shrink-0 mt-1">
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
-                            1
-                          </div>
-                          {scaleLabels.left && (
-                            <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
-                              {scaleLabels.left}
-                            </div>
-                          )}
-                        </div>
-
-                        {scaleLabels.middle && (
+                      {/* Scale labels - fixed section - hidden for special creators */}
+                      {!isSpecialCreator && (
+                        <div className="flex flex-col items-center justify-center gap-1 px-2 flex-shrink-0 mt-1">
                           <div className="flex items-center gap-2 flex-shrink-0">
                             <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
-                              3
+                              1
                             </div>
-                            <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
-                              {scaleLabels.middle}
-                            </div>
+                            {scaleLabels.left && (
+                              <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
+                                {scaleLabels.left}
+                              </div>
+                            )}
                           </div>
-                        )}
 
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
-                            5
+                          {scaleLabels.middle && (
+                            <div className="flex items-center gap-2 flex-shrink-0">
+                              <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
+                                3
+                              </div>
+                              <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
+                                {scaleLabels.middle}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <div className="h-7 w-7 rounded-full border-2 border-gray-300 flex items-center justify-center text-xs font-semibold text-gray-700 flex-shrink-0">
+                              5
+                            </div>
+                            {scaleLabels.right && (
+                              <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
+                                {scaleLabels.right}
+                              </div>
+                            )}
                           </div>
-                          {scaleLabels.right && (
-                            <div className="text-sm font-medium text-gray-800 leading-tight whitespace-nowrap overflow-hidden text-ellipsis flex-shrink-0">
-                              {scaleLabels.right}
+                        </div>
+                      )}
+
+                      {/* Rating buttons - fixed at bottom */}
+                      <div className="w-full max-w-2xl mx-auto flex-shrink-0 pt-2">
+                        <div className="flex items-center justify-center">
+                          {isSpecialCreator ? (
+                            /* Thumbs up/down for special creators */
+                            <div className="flex items-center justify-center gap-4">
+                              <button
+                                onClick={() => handleSelect(1)}
+                                className={`h-12 w-12 lg:h-14 lg:w-14 rounded-full border-2 transition-colors flex items-center justify-center flex-shrink-0 ${lastSelected === 1
+                                  ? "bg-[rgba(38,116,186,1)] border-[rgba(38,116,186,1)]"
+                                  : "bg-white border-gray-300 hover:border-[rgba(38,116,186,1)]"
+                                  }`}
+                                onMouseEnter={() => {
+                                  hoverCountsRef.current[1] = (hoverCountsRef.current[1] || 0) + 1
+                                  lastViewTimeRef.current = new Date().toISOString()
+                                }}
+                              >
+                                <ThumbsDown
+                                  className={`h-6 w-6 lg:h-7 lg:w-7 ${lastSelected === 1 ? "text-white" : "text-[rgba(38,116,186,1)]"}`}
+                                />
+                              </button>
+                              <button
+                                onClick={() => handleSelect(5)}
+                                className={`h-12 w-12 lg:h-14 lg:w-14 rounded-full border-2 transition-colors flex items-center justify-center flex-shrink-0 ${lastSelected === 5
+                                  ? "bg-[rgba(38,116,186,1)] border-[rgba(38,116,186,1)]"
+                                  : "bg-white border-gray-300 hover:border-[rgba(38,116,186,1)]"
+                                  }`}
+                                onMouseEnter={() => {
+                                  hoverCountsRef.current[5] = (hoverCountsRef.current[5] || 0) + 1
+                                  lastViewTimeRef.current = new Date().toISOString()
+                                }}
+                              >
+                                <ThumbsUp
+                                  className={`h-6 w-6 lg:h-7 lg:w-7 ${lastSelected === 5 ? "text-white" : "text-[rgba(38,116,186,1)]"}`}
+                                />
+                              </button>
+                            </div>
+                          ) : (
+                            /* Regular rating scale for non-special creators */
+                            <div className="flex items-center justify-center gap-3">
+                              {ratingScaleValues.map((n) => {
+                                const selected = lastSelected === n
+                                return (
+                                  <button
+                                    key={n}
+                                    onClick={() => handleSelect(n)}
+                                    className={`h-10 w-10 lg:h-11 lg:w-11 rounded-full border-2 transition-colors text-sm font-semibold flex-shrink-0 ${selected
+                                      ? "bg-[rgba(38,116,186,1)] text-white border-[rgba(38,116,186,1)]"
+                                      : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
+                                      }`}
+                                    onMouseEnter={() => {
+                                      hoverCountsRef.current[n] = (hoverCountsRef.current[n] || 0) + 1
+                                      lastViewTimeRef.current = new Date().toISOString()
+                                    }}
+                                  >
+                                    {n}
+                                  </button>
+                                )
+                              })}
                             </div>
                           )}
                         </div>
-                      </div>
-                    )}
-
-                    {/* Rating buttons - fixed at bottom */}
-                    <div className="w-full max-w-2xl mx-auto flex-shrink-0 mt-auto pt-2">
-                      <div className="flex items-center justify-center">
-                        {isSpecialCreator ? (
-                          /* Thumbs up/down for special creators */
-                          <div className="flex items-center justify-center gap-4">
-                            <button
-                              onClick={() => handleSelect(1)}
-                              className={`h-12 w-12 lg:h-14 lg:w-14 rounded-full border-2 transition-colors flex items-center justify-center flex-shrink-0 ${lastSelected === 1
-                                ? "bg-[rgba(38,116,186,1)] border-[rgba(38,116,186,1)]"
-                                : "bg-white border-gray-300 hover:border-[rgba(38,116,186,1)]"
-                                }`}
-                              onMouseEnter={() => {
-                                hoverCountsRef.current[1] = (hoverCountsRef.current[1] || 0) + 1
-                                lastViewTimeRef.current = new Date().toISOString()
-                              }}
-                            >
-                              <ThumbsDown 
-                                className={`h-6 w-6 lg:h-7 lg:w-7 ${lastSelected === 1 ? "text-white" : "text-[rgba(38,116,186,1)]"}`} 
-                              />
-                            </button>
-                            <button
-                              onClick={() => handleSelect(5)}
-                              className={`h-12 w-12 lg:h-14 lg:w-14 rounded-full border-2 transition-colors flex items-center justify-center flex-shrink-0 ${lastSelected === 5
-                                ? "bg-[rgba(38,116,186,1)] border-[rgba(38,116,186,1)]"
-                                : "bg-white border-gray-300 hover:border-[rgba(38,116,186,1)]"
-                                }`}
-                              onMouseEnter={() => {
-                                hoverCountsRef.current[5] = (hoverCountsRef.current[5] || 0) + 1
-                                lastViewTimeRef.current = new Date().toISOString()
-                              }}
-                            >
-                              <ThumbsUp 
-                                className={`h-6 w-6 lg:h-7 lg:w-7 ${lastSelected === 5 ? "text-white" : "text-[rgba(38,116,186,1)]"}`} 
-                              />
-                            </button>
-                          </div>
-                        ) : (
-                          /* Regular rating scale for non-special creators */
-                          <div className="flex items-center justify-center gap-3">
-                            {ratingScaleValues.map((n) => {
-                              const selected = lastSelected === n
-                              return (
-                                <button
-                                  key={n}
-                                  onClick={() => handleSelect(n)}
-                                  className={`h-10 w-10 lg:h-11 lg:w-11 rounded-full border-2 transition-colors text-sm font-semibold flex-shrink-0 ${selected
-                                    ? "bg-[rgba(38,116,186,1)] text-white border-[rgba(38,116,186,1)]"
-                                    : "bg-white text-gray-700 border-gray-300 hover:border-gray-400"
-                                    }`}
-                                  onMouseEnter={() => {
-                                    hoverCountsRef.current[n] = (hoverCountsRef.current[n] || 0) + 1
-                                    lastViewTimeRef.current = new Date().toISOString()
-                                  }}
-                                >
-                                  {n}
-                                </button>
-                              )
-                            })}
-                          </div>
-                        )}
                       </div>
                     </div>
                   </div>

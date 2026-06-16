@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Info } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { normalizeClassificationId, updateStudyAsync, putUpdateStudyAsync } from "@/lib/api/StudyAPI"
+import { buildClassificationQuestionsPayloadFromLocalStorage, normalizeClassificationId, putUpdateStudyAsync } from "@/lib/api/StudyAPI"
 
 interface Option {
 	id: string
@@ -22,6 +22,8 @@ interface QuestionCard {
 	options: Option[]
 	answer_options?: Option[]
 	isOpen?: boolean
+	optional_classification_question?: boolean
+	config?: Record<string, any>
 }
 
 interface Step4ClassificationQuestionsProps {
@@ -29,14 +31,33 @@ interface Step4ClassificationQuestionsProps {
 	onBack: () => void
 	onDataChange?: () => void
 	isReadOnly?: boolean
+	storageKey?: "cs_step4" | "cs_step6_optional_classification"
+	completionKey?: string
+	title?: string
+	description?: string
+	secondaryDescription?: string
+	currentStepNumber?: number
+	isOptionalStep?: boolean
 }
 
-export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isReadOnly = false }: Step4ClassificationQuestionsProps) {
+export function Step4ClassificationQuestions({
+	onNext,
+	onBack,
+	onDataChange,
+	isReadOnly = false,
+	storageKey = "cs_step4",
+	completionKey,
+	title = "Classification Questions",
+	description = "Add demographic and classification questions to segment your respondents. These questions will be asked before the main study tasks.",
+	secondaryDescription = "Age and Gender will be asked by default (no need to put them here).",
+	currentStepNumber = 4,
+	isOptionalStep = false,
+}: Step4ClassificationQuestionsProps) {
 	const createClassificationId = () => normalizeClassificationId(crypto.randomUUID(), "")
 
 	const [questions, setQuestions] = useState<QuestionCard[]>(() => {
 		try {
-			const raw = localStorage.getItem('cs_step4')
+			const raw = localStorage.getItem(storageKey)
 			if (raw) {
 				const data = JSON.parse(raw) as QuestionCard[]
 				if (Array.isArray(data) && data.length > 0) {
@@ -51,13 +72,14 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 								{ id: createClassificationId(), text: "" },
 								{ id: createClassificationId(), text: "" },
 							],
+							optional_classification_question: isOptionalStep || q.optional_classification_question === true || q.config?.optional_classification_question === true,
 							isOpen: q.isOpen ?? (idx === 0),
 						}
 					})
 				}
 			}
 		} catch { }
-		return [{ id: createClassificationId(), title: "", required: true, options: [{ id: createClassificationId(), text: "" }, { id: createClassificationId(), text: "" }], isOpen: true }]
+		return [{ id: createClassificationId(), title: "", required: true, options: [{ id: createClassificationId(), text: "" }, { id: createClassificationId(), text: "" }], optional_classification_question: isOptionalStep, isOpen: true }]
 	})
 
 	const [toggleShuffle, setToggleShuffle] = useState<boolean>(() => {
@@ -75,10 +97,12 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 	// Persist on change
 	useEffect(() => {
 		if (typeof window === 'undefined') return
-		localStorage.setItem('cs_step4', JSON.stringify(questions))
-		localStorage.setItem('cs_step4_shuffle', String(toggleShuffle))
+		localStorage.setItem(storageKey, JSON.stringify(questions))
+		if (!isOptionalStep) {
+			localStorage.setItem('cs_step4_shuffle', String(toggleShuffle))
+		}
 		onDataChange?.()
-	}, [questions, toggleShuffle, onDataChange])
+	}, [questions, toggleShuffle, onDataChange, storageKey, isOptionalStep])
 
 	const addQuestion = () => {
 		setQuestions((prev) => [
@@ -87,6 +111,7 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 				id: createClassificationId(),
 				title: "",
 				required: true,
+				optional_classification_question: isOptionalStep,
 				options: [
 					{ id: createClassificationId(), text: "" },
 					{ id: createClassificationId(), text: "" },
@@ -146,8 +171,6 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 	}
 
 	const normalizeText = (text: string) => text.toLowerCase().replace(/\s+/g, ' ').trim()
-	const getQuestionId = (q: QuestionCard, idx: number) => normalizeClassificationId(q.question_id || q.id, `Q${idx + 1}`)
-	const getOptionId = (option: Option, optIdx: number) => normalizeClassificationId(option.id || option.option_id, String.fromCharCode(65 + optIdx))
 
 	const duplicateTitles = new Set<string>()
 	const seenTitles = new Set<string>()
@@ -163,21 +186,29 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 
 	const hasDuplicates = duplicateTitles.size > 0
 
-	const canProceed = questions.every(q =>
+	const isQuestionBlank = (q: QuestionCard) =>
+		q.title.trim().length === 0 &&
+		q.options.every(o => o.text.trim().length === 0)
+
+	const activeQuestions = isOptionalStep ? questions.filter(q => !isQuestionBlank(q)) : questions
+	const isSkippingOptionalStep = isOptionalStep && activeQuestions.length === 0
+
+	const canProceed = isSkippingOptionalStep || (activeQuestions.every(q =>
 		q.title.trim().length > 0 &&
 		q.options.length >= 2 &&
 		q.options.every(o => o.text.trim().length > 0)
-	) && !hasDuplicates
+	) && !hasDuplicates)
 
 	return (
 		<div>
 			<div className="flex items-center justify-between mb-4">
 				<div>
-					<h3 className="text-lg font-semibold text-gray-800">Classification Questions</h3>
-					<p className="text-sm text-gray-600">Add demographic and classification questions to segment your respondents. These questions will be asked before the main study tasks.</p>
-					<p className="text-sm text-gray-600 mt-1">Age and Gender will be asked by default (no need to put them here).</p>
+					<h3 className="text-lg font-semibold text-gray-800">{title}</h3>
+					<p className="text-sm text-gray-600">{description}</p>
+					{secondaryDescription && <p className="text-sm text-gray-600 mt-1">{secondaryDescription}</p>}
 				</div>
 				<div className="flex flex-col gap-2">
+					{!isOptionalStep && (
 					<div className="flex items-center gap-1 mb-2 px-4 py-2 rounded-full w-fit">
 						<input
 							type="checkbox"
@@ -201,6 +232,7 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 							</div>
 						</span>
 					</div>
+					)}
 					<Button
 						className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)]"
 						onClick={addQuestion}
@@ -409,19 +441,17 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 									if (typeof parsed === 'string') studyId = parsed
 								} catch { }
 
-								// Build classification_questions payload from current state
-								const classification_questions = questions
-									.filter(q => q.title && q.title.trim().length > 0)
-									.map((q, idx) => ({
-										question_id: getQuestionId(q, idx),
-										question_text: q.title || "",
-										question_type: "multiple_choice",
-										is_required: q.required !== false,
-										order: idx + 1,
-										answer_options: (q.options || [])
-											.filter(o => o.text && o.text.trim().length > 0)
-											.map((o, optIdx) => ({ id: getOptionId(o, optIdx), text: o.text || "", order: optIdx + 1 }))
-									}))
+								const questionsToSave = isOptionalStep ? activeQuestions : questions
+								localStorage.setItem(storageKey, JSON.stringify(questionsToSave))
+								if (completionKey) {
+									localStorage.setItem(completionKey, JSON.stringify({ completed: true, skipped: activeQuestions.length === 0, timestamp: Date.now() }))
+								}
+
+								// Build classification_questions payload from both classification steps.
+								const classification_questions = buildClassificationQuestionsPayloadFromLocalStorage({
+									storageKey,
+									questions: questionsToSave,
+								})
 
 								// Include study_type and step metadata to help server
 								let studyType = 'grid'
@@ -431,21 +461,24 @@ export function Step4ClassificationQuestions({ onNext, onBack, onDataChange, isR
 								} catch { }
 
 								const payload: any = {
-									last_step: 4,
+									last_step: currentStepNumber,
 									study_type: studyType,
 									classification_questions: classification_questions.length > 0 ? classification_questions : undefined,
-									toggle_shuffle: toggleShuffle
+									...(!isOptionalStep ? { toggle_shuffle: toggleShuffle } : {})
 								}
 
 								// Fire background PUT update that includes classification_questions
-								putUpdateStudyAsync(studyId, payload, 4)
+								putUpdateStudyAsync(studyId, payload, currentStepNumber)
+							}
+							if (isOptionalStep && completionKey) {
+								localStorage.setItem(completionKey, JSON.stringify({ completed: true, skipped: activeQuestions.length === 0, timestamp: Date.now() }))
 							}
 							onNext()
 						}
 					}}
 					disabled={!canProceed}
 				>
-					Save & Next
+					{isSkippingOptionalStep ? "Skip & Next" : "Save & Next"}
 				</Button>
 			</div>
 		</div>

@@ -183,6 +183,10 @@ export default function ParticipateIntroPage() {
 
       const response = await startStudy(params.id)
 
+      try {
+        localStorage.removeItem('post_classification_answers')
+        localStorage.removeItem('post_classification_completed')
+      } catch { }
 
       // Store session data
       localStorage.setItem('study_session', JSON.stringify({
@@ -401,7 +405,7 @@ export default function ParticipateIntroPage() {
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4">Study Not Available</h1>
             <p className="text-lg text-gray-600 mb-6">{statusError}</p>
-            <div className="mt-6">
+            {/* <div className="mt-6">
               <button
                 onClick={() => {
                   setIsSubmittingBack(true)
@@ -419,7 +423,7 @@ export default function ParticipateIntroPage() {
                   'Go Back'
                 )}
               </button>
-            </div>
+            </div> */}
           </div>
         </div>
       </div>

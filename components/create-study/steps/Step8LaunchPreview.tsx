@@ -70,6 +70,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const phaseOrder = get<("grid" | "text" | "mix")[] | "mix">('cs_step5_hybrid_phase_order', ["grid", "text"])
   const step3 = get('cs_step3', { minValue: 1, maxValue: 5, minLabel: '', maxLabel: '', middleLabel: '' })
   const step4 = get('cs_step4', [])
+  const optionalClassification = get('cs_step6_optional_classification', [])
   const gridData = get<any>(isHybrid ? 'cs_step5_hybrid_grid' : 'cs_step5_grid', [])
   const textData = get<any>(isHybrid ? 'cs_step5_hybrid_text' : 'cs_step5_text', [])
   const layerData = get<any>('cs_step5_layer', [])
@@ -327,7 +328,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
         // Clear all step data from localStorage (including cached step7 matrix)
         clearStoredStudyId()
         const keysToRemove = [
-          'cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step5_grid', 'cs_step5_text', 'cs_step5_hybrid', 'cs_step5_layer', 'cs_step5_layer_background',
+          'cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step4_shuffle', 'cs_step6_optional_classification', 'cs_step6_optional_classification_completed', 'cs_step5_grid', 'cs_step5_text', 'cs_step5_hybrid', 'cs_step5_layer', 'cs_step5_layer_background',
           'cs_step5_hybrid_grid', 'cs_step5_hybrid_text', 'cs_step5_hybrid_phase_order',
           'cs_step_keys', 'cs_step6', 'cs_step7', 'cs_step7_tasks', 'cs_step7_matrix', 'cs_step7_meta', 'cs_step7_signature',
           'cs_step8', 'cs_current_step', 'cs_backup_steps', 'cs_study_id', 'cs_flash_message'
@@ -469,6 +470,36 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
                   </div>
                 </div>
               ))}
+            </div>
+          </section>
+        )}
+
+        {optionalClassification && optionalClassification.some((question: any) => question?.title && String(question.title).trim().length > 0) && (
+          <section className="rounded-lg border bg-white p-4">
+            <div className="text-sm font-semibold mb-2">Optional Classification Question</div>
+            <div className="space-y-3">
+              {optionalClassification
+                .filter((question: any) => question?.title && String(question.title).trim().length > 0)
+                .map((question: any, index: number) => (
+                  <div key={question.id || index} className="border rounded-lg p-3 bg-gray-50">
+                    <div className="text-sm font-medium mb-2">{question.title}</div>
+                    <div className="text-sm text-gray-600">
+                      <div className="mb-1">Required: {question.required ? 'Yes' : 'No'}</div>
+                      {question.options && question.options.length > 0 && (
+                        <div>
+                          <div className="text-gray-500 mb-1">Options:</div>
+                          <div className="flex flex-wrap gap-2">
+                            {question.options.map((option: any, optIndex: number) => (
+                              <span key={option.id || optIndex} className="px-2 py-1 bg-white border rounded text-xs">
+                                {option.text}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
             </div>
           </section>
         )}

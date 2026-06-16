@@ -16,9 +16,9 @@ type StudyType = "grid" | "layer" | "text" | "hybrid"
 
 const GUIDE_SHOWN_UP_TO_KEY = CREATE_STUDY_GUIDE_SHOWN_UP_TO_KEY
 const ONBOARDING_ACTIVE_KEY = CREATE_STUDY_ONBOARDING_ACTIVE_KEY
-const TOTAL_GUIDE_STEPS = 8
+const TOTAL_GUIDE_STEPS = 9
 
-type GuideStepNumber = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8
+type GuideStepNumber = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
 type CreateStudyOnboardingProps = {
   currentStep: number
@@ -60,18 +60,23 @@ const STEP_GUIDES: Record<GuideStepNumber, GuideStep> = {
     hint: "Add categories, images, text, or layers depending on your study format.",
   },
   6: {
-    title: "Step 6: Audience Segmentation",
+    title: "Step 6: Optional Classification Question",
+    description: "Optionally add a classification question to show after respondents complete their tasks.",
+    hint: "Leave this blank and save to skip the step.",
+  },
+  7: {
+    title: "Step 7: Audience Segmentation",
     description: "Define your target audience — number of respondents, country, gender, and age.",
     hint: "Set how many people will take your study and their demographic breakdown.",
   },
-  7: {
-    title: "Step 7: Task Generation",
+  8: {
+    title: "Step 8: Task Generation",
     description:
       "Generate tasks for your respondents based on your study configuration. Task generation can take time depending on the number of respondents.",
     hint: "Review the generated tasks before moving on to launch.",
   },
-  8: {
-    title: "Step 8: Launch Study",
+  9: {
+    title: "Step 9: Launch Study",
     description:
       "Your study is set up. Preview it as a participant, review everything, and launch when ready.",
     hint: 'Use "Preview as Participant" to experience your study. If everything looks correct, launch the study.',
@@ -116,11 +121,11 @@ function getGuideStepForCurrentStep(
   currentStep: number,
   isSpecialCreator: boolean
 ): GuideStepNumber | null {
-  if (currentStep >= 1 && currentStep <= 5) return currentStep as GuideStepNumber
-  if (currentStep === 6 && isSpecialCreator) return 6
-  if (currentStep === 7 && !isSpecialCreator) return 6
-  if (currentStep === 8) return 7
-  if (currentStep === 9) return 8
+  if (currentStep >= 1 && currentStep <= 7) return currentStep as GuideStepNumber
+  if (currentStep === 8 && !isSpecialCreator) return 8
+  if (currentStep === 9 && isSpecialCreator) return 8
+  if (currentStep === 9 && !isSpecialCreator) return 9
+  if (currentStep === 10 && isSpecialCreator) return 9
   return null
 }
 

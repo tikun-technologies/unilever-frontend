@@ -46,18 +46,34 @@ export function hydrateLocalStorageFromStudy(data: any) {
         localStorage.setItem("cs_step3", JSON.stringify(s3))
     }
 
-    // 4. Step 4: Classification Questions
+    // 4. Step 4 and Step 6: Classification Questions
     if (classificationQuestions.length > 0) {
         const s4 = classificationQuestions.map((q: any) => ({
             id: normalizeClassificationId(q.question_id || q.id, crypto.randomUUID()),
             title: q.question_text,
             required: q.is_required === true || q.is_required === "Y",
+            optional_classification_question: q.optional_classification_question === true || q.config?.optional_classification_question === true,
             options: q.answer_options?.map((o: any) => ({
                 id: normalizeClassificationId(o.id || o.option_id, crypto.randomUUID()),
                 text: o.text || o.option_text,
             })),
         }))
-        localStorage.setItem("cs_step4", JSON.stringify(s4))
+        const regularQuestions = s4.filter((q: any) => !q.optional_classification_question)
+        const optionalQuestions = s4.filter((q: any) => q.optional_classification_question)
+        localStorage.setItem("cs_step4", JSON.stringify(regularQuestions))
+        localStorage.setItem("cs_step6_optional_classification", JSON.stringify(optionalQuestions))
+        localStorage.setItem("cs_step6_optional_classification_completed", JSON.stringify({
+            completed: true,
+            skipped: optionalQuestions.length === 0,
+            timestamp: Date.now(),
+        }))
+    } else {
+        localStorage.setItem("cs_step6_optional_classification", JSON.stringify([]))
+        localStorage.setItem("cs_step6_optional_classification_completed", JSON.stringify({
+            completed: true,
+            skipped: true,
+            timestamp: Date.now(),
+        }))
     }
 
     // 5. Step 5: Study Structure (Simplified as we mostly rely on tasks/elements in assigned_tasks)

@@ -87,6 +87,7 @@ export interface ClassificationQuestionPayload {
   order: number
   answer_options?: AnswerOptionPayload[]
   config?: Record<string, any>
+  optional_classification_question?: boolean
 }
 
 export interface CreateStudyPayload {
@@ -354,6 +355,44 @@ function get<T>(key: string, fallback: T): T {
   }
 }
 
+export function buildClassificationQuestionsPayloadFromLocalStorage(
+  override?: { storageKey: "cs_step4" | "cs_step6_optional_classification"; questions: any[] }
+): ClassificationQuestionPayload[] {
+  const regularQuestions = override?.storageKey === "cs_step4"
+    ? override.questions
+    : get<any[]>("cs_step4", [])
+  const optionalQuestions = override?.storageKey === "cs_step6_optional_classification"
+    ? override.questions
+    : get<any[]>("cs_step6_optional_classification", [])
+
+  const build = (questions: any[], optional: boolean, orderOffset: number) =>
+    questions
+      .filter((q: any) => q.title && q.title.trim().length > 0)
+      .map((q: any, idx: number) => {
+        const validOptions = q.options?.filter((opt: any) => opt.text && opt.text.trim().length > 0) || []
+        const order = orderOffset + idx + 1
+
+        return {
+          question_id: normalizeClassificationId(q.question_id || q.id, optional ? `O${idx + 1}` : `Q${idx + 1}`),
+          question_text: q.title || "",
+          question_type: "multiple_choice",
+          is_required: q.required !== false,
+          order,
+          answer_options: validOptions.map((option: any, optIdx: number) => ({
+            id: normalizeClassificationId(option.id || option.option_id, String.fromCharCode(65 + optIdx)),
+            text: option.text || "",
+            order: optIdx + 1
+          })),
+          optional_classification_question: optional,
+          config: optional ? { optional_classification_question: true } : {}
+        }
+      })
+
+  const regular = build(regularQuestions, false, 0)
+  const optional = build(optionalQuestions, true, regular.length)
+  return [...regular, ...optional]
+}
+
 // Build a CreateStudyPayload from data we persisted across steps
 export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
   // console.log('=== BUILDING STUDY PAYLOAD FROM LOCALSTORAGE ===')
@@ -369,6 +408,7 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
   const layerBackground = get<any | null>("cs_step5_layer_background", null)
   const s6 = get("cs_step6", { respondents: 0, countries: [], genderMale: 0, genderFemale: 0, ageSelections: {} }) as any
   const classificationQuestions = get<any[]>("cs_step4", []) // Get classification questions from localStorage
+  const optionalClassificationQuestions = get<any[]>("cs_step6_optional_classification", [])
   const phaseOrder = get<("grid" | "text")[]>("cs_step5_hybrid_phase_order", ["grid", "text"])
 
   // console.log('Step 1 data:', s1)
@@ -552,25 +592,7 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
   }
 
   // Build classification questions from localStorage (Step 4 format)
-  const classification_questions: ClassificationQuestionPayload[] = classificationQuestions
-    .filter((q: any) => q.title && q.title.trim().length > 0) // Only include questions with titles
-    .map((q: any, idx: number) => {
-      const validOptions = q.options?.filter((opt: any) => opt.text && opt.text.trim().length > 0) || []
-
-      return {
-        question_id: normalizeClassificationId(q.question_id || q.id, `Q${idx + 1}`),
-        question_text: q.title || "",
-        question_type: "multiple_choice", // Default to multiple choice
-        is_required: q.required !== false, // Use the required field from Step 4
-        order: idx + 1,
-        answer_options: validOptions.map((option: any, optIdx: number) => ({
-          id: normalizeClassificationId(option.id || option.option_id, String.fromCharCode(65 + optIdx)),
-          text: option.text || "",
-          order: optIdx + 1
-        })),
-        config: {}
-      }
-    })
+  const classification_questions = buildClassificationQuestionsPayloadFromLocalStorage()
 
   const gender_distribution: GenderDistributionPayload = {
     male: Number(s6.genderMale || 0),
@@ -680,6 +702,7 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
   console.log('Built categories:', categories)
   console.log('Built classification_questions:', classification_questions)
   console.log('Raw classification questions from localStorage:', classificationQuestions)
+  console.log('Raw optional classification questions from localStorage:', optionalClassificationQuestions)
   console.log('Final payload structure:', {
     title: payload.title,
     study_type: payload.study_type,
@@ -1042,8 +1065,6 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
   // Get additional data from localStorage
   const s1 = get("cs_step1", { title: "", description: "", language: "ENGLISH" }) as any
   const s3 = get("cs_step3", { minValue: 1, maxValue: 5, minLabel: "", maxLabel: "", middleLabel: "" }) as any
-  const s4 = get("cs_step4", []) as any[] // Classification questions
-
   const language = (s1.language || "en").toString().toLowerCase().startsWith("en") ? "en" : s1.language || "en"
   const aspectRatioFromLS2 = (() => {
     try {
@@ -1054,24 +1075,7 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
   })()
 
   // Build classification questions
-  const classification_questions = s4
-    .filter((q: any) => q.title && q.title.trim().length > 0)
-    .map((q: any, idx: number) => {
-      const validOptions = q.options?.filter((opt: any) => opt.text && opt.text.trim().length > 0) || []
-
-      return {
-        question_id: normalizeClassificationId(q.question_id || q.id, `Q${idx + 1}`),
-        question_text: q.title || "",
-        question_type: "multiple_choice",
-        is_required: q.required !== false,
-        order: idx + 1,
-        answer_options: validOptions.map((option: any, optIdx: number) => ({
-          id: normalizeClassificationId(option.id || option.option_id, String.fromCharCode(65 + optIdx)),
-          text: option.text || "",
-          order: optIdx + 1
-        }))
-      }
-    })
+  const classification_questions = buildClassificationQuestionsPayloadFromLocalStorage()
 
   const payload: TaskGenerationPayload = {
     ...(existingStudyId && { study_id: existingStudyId }),

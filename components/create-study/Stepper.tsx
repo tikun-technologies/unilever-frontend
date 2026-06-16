@@ -165,20 +165,49 @@ function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
         }
       }
       case 6: {
-        // Audience Segmentation (step 6)
+        const marker = localStorage.getItem('cs_step6_optional_classification_completed')
+        if (marker) {
+          try {
+            const parsed = JSON.parse(marker)
+            if (parsed?.completed) return true
+          } catch { return marker === 'true' }
+        }
+        const data = localStorage.getItem('cs_step6_optional_classification')
+        if (!data) return false
+        try {
+          const parsed = JSON.parse(data)
+          if (!Array.isArray(parsed) || parsed.length === 0) return false
+          const nonBlank = parsed.filter((q: any) => {
+            const questionText = q.title || q.question_text || ''
+            const opts = q.options || q.answer_options || []
+            return questionText.trim().length > 0 || (Array.isArray(opts) && opts.some((o: any) => String(o.text || o.option_text || '').trim().length > 0))
+          })
+          if (nonBlank.length === 0) return false
+          return nonBlank.every((q: any) => {
+            const questionText = q.title || q.question_text || ''
+            const opts = q.options || q.answer_options || []
+            return (
+              questionText &&
+              questionText.trim().length > 0 &&
+              Array.isArray(opts) &&
+              opts.length >= 2 &&
+              opts.every((o: any) => (o.text || o.option_text) && (o.text || o.option_text).trim().length > 0)
+            )
+          })
+        } catch {
+          return false
+        }
+      }
+      case 7: {
         const data = localStorage.getItem('cs_step6')
         if (!data) return false
         const parsed = JSON.parse(data)
         return !!(parsed.respondents && parsed.respondents > 0)
       }
-      case 7: {
-        // For non-special creators: step 7 is Audience Segmentation (stored in cs_step6)
-        // For special creators: step 7 is Keys (stored in cs_step_keys)
+      case 8: {
         if (!isSpecialCreator) {
-          const data = localStorage.getItem('cs_step6')
-          if (!data) return false
-          const parsed = JSON.parse(data)
-          return !!(parsed.respondents && parsed.respondents > 0)
+          const data = localStorage.getItem('cs_step7_tasks')
+          return !!data
         }
         // Keys step (special creators only): product_id required (min 1 character) + at least one key with name;
         // percentages must sum to 100–100.01 (same rules as StepKeys).
@@ -200,11 +229,19 @@ function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
           return withName.length > 0 && productIdOk && totalOk
         } catch { return false }
       }
-      case 8: {
+      case 9: {
+        if (!isSpecialCreator) {
+          const data = localStorage.getItem('cs_step8')
+          if (!data) return false
+          try {
+            const parsed = JSON.parse(data)
+            return !!parsed.completed
+          } catch { return false }
+        }
         const data = localStorage.getItem('cs_step7_tasks')
         return !!data
       }
-      case 9: {
+      case 10: {
         const data = localStorage.getItem('cs_step8')
         if (!data) return false
         try {
@@ -227,10 +264,11 @@ const stepsWithKeys = [
   { id: 3, label: "Rating Scale" },
   { id: 4, label: "Classification Questions" },
   { id: 5, label: "Study Structure" },
-  { id: 6, label: "Audience Segmentation" },
-  { id: 7, label: "Keys" },
-  { id: 8, label: "Task Generation" },
-  { id: 9, label: "Launch Study" },
+  { id: 6, label: "Optional Questions" },
+  { id: 7, label: "Audience Segmentation" },
+  { id: 8, label: "Keys" },
+  { id: 9, label: "Task Generation" },
+  { id: 10, label: "Launch Study" },
 ]
 
 const stepsWithoutKeys = [
@@ -239,6 +277,7 @@ const stepsWithoutKeys = [
   { id: 3, label: "Rating Scale" },
   { id: 4, label: "Classification Questions" },
   { id: 5, label: "Study Structure" },
+  { id: 6, label: "Optional Classification" },
   { id: 7, label: "Audience Segmentation" },
   { id: 8, label: "Task Generation" },
   { id: 9, label: "Launch Study" },
@@ -294,27 +333,23 @@ export default function Stepper({ currentStep = 5, className = "", onStepChange,
   }, [currentStep, steps])
 
   const currentStepIndex = steps.findIndex(s => s.id === currentStep)
-  const totalSegments = Math.max(1, steps.length - 1)
-  const isLast = currentStepIndex >= 0 && currentStepIndex === steps.length - 1
-  const progressPct = currentStepIndex >= 0 ? (currentStepIndex / totalSegments) * 100 : 0
-  const progressWidth = isLast
-    ? `calc(100% - 100px)`
-    : `calc(${progressPct}% - 100px + ${100 / totalSegments}%)`
+  const edgeOffset = `calc(${100 / Math.max(1, steps.length)}% / 2)`
+  const progressWidth = currentStepIndex >= 0 ? `${(currentStepIndex / Math.max(1, steps.length)) * 100}%` : "0%"
   return (
     <div className={`w-full max-w-6xl mx-auto p-2 ${className}`}>
       <div className="relative">
         {/* Progress line background */}
         <div
           className="absolute top-5 left-0 right-0 h-0.5 bg-gray-200 hidden sm:block"
-          style={{ left: "calc(50px)", right: "calc(50px)" }}
+          style={{ left: edgeOffset, right: edgeOffset }}
         />
         {/* Progress line filled */}
         <div
           className="absolute top-5 left-0 h-0.5 bg-[rgba(38,116,186,0.9)] hidden sm:block transition-all duration-300"
-          style={{ left: "calc(50px)", width: progressWidth }}
+          style={{ left: edgeOffset, width: progressWidth }}
         />
         {/* Steps container */}
-        <div ref={stepsContainerRef} className="relative flex flex-row justify-between items-start gap-2 overflow-x-auto pb-2 scrollbar-none">
+        <div ref={stepsContainerRef} className="relative flex flex-row items-start justify-between gap-2 overflow-x-auto pb-2 scrollbar-none sm:overflow-hidden">
           {steps.map((step, index) => {
             let isCompleted = isStepCompletedWithRefresh(step.id)
             const isCurrent = step.id === currentStep
@@ -323,7 +358,7 @@ export default function Stepper({ currentStep = 5, className = "", onStepChange,
             return (
               <div
                 key={step.id}
-                className={`flex flex-col items-center text-center flex-shrink-0 min-w-[100px] ${isClickable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                className={`flex min-w-[100px] flex-shrink-0 flex-col items-center text-center sm:min-w-0 sm:flex-1 ${isClickable ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                 onClick={() => {
                   if (isClickable) {
                     onStepChange?.(step.id)

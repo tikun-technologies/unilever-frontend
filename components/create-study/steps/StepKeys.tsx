@@ -11,6 +11,7 @@ interface StepKeysProps {
   onBack: () => void
   onDataChange?: () => void
   isReadOnly?: boolean
+  lastStepNumber?: number
 }
 
 function clampPercentage(n: number): number {
@@ -27,7 +28,7 @@ function roundPercentage(n: number): number {
   return Math.round(n * 100) / 100
 }
 
-export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: StepKeysProps) {
+export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false, lastStepNumber = 7 }: StepKeysProps) {
   const [isSaving, setIsSaving] = useState(false)
   const [validateError, setValidateError] = useState<string | null>(null)
 
@@ -166,7 +167,7 @@ export function StepKeys({ onNext, onBack, onDataChange, isReadOnly = false }: S
         await putUpdateStudyAsync(
           String(studyId),
           { product_keys: toStoreKeys, product_id: productIdTrimmed },
-          7
+          lastStepNumber
         )
       }
       onNext()

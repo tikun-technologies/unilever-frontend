@@ -275,6 +275,8 @@ function ParticipateIntroContent() {
     setIsStarting(true)
 
     try {
+      localStorage.removeItem("preview_post_classification_answers")
+
       const step2 = JSON.parse(localStorage.getItem('cs_step2') || '{}')
       if (step2?.type === 'text') {
         console.log('[Preview] Start Study - Skipping image preloading for text study type')

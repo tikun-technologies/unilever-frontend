@@ -15,6 +15,9 @@ interface ClassificationQuestion {
   required: boolean
 }
 
+const isOptionalClassificationQuestion = (question: any) =>
+  question?.optional_classification_question === true || question?.config?.optional_classification_question === true
+
 export default function ClassificationQuestionsPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
@@ -69,7 +72,7 @@ export default function ClassificationQuestionsPage() {
             const shouldShuffle = studyInfo.toggle_shuffle === true || studyInfo.toggle_shuffle === "true"
             // Exclude fragrance question (Q0) — shown on its own page for special creators
             const classificationOnly = study.classification_questions.filter(
-              (q: any) => (q.question_id || q.id) !== FRAGRANCE_QUESTION_ID
+              (q: any) => (q.question_id || q.id) !== FRAGRANCE_QUESTION_ID && !isOptionalClassificationQuestion(q)
             )
 
             let formattedQuestions: ClassificationQuestion[] = classificationOnly.map((q: any) => {

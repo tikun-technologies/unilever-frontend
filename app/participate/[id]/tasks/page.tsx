@@ -46,6 +46,21 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 const isBulkSubmitFailure = (result: any) =>
   result && typeof result === "object" && result.ok === false
 
+const isOptionalClassificationQuestion = (question: any) =>
+  question?.optional_classification_question === true || question?.config?.optional_classification_question === true
+
+const hasPostClassificationQuestions = (studyId?: string) => {
+  try {
+    if (studyId && localStorage.getItem("post_classification_completed") === studyId) return false
+    const detailsRaw = localStorage.getItem("current_study_details")
+    const details = detailsRaw ? JSON.parse(detailsRaw) : null
+    const questions = Array.isArray(details?.classification_questions) ? details.classification_questions : []
+    return questions.some((question: any) => isOptionalClassificationQuestion(question))
+  } catch {
+    return false
+  }
+}
+
 const submitTasksBulkWithRetries = async (
   sessionId: string,
   tasks: any[],
@@ -750,7 +765,8 @@ export default function TasksPage() {
           const isMerged = isMergeStateActive()
           const doneById = getMergeDoneById()
           
-          const allTasksSubmitted = finalStatus.is_completed
+          const allTasksSubmitted = finalStatus.total_tasks_assigned > 0
+            && finalStatus.completed_tasks_count >= finalStatus.total_tasks_assigned
 
           if (allTasksSubmitted) {
             // Clear localStorage only after backend confirms the session is complete.
@@ -897,8 +913,11 @@ export default function TasksPage() {
             clearMergeState()
           }
           
-          // Default: go to thank you page
-          router.push(`/participate/${studyIdFromParams}/thank-you`)
+          // Default: go to post-task classification if configured, otherwise thank you.
+          const nextRoute = allTasksSubmitted && hasPostClassificationQuestions(studyIdFromParams)
+            ? `/participate/${studyIdFromParams}/post-classification-questions`
+            : `/participate/${studyIdFromParams}/thank-you`
+          router.push(nextRoute)
         } catch (finalError) {
           console.error('Error in last task handling:', finalError)
           router.push(`/participate/${studyIdFromParams}/thank-you`)

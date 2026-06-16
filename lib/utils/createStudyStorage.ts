@@ -4,6 +4,8 @@ const CREATE_STUDY_STORAGE_KEYS = [
   "cs_step3",
   "cs_step4",
   "cs_step4_shuffle",
+  "cs_step6_optional_classification",
+  "cs_step6_optional_classification_completed",
   "cs_step5_grid",
   "cs_step5_text",
   "cs_step5_hybrid",

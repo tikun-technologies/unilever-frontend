@@ -70,6 +70,7 @@ export interface ClassificationAnswerItem {
 
 export interface SubmitClassificationAnswersPayload {
 	answers: ClassificationAnswerItem[]
+	finalize_response?: boolean
 }
 
 export interface SubmitTaskPayload {
