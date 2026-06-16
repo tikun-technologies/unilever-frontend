@@ -53,17 +53,25 @@ export default function PostClassificationQuestionsPage() {
         : []
       const formattedQuestions = allQuestions
         .filter((question) => isOptionalClassificationQuestion(question))
-        .map((question) => ({
-          id: question.question_id || question.id,
-          text: question.question_text || question.text || "",
-          options: (question.answer_options || question.options || []).map((option) => ({
-            id: option.id || option.option_id,
-            text: option.text || option.option_text || "",
-          })).filter((option: { id?: string; text?: string }) => option.id && option.text),
-          selected: null,
-          required: question.is_required === "Y" || question.is_required === true || question.is_required === "true",
-        }))
-        .filter((question: ClassificationQuestion) => question.id && question.text && question.options.length > 0)
+        .map((question, qIdx) => {
+          const questionId = String(question.question_id || question.id || `optional_q${qIdx + 1}`)
+          const questionText = String(question.question_text || question.text || "").trim()
+          const options = (question.answer_options || question.options || [])
+            .map((option, optIdx) => ({
+              id: String(option.id || option.option_id || `${questionId}_opt${optIdx + 1}`),
+              text: String(option.text || option.option_text || "").trim(),
+            }))
+            .filter((option) => option.text.length > 0)
+
+          return {
+            id: questionId,
+            text: questionText,
+            options,
+            selected: null,
+            required: question.is_required === "Y" || question.is_required === true || question.is_required === "true",
+          }
+        })
+        .filter((question) => question.text.length > 0 && question.options.length > 0)
 
       const storedAnswers = (() => {
         try {

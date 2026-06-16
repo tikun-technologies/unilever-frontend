@@ -44,15 +44,24 @@ export default function PreviewPostClassificationQuestions() {
                 : []
               return title.length > 0 && validOptions.length > 0
             })
-            .map((q) => ({
-              id: q.id || q.question_id,
-              text: q.title || q.text,
-              required: q.required !== false,
-              options: (q.options || [])
-                .map((option) => ({ id: option.id || option.option_id, text: option.text || "" }))
-                .filter((option: { id?: string; text?: string }) => option.id && option.text.trim().length > 0),
-              selected: null,
-            }))
+            .map((q, qIdx) => {
+              const questionId = String(q.id || q.question_id || `optional_q${qIdx + 1}`)
+              const questionText = String(q.title || q.text || "").trim()
+              const options = (q.options || [])
+                .map((option, optIdx) => ({
+                  id: String(option.id || option.option_id || `${questionId}_opt${optIdx + 1}`),
+                  text: String(option.text || "").trim(),
+                }))
+                .filter((option) => option.text.length > 0)
+
+              return {
+                id: questionId,
+                text: questionText,
+                required: q.required !== false,
+                options,
+                selected: null,
+              }
+            })
           : []
 
         const storedAnswers = (() => {
