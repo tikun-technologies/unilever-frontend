@@ -11,6 +11,35 @@ interface StepperProps {
 }
 
 // Helper function to check if a step is completed based on localStorage data
+function getStudyLastStep(): number {
+  if (typeof window === 'undefined') return 0
+  try {
+    const v = localStorage.getItem('cs_study_last_step')
+    if (v) return Number(v) || 0
+  } catch { /* ignore */ }
+  return 0
+}
+
+/** True when the study has moved past optional classification (step 6) — includes old studies without that step. */
+function hasProgressedPastOptionalStep(): boolean {
+  const lastStep = getStudyLastStep()
+  if (lastStep >= 7) return true
+  try {
+    if (localStorage.getItem('cs_step7_tasks') || localStorage.getItem('cs_step7_matrix')) return true
+    const step8 = localStorage.getItem('cs_step8')
+    if (step8) {
+      const parsed = JSON.parse(step8)
+      if (parsed?.completed) return true
+    }
+    const s6 = localStorage.getItem('cs_step6')
+    if (s6) {
+      const aud = JSON.parse(s6)
+      if (aud?.respondents && Number(aud.respondents) > 0) return true
+    }
+  } catch { /* ignore */ }
+  return false
+}
+
 function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
   if (typeof window === 'undefined') return false
 
@@ -165,6 +194,12 @@ function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
         }
       }
       case 6: {
+        if (hasProgressedPastOptionalStep()) return true
+
+        if (!isStepCompleted(5, isSpecialCreator)) return false
+        const lastStep = getStudyLastStep()
+        if (lastStep > 0 && lastStep < 6) return false
+
         const marker = localStorage.getItem('cs_step6_optional_classification_completed')
         if (marker) {
           try {

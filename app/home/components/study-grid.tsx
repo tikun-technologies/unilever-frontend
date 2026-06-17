@@ -191,6 +191,7 @@ export function StudyGrid({
       // Store study_id and flag for create-study page to load data
       localStorage.setItem('cs_study_id', study.id)
       localStorage.setItem('cs_current_step', String(lastStep))
+      localStorage.setItem('cs_study_last_step', String(lastStep))
       localStorage.setItem('cs_resuming_draft', 'true')
       // Clear the fresh start flag to allow normal resuming
       localStorage.removeItem('cs_is_fresh_start')

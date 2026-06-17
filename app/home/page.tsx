@@ -430,6 +430,7 @@ function DashboardContent() {
       } catch { /* ignore */ }
       localStorage.setItem("cs_study_id", study.id)
       localStorage.setItem("cs_current_step", String(lastStep))
+      localStorage.setItem("cs_study_last_step", String(lastStep))
       localStorage.setItem("cs_resuming_draft", "true")
       localStorage.removeItem("cs_is_fresh_start")
       localStorage.removeItem("cs_step8")

@@ -129,6 +129,9 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
     const studyDetails = await getStudyPreview(studyId)
     console.log('Received study details:', studyDetails)
 
+    const backendLastStep = typeof studyDetails.last_step === 'number' ? studyDetails.last_step : 1
+    try { localStorage.setItem('cs_study_last_step', String(backendLastStep)) } catch { }
+
     // Populate Step 1 - Basic Details
     localStorage.setItem('cs_step1', JSON.stringify({
       title: studyDetails.title || '',
@@ -189,11 +192,15 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
       const optionalQuestions = transformedQuestions.filter((q) => q.optional_classification_question)
       localStorage.setItem('cs_step4', JSON.stringify(regularQuestions))
       localStorage.setItem('cs_step6_optional_classification', JSON.stringify(optionalQuestions))
-      localStorage.setItem('cs_step6_optional_classification_completed', JSON.stringify({
-        completed: true,
-        skipped: optionalQuestions.length === 0,
-        timestamp: Date.now(),
-      }))
+      if (backendLastStep >= 6) {
+        localStorage.setItem('cs_step6_optional_classification_completed', JSON.stringify({
+          completed: true,
+          skipped: optionalQuestions.length === 0,
+          timestamp: Date.now(),
+        }))
+      } else {
+        try { localStorage.removeItem('cs_step6_optional_classification_completed') } catch { }
+      }
       if (typeof studyDetails.toggle_shuffle === 'boolean') {
         localStorage.setItem('cs_step4_shuffle', String(studyDetails.toggle_shuffle))
       } else {
@@ -202,11 +209,15 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
     } else {
       localStorage.setItem('cs_step4', JSON.stringify([]))
       localStorage.setItem('cs_step6_optional_classification', JSON.stringify([]))
-      localStorage.setItem('cs_step6_optional_classification_completed', JSON.stringify({
-        completed: true,
-        skipped: true,
-        timestamp: Date.now(),
-      }))
+      if (backendLastStep >= 6) {
+        localStorage.setItem('cs_step6_optional_classification_completed', JSON.stringify({
+          completed: true,
+          skipped: true,
+          timestamp: Date.now(),
+        }))
+      } else {
+        try { localStorage.removeItem('cs_step6_optional_classification_completed') } catch { }
+      }
       localStorage.setItem('cs_step4_shuffle', 'false')
     }
 
@@ -575,6 +586,22 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
       localStorage.setItem('cs_step7_matrix', JSON.stringify(taskMatrix))
     }
 
+    // Old studies without optional classification: mark step 6 skipped once audience/tasks/launch exist
+    try {
+      const progressedPastOptional =
+        backendLastStep >= 7 ||
+        Boolean(studyDetails.tasks) ||
+        localStorage.getItem('cs_step7_tasks') ||
+        localStorage.getItem('cs_step7_matrix')
+      if (progressedPastOptional) {
+        localStorage.setItem('cs_step6_optional_classification_completed', JSON.stringify({
+          completed: true,
+          skipped: true,
+          timestamp: Date.now(),
+        }))
+      }
+    } catch { /* ignore */ }
+
     // NEW: Restore the last saved step based on local completion validation
     // This honors "open the last step which shows completed" request
     let targetStep = 1
@@ -664,6 +691,20 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
             }
           }
           case 6: {
+            try {
+              const lastStep = Number(localStorage.getItem('cs_study_last_step') || 0)
+              if (lastStep >= 7) return true
+              if (localStorage.getItem('cs_step7_tasks') || localStorage.getItem('cs_step7_matrix')) return true
+              const step8 = localStorage.getItem('cs_step8')
+              if (step8 && JSON.parse(step8).completed) return true
+              const aud = localStorage.getItem('cs_step6')
+              if (aud && JSON.parse(aud).respondents > 0) return true
+            } catch { /* ignore */ }
+            if (!isStepCompleted(5)) return false
+            try {
+              const lastStep = Number(localStorage.getItem('cs_study_last_step') || 0)
+              if (lastStep > 0 && lastStep < 6) return false
+            } catch { /* ignore */ }
             const marker = localStorage.getItem('cs_step6_optional_classification_completed')
             if (marker) {
               try {

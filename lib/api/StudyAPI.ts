@@ -2185,6 +2185,12 @@ export async function putUpdateStudy(studyId: string, payload: UpdateStudyPutPay
 // Fire-and-forget wrapper for PUT updates
 export function putUpdateStudyAsync(studyId: string, payload: UpdateStudyPutPayload, last_step?: number) {
   if (typeof window === 'undefined') return
+  if (last_step !== undefined) {
+    try {
+      const current = Number(localStorage.getItem('cs_study_last_step') || 0)
+      if (last_step > current) localStorage.setItem('cs_study_last_step', String(last_step))
+    } catch { /* ignore */ }
+  }
   putUpdateStudy(studyId, payload, last_step ?? 8).catch((err) => {
     console.error('Background PUT update failed:', err)
   })
@@ -3266,6 +3272,12 @@ export async function updateStudy(studyId: string, payload: UpdateStudyPayload):
 // Fire and forget update - runs in background without waiting
 export function updateStudyAsync(studyId: string, payload: UpdateStudyPayload) {
   if (typeof window === 'undefined') return
+  if (payload.last_step !== undefined) {
+    try {
+      const current = Number(localStorage.getItem('cs_study_last_step') || 0)
+      if (payload.last_step > current) localStorage.setItem('cs_study_last_step', String(payload.last_step))
+    } catch { /* ignore */ }
+  }
   updateStudy(studyId, payload).catch((err) => {
     console.error("Background study update failed:", err.message)
   })
