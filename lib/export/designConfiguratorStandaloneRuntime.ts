@@ -16,6 +16,8 @@ export function getDesignConfiguratorStandaloneRuntime(): string {
 
   const state = {
     analysisData: payload.analysisData || {},
+    designConstraints: payload.designConstraints || [],
+    studyLayers: payload.studyLayers || [],
     activeMetric: "Top Down",
     activeSegmentId: "",
     selectedByCategory: {},
@@ -48,6 +50,8 @@ export function getDesignConfiguratorStandaloneRuntime(): string {
     return Number.isInteger(value) ? String(value) : value.toFixed(1);
   }
   function getElementKey(category, elementName) { return category + "::" + elementName; }
+  function getLayerId(category) { return normalizeText(category.layer_id || category.layerId || category.id || category.category_id || category.categoryId) || undefined; }
+  function getImageId(element) { return normalizeText(element.image_id || element.imageId || element.id || element.element_id || element.elementId) || undefined; }
   function getSegmentId(sectionKey, valueKey) { return valueKey ? sectionKey + "::" + valueKey : sectionKey; }
   function formatSegmentLabel(valueKey) {
     const m = valueKey.match(/^Mindset_(\d+)_of_\d+$/);
@@ -123,11 +127,13 @@ export function getDesignConfiguratorStandaloneRuntime(): string {
       return (section && section.categories || []).map((category, categoryIndex) => {
         const categoryName = normalizeText(category.name) || "Category " + (categoryIndex + 1);
         const categoryKey = getCategoryIdentity(category, categoryName, categoryIndex);
+        const layerId = getLayerId(category);
         const zIndex = toNumber(category.z_index ?? category.z, categoryIndex + 1);
         const elements = getRawElements(category).map((element, elementIndex) => {
           const name = normalizeText(element.name) || "Element " + (elementIndex + 1);
           return {
             id: getElementKey(categoryKey, name), name, category: categoryName, categoryKey,
+            layerId, imageId: getImageId(element),
             value: segment.valueKey ? toNumber(element.values && element.values[segment.valueKey], 0) : toNumber(element.value, 0),
             imageUrl: pickElementImage(element), content: normalizeText(element.content) || null,
             elementType: normalizeText(element.element_type || element.elementType), zIndex, transform: pickTransform(element),
@@ -139,6 +145,7 @@ export function getDesignConfiguratorStandaloneRuntime(): string {
     return infoCategories.map((category, categoryIndex) => {
       const categoryName = normalizeText(category.name || category.title) || "Category " + (categoryIndex + 1);
       const categoryKey = getCategoryIdentity(category, categoryName, categoryIndex);
+      const layerId = getLayerId(category);
       const zIndex = toNumber(category.z_index ?? category.z, categoryIndex + 1);
       const elements = getRawElements(category).map((element, elementIndex) => {
         const name = normalizeText(element.name || element.alt_text) || "Element " + (elementIndex + 1);
@@ -147,6 +154,7 @@ export function getDesignConfiguratorStandaloneRuntime(): string {
         const imageUrl = elementType.toLowerCase() === "text" ? null : pickElementImage(element);
         return {
           id: getElementKey(categoryKey, name), name, category: categoryName, categoryKey,
+          layerId, imageId: getImageId(element),
           value: (score && score.value) || 0, imageUrl, content: normalizeText(element.content) || null,
           elementType, zIndex: toNumber(element.z_index ?? element.z ?? category.z_index ?? category.z ?? zIndex, zIndex), transform: pickTransform(element),
         };
@@ -193,9 +201,125 @@ export function getDesignConfiguratorStandaloneRuntime(): string {
     ranked.slice(0, isLayerStudy ? ranked.length : MAX_NON_LAYER).forEach(({ category, best }) => { selected[category.key] = best.id; });
     return selected;
   }
+  function constraintRefKey(ref) {
+    const layerId = normalizeText(ref.layer_id || ref.layerId);
+    const imageId = normalizeText(ref.image_id || ref.imageId);
+    return layerId && imageId ? layerId + "::" + imageId : null;
+  }
+  function elementConstraintKey(element) {
+    return element.layerId && element.imageId ? element.layerId + "::" + element.imageId : null;
+  }
+  function buildConflictPairSet(designConstraints) {
+    const pairs = new Set();
+    (designConstraints || []).forEach(function(constraint) {
+      const anchors = Array.isArray(constraint.anchors) ? constraint.anchors : [];
+      const blocked = Array.isArray(constraint.blocked) ? constraint.blocked : [];
+      anchors.forEach(function(anchor) {
+        const anchorKey = constraintRefKey(anchor);
+        if (!anchorKey) return;
+        blocked.forEach(function(blockedRef) {
+          const blockedKey = constraintRefKey(blockedRef);
+          if (!blockedKey || blockedKey === anchorKey) return;
+          pairs.add(anchorKey + "|" + blockedKey);
+          pairs.add(blockedKey + "|" + anchorKey);
+        });
+      });
+    });
+    return pairs;
+  }
+  function conflictsWithSelected(element, selectedElements, conflictPairs) {
+    const elementKey = elementConstraintKey(element);
+    if (!elementKey) return false;
+    return selectedElements.some(function(selected) {
+      const selectedKey = elementConstraintKey(selected);
+      return Boolean(selectedKey && conflictPairs.has(elementKey + "|" + selectedKey));
+    });
+  }
+  function buildConstraintAwareLayerBestMix(categories, designConstraints) {
+    const conflictPairs = buildConflictPairSet(designConstraints);
+    if (!conflictPairs.size) return buildDefaultSelection(categories);
+    function conflictDegree(category) {
+      return category.elements.reduce(function(count, element) {
+        const key = elementConstraintKey(element);
+        if (!key) return count;
+        conflictPairs.forEach(function(pair) {
+          if (pair.indexOf(key + "|") === 0) count += 1;
+        });
+        return count;
+      }, 0);
+    }
+    const layerCategories = categories.filter((category) => category.elements.length > 0)
+      .sort((a, b) => {
+        const degreeDelta = conflictDegree(b) - conflictDegree(a);
+        if (degreeDelta !== 0) return degreeDelta;
+        const sizeDelta = a.elements.length - b.elements.length;
+        if (sizeDelta !== 0) return sizeDelta;
+        return a.zIndex - b.zIndex;
+      })
+      .map((category) => ({ category, elements: [...category.elements].sort((a, b) => b.value - a.value) }));
+    if (!layerCategories.length) return {};
+    const suffixBest = new Array(layerCategories.length + 1).fill(0);
+    for (let idx = layerCategories.length - 1; idx >= 0; idx -= 1) {
+      suffixBest[idx] = suffixBest[idx + 1] + Math.max(0, (layerCategories[idx].elements[0] && layerCategories[idx].elements[0].value) || 0);
+    }
+    let bestScore = 0;
+    let bestSelection = {};
+    function search(index, selectedElements, selectedByCategory, score) {
+      if (score + suffixBest[index] <= bestScore) return;
+      if (index === layerCategories.length) {
+        bestScore = score;
+        bestSelection = Object.assign({}, selectedByCategory);
+        return;
+      }
+      const item = layerCategories[index];
+      search(index + 1, selectedElements, selectedByCategory, score);
+      item.elements.forEach(function(element) {
+        if (conflictsWithSelected(element, selectedElements, conflictPairs)) return;
+        selectedByCategory[item.category.key] = element.id;
+        selectedElements.push(element);
+        search(index + 1, selectedElements, selectedByCategory, score + element.value);
+        selectedElements.pop();
+        delete selectedByCategory[item.category.key];
+      });
+    }
+    search(0, [], {}, 0);
+    return bestSelection;
+  }
+  function normalizeLookupKey(value) {
+    return normalizeText(value).toLowerCase();
+  }
+  function enrichLayerCategoriesWithIds(categories, studyLayers) {
+    if (!Array.isArray(studyLayers) || !studyLayers.length) return categories;
+    const layerByName = new Map();
+    studyLayers.forEach(function(layer) {
+      const nameKey = normalizeLookupKey((layer && layer.name) || (layer && layer.title));
+      if (nameKey && !layerByName.has(nameKey)) layerByName.set(nameKey, layer);
+    });
+    return categories.map(function(category) {
+      const matchedLayer = layerByName.get(normalizeLookupKey(category.name));
+      if (!matchedLayer) return category;
+      const layerId = normalizeText(matchedLayer.layer_id || matchedLayer.layerId || matchedLayer.id) || undefined;
+      const imageByName = new Map();
+      (Array.isArray(matchedLayer.images) ? matchedLayer.images : []).forEach(function(image) {
+        const nameKey = normalizeLookupKey((image && image.name) || (image && image.alt_text));
+        if (nameKey && !imageByName.has(nameKey)) imageByName.set(nameKey, image);
+      });
+      return Object.assign({}, category, {
+        elements: category.elements.map(function(element) {
+          if (element.layerId && element.imageId) return element;
+          const matchedImage = imageByName.get(normalizeLookupKey(element.name));
+          if (!matchedImage) return Object.assign({}, element, { layerId: element.layerId || layerId });
+          return Object.assign({}, element, {
+            layerId: element.layerId || layerId,
+            imageId: element.imageId || normalizeText(matchedImage.image_id || matchedImage.imageId || matchedImage.id) || undefined,
+          });
+        }),
+      });
+    });
+  }
   function getSegmentOptions() { return getAvailableSegmentOptions(state.analysisData, state.activeMetric); }
   function getActiveSegment() { const opts = getSegmentOptions(); return opts.find((s) => s.id === state.activeSegmentId) || opts[0]; }
-  function getCategories() { const seg = getActiveSegment(); return seg ? getCategoriesForMetric(state.analysisData, state.activeMetric, seg) : []; }
+  function getCategories() { const seg = getActiveSegment(); const categories = seg ? getCategoriesForMetric(state.analysisData, state.activeMetric, seg) : []; return isLayerStudy ? enrichLayerCategoriesWithIds(categories, state.studyLayers) : categories; }
   function getSelectedElements() {
     return getCategories().map((category) => category.elements.find((e) => e.id === state.selectedByCategory[category.key])).filter(Boolean);
   }
@@ -235,6 +359,8 @@ export function getDesignConfiguratorStandaloneRuntime(): string {
       name: element.name,
       category: element.category,
       category_key: element.category_key || element.categoryKey,
+      layer_id: element.layer_id || element.layerId,
+      image_id: element.image_id || element.imageId,
       value: element.value,
       content: element.content || null,
       element_type: element.element_type || element.elementType,
@@ -296,6 +422,8 @@ export function getDesignConfiguratorStandaloneRuntime(): string {
           name: element.name || "Element",
           category: element.category || "",
           category_key: element.category_key || element.categoryKey || "",
+          layer_id: element.layer_id || element.layerId,
+          image_id: element.image_id || element.imageId,
           value: toNumber(element.value, 0),
           image_url: media.imageUrl || null,
           content: element.content || media.content || null,
@@ -491,7 +619,7 @@ export function getDesignConfiguratorStandaloneRuntime(): string {
     const toggleBg = document.getElementById("toggle-bg");
     if (toggleBg) toggleBg.addEventListener("click", () => { state.showLayerBackground = !state.showLayerBackground; render(); });
     const bestMix = document.getElementById("best-mix");
-    if (bestMix) bestMix.addEventListener("click", () => { const cats = getCategories(); state.selectedByCategory = buildDefaultSelection(cats); state.openCategoryNames = Object.fromEntries(cats.map((c) => [c.key, Boolean(state.selectedByCategory[c.key])])); render(); });
+    if (bestMix) bestMix.addEventListener("click", () => { const cats = getCategories(); const nextSelection = isLayerStudy ? buildConstraintAwareLayerBestMix(cats, state.designConstraints) : buildDefaultSelection(cats); if (!nextSelection) { alert("No valid Best Mix exists with the current design constraints. Please relax constraints or review layer images."); return; } state.selectedByCategory = nextSelection; state.openCategoryNames = Object.fromEntries(cats.map((c) => [c.key, Boolean(state.selectedByCategory[c.key])])); render(); });
     const clearBtn = document.getElementById("clear-selection");
     if (clearBtn) clearBtn.addEventListener("click", () => { state.selectedByCategory = {}; render(); });
     const openSave = document.getElementById("open-save") || document.getElementById("open-save-layer");

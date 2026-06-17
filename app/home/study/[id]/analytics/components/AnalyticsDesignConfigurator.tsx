@@ -25,6 +25,7 @@ import {
   listLocalSavedDesigns,
   type LocalSavedDesignsStore,
 } from "@/lib/export/savedDesignLocalStorage"
+import type { ApiDesignConstraint } from "@/lib/utils/designConstraintsStorage"
 
 type Metric = "Top Down" | "Bottom Up" | "Response Time"
 
@@ -33,6 +34,8 @@ type ConfiguratorElement = {
   name: string
   category: string
   categoryKey: string
+  layerId?: string
+  imageId?: string
   value: number
   imageUrl?: string | null
   content?: string | null
@@ -338,6 +341,28 @@ function getElementKey(category: string, elementName: string): string {
   return `${category}::${elementName}`
 }
 
+function getLayerId(category: any): string | undefined {
+  const value = normalizeText(
+    category?.layer_id ??
+      category?.layerId ??
+      category?.id ??
+      category?.category_id ??
+      category?.categoryId
+  )
+  return value || undefined
+}
+
+function getImageId(element: any): string | undefined {
+  const value = normalizeText(
+    element?.image_id ??
+      element?.imageId ??
+      element?.id ??
+      element?.element_id ??
+      element?.elementId
+  )
+  return value || undefined
+}
+
 function getSegmentId(sectionKey: string, valueKey?: string): string {
   return valueKey ? `${sectionKey}::${valueKey}` : sectionKey
 }
@@ -506,12 +531,15 @@ function getCategoriesForMetric(analysisData: any, metric: Metric, segment: Segm
       .map((category: any, categoryIndex: number) => {
         const categoryName = normalizeText(category?.name) || `Category ${categoryIndex + 1}`
         const categoryKey = getCategoryIdentity(category, categoryName, categoryIndex)
+        const layerId = getLayerId(category)
         const zIndex = toNumber(category?.z_index ?? category?.z ?? categoryIndex + 1, categoryIndex + 1)
       const elements = getRawElements(category).map((element: any, elementIndex: number) => ({
           id: getElementKey(categoryKey, normalizeText(element?.name) || `Element ${elementIndex + 1}`),
           name: normalizeText(element?.name) || `Element ${elementIndex + 1}`,
           category: categoryName,
           categoryKey,
+          layerId,
+          imageId: getImageId(element),
           value: segment?.valueKey ? toNumber(element?.values?.[segment.valueKey], 0) : toNumber(element?.value, 0),
           imageUrl: pickElementImage(element),
           content: normalizeText(element?.content) || null,
@@ -529,6 +557,7 @@ function getCategoriesForMetric(analysisData: any, metric: Metric, segment: Segm
     .map((category: any, categoryIndex: number) => {
       const categoryName = normalizeText(category?.name) || normalizeText(category?.title) || `Category ${categoryIndex + 1}`
       const categoryKey = getCategoryIdentity(category, categoryName, categoryIndex)
+      const layerId = getLayerId(category)
       const zIndex = toNumber(category?.z_index ?? category?.z ?? categoryIndex + 1, categoryIndex + 1)
       const elements = getRawElements(category).map((element: any, elementIndex: number) => {
         const name = normalizeText(element?.name) || normalizeText(element?.alt_text) || `Element ${elementIndex + 1}`
@@ -541,6 +570,8 @@ function getCategoriesForMetric(analysisData: any, metric: Metric, segment: Segm
           name,
           category: categoryName,
           categoryKey,
+          layerId,
+          imageId: getImageId(element),
           value: score?.value ?? 0,
           imageUrl,
           content: normalizeText(element?.content) || null,
@@ -580,6 +611,164 @@ function buildDefaultSelection(categories: ConfiguratorCategory[], isLayerStudy:
   })
 
   return selected
+}
+
+function constraintRefKey(ref: { layer_id?: string; image_id?: string; layerId?: string; imageId?: string }): string | null {
+  const layerId = normalizeText(ref.layer_id ?? ref.layerId)
+  const imageId = normalizeText(ref.image_id ?? ref.imageId)
+  return layerId && imageId ? `${layerId}::${imageId}` : null
+}
+
+function elementConstraintKey(element: ConfiguratorElement): string | null {
+  return element.layerId && element.imageId ? `${element.layerId}::${element.imageId}` : null
+}
+
+function buildConflictPairSet(designConstraints: ApiDesignConstraint[]): Set<string> {
+  const pairs = new Set<string>()
+  designConstraints.forEach((constraint) => {
+    const anchors = Array.isArray(constraint.anchors) ? constraint.anchors : []
+    const blocked = Array.isArray(constraint.blocked) ? constraint.blocked : []
+    anchors.forEach((anchor) => {
+      const anchorKey = constraintRefKey(anchor)
+      if (!anchorKey) return
+      blocked.forEach((blockedRef) => {
+        const blockedKey = constraintRefKey(blockedRef)
+        if (!blockedKey || blockedKey === anchorKey) return
+        pairs.add(`${anchorKey}|${blockedKey}`)
+        pairs.add(`${blockedKey}|${anchorKey}`)
+      })
+    })
+  })
+  return pairs
+}
+
+function conflictsWithSelected(
+  element: ConfiguratorElement,
+  selectedElements: ConfiguratorElement[],
+  conflictPairs: Set<string>
+): boolean {
+  const elementKey = elementConstraintKey(element)
+  if (!elementKey) return false
+  return selectedElements.some((selected) => {
+    const selectedKey = elementConstraintKey(selected)
+    return Boolean(selectedKey && conflictPairs.has(`${elementKey}|${selectedKey}`))
+  })
+}
+
+function buildConstraintAwareLayerBestMix(
+  categories: ConfiguratorCategory[],
+  designConstraints: ApiDesignConstraint[]
+): Record<string, string> | null {
+  const conflictPairs = buildConflictPairSet(designConstraints)
+  if (conflictPairs.size === 0) {
+    return buildDefaultSelection(categories, true)
+  }
+
+  const conflictDegree = (category: ConfiguratorCategory) =>
+    category.elements.reduce((count, element) => {
+      const key = elementConstraintKey(element)
+      if (!key) return count
+      for (const pair of conflictPairs) {
+        if (pair.startsWith(`${key}|`)) count += 1
+      }
+      return count
+    }, 0)
+
+  const layerCategories = [...categories]
+    .filter((category) => category.elements.length > 0)
+    .sort((a, b) => {
+      const degreeDelta = conflictDegree(b) - conflictDegree(a)
+      if (degreeDelta !== 0) return degreeDelta
+      const sizeDelta = a.elements.length - b.elements.length
+      if (sizeDelta !== 0) return sizeDelta
+      return a.zIndex - b.zIndex
+    })
+    .map((category) => ({
+      category,
+      elements: [...category.elements].sort((a, b) => b.value - a.value),
+    }))
+
+  if (layerCategories.length === 0) return {}
+
+  const suffixBest = new Array(layerCategories.length + 1).fill(0)
+  for (let idx = layerCategories.length - 1; idx >= 0; idx -= 1) {
+    suffixBest[idx] = suffixBest[idx + 1] + Math.max(0, layerCategories[idx].elements[0]?.value ?? 0)
+  }
+
+  let bestScore = 0
+  let bestSelection: Record<string, string> = {}
+
+  const search = (
+    index: number,
+    selectedElements: ConfiguratorElement[],
+    selectedByCategory: Record<string, string>,
+    score: number
+  ) => {
+    if (score + suffixBest[index] <= bestScore) return
+
+    if (index === layerCategories.length) {
+      bestScore = score
+      bestSelection = { ...selectedByCategory }
+      return
+    }
+
+    const { category, elements } = layerCategories[index]
+    search(index + 1, selectedElements, selectedByCategory, score)
+    for (const element of elements) {
+      if (conflictsWithSelected(element, selectedElements, conflictPairs)) continue
+      selectedByCategory[category.key] = element.id
+      selectedElements.push(element)
+      search(index + 1, selectedElements, selectedByCategory, score + element.value)
+      selectedElements.pop()
+      delete selectedByCategory[category.key]
+    }
+  }
+
+  search(0, [], {}, 0)
+  return bestSelection
+}
+
+function normalizeLookupKey(value: unknown): string {
+  return normalizeText(value).toLowerCase()
+}
+
+function enrichLayerCategoriesWithIds(
+  categories: ConfiguratorCategory[],
+  studyLayers: any[] | undefined
+): ConfiguratorCategory[] {
+  if (!Array.isArray(studyLayers) || studyLayers.length === 0) return categories
+
+  const layerByName = new Map<string, any>()
+  studyLayers.forEach((layer) => {
+    const nameKey = normalizeLookupKey(layer?.name || layer?.title)
+    if (nameKey && !layerByName.has(nameKey)) layerByName.set(nameKey, layer)
+  })
+
+  return categories.map((category) => {
+    const matchedLayer = layerByName.get(normalizeLookupKey(category.name))
+    if (!matchedLayer) return category
+
+    const layerId = normalizeText(matchedLayer.layer_id ?? matchedLayer.layerId ?? matchedLayer.id) || undefined
+    const imageByName = new Map<string, any>()
+    ;(Array.isArray(matchedLayer.images) ? matchedLayer.images : []).forEach((image: any) => {
+      const nameKey = normalizeLookupKey(image?.name || image?.alt_text)
+      if (nameKey && !imageByName.has(nameKey)) imageByName.set(nameKey, image)
+    })
+
+    return {
+      ...category,
+      elements: category.elements.map((element) => {
+        if (element.layerId && element.imageId) return element
+        const matchedImage = imageByName.get(normalizeLookupKey(element.name))
+        if (!matchedImage) return { ...element, layerId: element.layerId || layerId }
+        return {
+          ...element,
+          layerId: element.layerId || layerId,
+          imageId: element.imageId || normalizeText(matchedImage.image_id ?? matchedImage.imageId ?? matchedImage.id) || undefined,
+        }
+      }),
+    }
+  })
 }
 
 function buildInputDesignInsights(
@@ -980,6 +1169,8 @@ function getSavedDesignElements(
       name: String(element.name || element.element_name || `Element ${index + 1}`),
       category: String(element.category || "Selection"),
       categoryKey: String(element.categoryKey || element.category_key || element.category || `selection-${index}`),
+      layerId: normalizeText(element.layerId ?? element.layer_id ?? media?.layerId) || undefined,
+      imageId: normalizeText(element.imageId ?? element.image_id ?? media?.imageId) || undefined,
       value: toNumber(element.value, 0),
       imageUrl: media?.imageUrl ?? element.imageUrl ?? element.image_url ?? null,
       content: media?.content ?? element.content ?? null,
@@ -1466,6 +1657,8 @@ interface AnalyticsDesignConfiguratorProps {
   analysisData: any
   studyId: string
   studyType?: string
+  designConstraints?: ApiDesignConstraint[]
+  studyLayers?: any[]
   persistence?: "api" | "local"
   initialSavedDesigns?: LocalSavedDesignsStore
   onExportHtml?: () => void
@@ -1477,6 +1670,8 @@ export function AnalyticsDesignConfigurator({
   analysisData,
   studyId,
   studyType = "grid",
+  designConstraints = [],
+  studyLayers = [],
   persistence = "api",
   initialSavedDesigns,
   onExportHtml,
@@ -1504,8 +1699,11 @@ export function AnalyticsDesignConfigurator({
     [segmentOptions, activeSegmentId]
   )
   const categories = useMemo(
-    () => getCategoriesForMetric(analysisData || {}, activeMetric, activeSegment),
-    [analysisData, activeMetric, activeSegment]
+    () => enrichLayerCategoriesWithIds(
+      getCategoriesForMetric(analysisData || {}, activeMetric, activeSegment),
+      isLayerStudy ? studyLayers : []
+    ),
+    [analysisData, activeMetric, activeSegment, isLayerStudy, studyLayers]
   )
   const backgroundUrl = useMemo(() => getBackgroundUrl(analysisData || {}), [analysisData])
   const layerAspectRatio = useMemo(() => getLayerAspectRatio(analysisData || {}), [analysisData])
@@ -1536,12 +1734,15 @@ export function AnalyticsDesignConfigurator({
     const rememberCategory = (category: any, categoryIndex: number) => {
       const categoryName = normalizeText(category?.name || category?.title) || `Category ${categoryIndex + 1}`
       const categoryKey = getCategoryIdentity(category, categoryName, categoryIndex)
+      const layerId = getLayerId(category)
       const zIndex = toNumber(category?.z_index ?? category?.z, categoryIndex + 1)
       getRawElements(category).forEach((element: any, elementIndex: number) => {
         const name = normalizeText(element?.name || element?.alt_text) || `Element ${elementIndex + 1}`
         const elementType = normalizeText(element?.element_type ?? element?.elementType)
         const id = getElementKey(categoryKey, name)
         lookup[id] = {
+          layerId,
+          imageId: getImageId(element),
           imageUrl: elementType.toLowerCase() === "text" ? null : pickElementImage(element),
           content: normalizeText(element?.content) || null,
           elementType,
@@ -1647,6 +1848,8 @@ export function AnalyticsDesignConfigurator({
         name: element.name,
         category: element.category,
         category_key: element.categoryKey,
+        layer_id: element.layerId,
+        image_id: element.imageId,
         value: element.value,
         image_url: element.imageUrl ?? null,
         content: element.content ?? null,
@@ -1717,7 +1920,13 @@ export function AnalyticsDesignConfigurator({
   }
 
   const handleBestMix = () => {
-    const bestSelection = buildDefaultSelection(categories, isLayerStudy)
+    const bestSelection = isLayerStudy
+      ? buildConstraintAwareLayerBestMix(categories, designConstraints)
+      : buildDefaultSelection(categories, false)
+    if (!bestSelection) {
+      alert("No valid Best Mix exists with the current design constraints. Please relax constraints or review layer images.")
+      return
+    }
     setSelectedByCategory(bestSelection)
     setOpenCategoryNames(
       categories.reduce<Record<string, boolean>>((next, category) => {

@@ -92,6 +92,8 @@ export default function StudyAnalyticsPage() {
                 studyTitle: exportTitle,
                 studyType: exportStudyType,
                 analysisData,
+                designConstraints: study.design_constraints || [],
+                studyLayers: study.study_layers || [],
                 onStageChange: setExportHtmlStage,
             })
         } catch (e) {
@@ -417,6 +419,8 @@ export default function StudyAnalyticsPage() {
                                     analysisData={analysisData}
                                     studyId={studyId}
                                     studyType={studyType}
+                                    designConstraints={study?.design_constraints || []}
+                                    studyLayers={study?.study_layers || []}
                                     onExportHtml={() => void buildHtmlExport()}
                                     isExportingHtml={exportingHtml}
                                     exportHtmlStage={exportHtmlStage}

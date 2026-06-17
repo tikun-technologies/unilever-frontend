@@ -4,6 +4,7 @@ import {
 } from "@/lib/export/buildDesignConfiguratorPayload"
 import { buildImageDataUrlMap, collectHttpUrls, embedImagesInValue } from "@/lib/export/embedExportImages"
 import type { ExportConfiguratorPayload } from "@/lib/export/ExportConfiguratorRoot"
+import type { ApiDesignConstraint } from "@/lib/utils/designConstraintsStorage"
 
 export type ExportHtmlStage = "preparing" | "embedding" | "generating" | "done"
 
@@ -47,6 +48,8 @@ function toExportConfiguratorPayload(payload: DesignConfiguratorExportPayload): 
     studyType: payload.studyType,
     exportedAt: payload.exportedAt,
     analysisData: payload.analysisData,
+    designConstraints: payload.designConstraints || [],
+    studyLayers: payload.studyLayers || [],
     savedDesigns: payload.savedDesigns,
   }
 }
@@ -82,6 +85,8 @@ export async function exportDesignConfiguratorHtml(input: {
   studyTitle: string
   studyType: string
   analysisData: any
+  designConstraints?: ApiDesignConstraint[]
+  studyLayers?: any[]
   onStageChange?: (stage: ExportHtmlStage) => void
 }): Promise<{ fileName: string }> {
   input.onStageChange?.("preparing")

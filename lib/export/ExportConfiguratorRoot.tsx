@@ -2,6 +2,7 @@
 
 import { AnalyticsDesignConfigurator } from "@/app/home/study/[id]/analytics/components/AnalyticsDesignConfigurator"
 import type { LocalSavedDesignsStore } from "@/lib/export/savedDesignLocalStorage"
+import type { ApiDesignConstraint } from "@/lib/utils/designConstraintsStorage"
 
 export interface ExportConfiguratorPayload {
   studyId: string
@@ -9,6 +10,8 @@ export interface ExportConfiguratorPayload {
   studyType: string
   exportedAt: string
   analysisData: unknown
+  designConstraints?: ApiDesignConstraint[]
+  studyLayers?: any[]
   savedDesigns: LocalSavedDesignsStore
 }
 
@@ -37,6 +40,8 @@ export function ExportConfiguratorRoot({ payload }: { payload: ExportConfigurato
           analysisData={payload.analysisData}
           studyId={exportStorageId}
           studyType={payload.studyType}
+          designConstraints={payload.designConstraints || []}
+          studyLayers={payload.studyLayers || []}
           persistence="local"
           initialSavedDesigns={payload.savedDesigns}
         />
