@@ -1,11 +1,22 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
-import { Fragment, useEffect, useRef, useState, forwardRef, type CSSProperties } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState, forwardRef, type CSSProperties } from "react"
 import { Rnd } from "react-rnd"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { uploadImages, putUpdateStudyAsync, buildStudyPayloadFromLocalStorage } from "@/lib/api/StudyAPI"
+import {
+  uploadImages,
+  putUpdateStudyAsync,
+  buildStudyPayloadFromLocalStorage,
+  upsertStudyDesignConstraint,
+  deleteStudyDesignConstraint,
+} from "@/lib/api/StudyAPI"
+import {
+  DESIGN_CONSTRAINTS_STORAGE_KEY,
+  designConstraintsToApiPayload,
+  readDesignConstraintsFromLocalStorage,
+} from "@/lib/utils/designConstraintsStorage"
 import { renderLayersToCanvas } from "@/lib/canvas-export"
 
 interface ElementItem {
@@ -1353,6 +1364,16 @@ type Layer = {
   transform?: { x: number; y: number; width: number; height: number }
 }
 
+type ConstraintElementRef = { layerId: string; imageId: string }
+
+type DesignConstraint = {
+  id: string
+  name: string
+  anchors: ConstraintElementRef[]
+  blocked: ConstraintElementRef[]
+  createdAt: number
+}
+
 type LayerTextModalState =
   | { layerId: string; mode: 'add' }
   | { layerId: string; mode: 'edit'; imageId: string }
@@ -1525,6 +1546,28 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
   const aspectClass = previewAspect === 'portrait' ? 'aspect-[9/16]' : previewAspect === 'landscape' ? 'aspect-[16/9]' : 'aspect-square'
   const [showFullPreview, setShowFullPreview] = useState(false)
   const [exportLoading, setExportLoading] = useState(false)
+  const [designConstraints, setDesignConstraints] = useState<DesignConstraint[]>(() => readDesignConstraintsFromLocalStorage())
+  const [showDesignConstraintModal, setShowDesignConstraintModal] = useState(false)
+  const [designConstraintView, setDesignConstraintView] = useState<'overview' | 'builder'>('overview')
+  const [editingConstraintId, setEditingConstraintId] = useState<string | null>(null)
+  const [constraintDraft, setConstraintDraft] = useState<{
+    anchors: ConstraintElementRef[]
+    blocked: ConstraintElementRef[]
+  }>({ anchors: [], blocked: [] })
+  const [constraintError, setConstraintError] = useState<string | null>(null)
+  const [showConstraintNameDialog, setShowConstraintNameDialog] = useState(false)
+  const [constraintNameDraft, setConstraintNameDraft] = useState("")
+  const [constraintNameError, setConstraintNameError] = useState<string | null>(null)
+  const [constraintImagePreview, setConstraintImagePreview] = useState<{
+    src: string
+    alt: string
+    layerName: string
+    imageName: string
+  } | null>(null)
+  const [constraintExpandedAnchorLayers, setConstraintExpandedAnchorLayers] = useState<Set<string>>(new Set())
+  const [constraintExpandedBlockedLayers, setConstraintExpandedBlockedLayers] = useState<Set<string>>(new Set())
+  const [overviewExpandedConstraints, setOverviewExpandedConstraints] = useState<Set<string>>(new Set())
+  const [constraintSavingId, setConstraintSavingId] = useState<string | null>(null)
 
   // Comprehensive font options with their CSS font-family values
   const FONT_OPTIONS = [
@@ -1897,6 +1940,422 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
     const used = new Set<string>()
     layers.forEach(l => { if (!excludeId || l.id !== excludeId) used.add((l.name || '').trim()) })
     return generateUniqueName(proposed, used)
+  }
+
+  const getConstraintElementKey = (layerId: string, imageId: string) => `${layerId}::${imageId}`
+  const parseConstraintElementKey = (key: string) => {
+    const [layerId, imageId] = key.split('::')
+    return { layerId: layerId || '', imageId: imageId || '' }
+  }
+  const isSameConstraintElement = (
+    a: { layerId: string; imageId: string },
+    b: { layerId: string; imageId: string }
+  ) => a.layerId === b.layerId && a.imageId === b.imageId
+
+  const constraintElementOptions = useMemo(() => {
+    return layers.flatMap((layer) =>
+      layer.images.map((image) => ({
+        key: getConstraintElementKey(layer.id, image.id),
+        layerId: layer.id,
+        imageId: image.id,
+        layerName: layer.name || 'Untitled layer',
+        imageName: image.name || image.textContent || 'Untitled element',
+        src: image.secureUrl || image.previewUrl,
+        sourceType: (image.sourceType ?? 'upload') as 'text' | 'upload',
+      }))
+    ).filter((option) => option.src)
+  }, [layers])
+
+  const getConstraintElement = (layerId: string, imageId: string) =>
+    constraintElementOptions.find((option) => option.layerId === layerId && option.imageId === imageId)
+
+  const getDefaultConstraintName = (excludeId?: string) => {
+    const usedNames = new Set(
+      designConstraints
+        .filter((constraint) => constraint.id !== excludeId)
+        .map((constraint) => constraint.name.trim().toLowerCase())
+    )
+    let index = 1
+    let candidate = `Design Constraint ${index}`
+    while (usedNames.has(candidate.toLowerCase())) {
+      index += 1
+      candidate = `Design Constraint ${index}`
+    }
+    return candidate
+  }
+
+  const sanitizeDesignConstraints = (constraints: DesignConstraint[]) => {
+    const validKeys = new Set(constraintElementOptions.map((option) => option.key))
+    return constraints
+      .map((constraint) => {
+        const seenAnchors = new Set<string>()
+        const anchors = constraint.anchors.filter((anchorItem) => {
+          const key = getConstraintElementKey(anchorItem.layerId, anchorItem.imageId)
+          if (!validKeys.has(key) || seenAnchors.has(key)) return false
+          seenAnchors.add(key)
+          return true
+        })
+        if (anchors.length === 0) return null
+        const anchorKeys = new Set(anchors.map((anchorItem) => getConstraintElementKey(anchorItem.layerId, anchorItem.imageId)))
+        const seenBlocked = new Set<string>()
+        const blocked = constraint.blocked.filter((blockedItem) => {
+          const key = getConstraintElementKey(blockedItem.layerId, blockedItem.imageId)
+          if (anchorKeys.has(key) || !validKeys.has(key) || seenBlocked.has(key)) return false
+          seenBlocked.add(key)
+          return true
+        })
+        if (blocked.length === 0) return null
+        return { ...constraint, anchors, blocked }
+      })
+      .filter((constraint): constraint is DesignConstraint => Boolean(constraint))
+  }
+
+  const resetConstraintDraft = () => {
+    setConstraintDraft({ anchors: [], blocked: [] })
+    setConstraintError(null)
+    setEditingConstraintId(null)
+    setShowConstraintNameDialog(false)
+    setConstraintNameDraft("")
+    setConstraintNameError(null)
+    setConstraintImagePreview(null)
+    setDesignConstraintView('overview')
+    setShowDesignConstraintModal(false)
+  }
+
+  const openConstraintImagePreview = (option: { src: string; imageName: string; layerName: string }) => {
+    setConstraintImagePreview({
+      src: option.src,
+      alt: option.imageName,
+      layerName: option.layerName,
+      imageName: option.imageName,
+    })
+  }
+
+  const getAnchorLayersToExpand = (draft: {
+    anchors: ConstraintElementRef[]
+    blocked: ConstraintElementRef[]
+  }) => {
+    const ids = new Set<string>()
+    draft.anchors.forEach((anchorItem) => {
+      if (anchorItem.layerId) ids.add(anchorItem.layerId)
+    })
+    return ids
+  }
+
+  const getBlockedLayersToExpand = (draft: {
+    anchors: ConstraintElementRef[]
+    blocked: ConstraintElementRef[]
+  }) => {
+    const ids = new Set<string>()
+    draft.blocked.forEach((blockedItem) => {
+      if (blockedItem.layerId) ids.add(blockedItem.layerId)
+    })
+    return ids
+  }
+
+  const toggleConstraintAnchorLayerExpanded = (layerId: string) => {
+    setConstraintExpandedAnchorLayers((prev) => {
+      const next = new Set(prev)
+      if (next.has(layerId)) next.delete(layerId)
+      else next.add(layerId)
+      return next
+    })
+  }
+
+  const toggleConstraintBlockedLayerExpanded = (layerId: string) => {
+    setConstraintExpandedBlockedLayers((prev) => {
+      const next = new Set(prev)
+      if (next.has(layerId)) next.delete(layerId)
+      else next.add(layerId)
+      return next
+    })
+  }
+
+  const toggleOverviewConstraintExpanded = (constraintId: string) => {
+    setOverviewExpandedConstraints((prev) => {
+      const next = new Set(prev)
+      if (next.has(constraintId)) next.delete(constraintId)
+      else next.add(constraintId)
+      return next
+    })
+  }
+
+  const renderConstraintChevron = (expanded: boolean) => (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={`flex-shrink-0 text-gray-500 transition-transform duration-300 ease-in-out ${expanded ? 'rotate-0' : 'rotate-180'}`}
+      aria-hidden="true"
+    >
+      <path d="m18 15-6-6-6 6" />
+    </svg>
+  )
+
+  const getPersistedStudyId = () => {
+    try {
+      const raw = localStorage.getItem('cs_study_id')
+      if (!raw) return null
+      try {
+        const parsed = JSON.parse(raw)
+        return typeof parsed === 'string' && parsed.trim() ? parsed : null
+      } catch {
+        return raw.trim() || null
+      }
+    } catch {
+      return null
+    }
+  }
+
+  const persistDesignConstraint = async (constraint: DesignConstraint) => {
+    const studyId = getPersistedStudyId()
+    if (!studyId) return
+    const [apiConstraint] = designConstraintsToApiPayload([constraint])
+    if (!apiConstraint || !constraint.id) return
+    await upsertStudyDesignConstraint(studyId, { ...apiConstraint, id: constraint.id })
+  }
+
+  const deletePersistedDesignConstraint = async (constraintId: string) => {
+    const studyId = getPersistedStudyId()
+    if (!studyId) return
+    await deleteStudyDesignConstraint(studyId, constraintId)
+  }
+
+  const openDesignConstraintModal = () => {
+    setDesignConstraintView('overview')
+    setEditingConstraintId(null)
+    setConstraintDraft({ anchors: [], blocked: [] })
+    setConstraintError(null)
+    setShowConstraintNameDialog(false)
+    setConstraintNameDraft("")
+    setConstraintNameError(null)
+    setConstraintExpandedAnchorLayers(new Set())
+    setConstraintExpandedBlockedLayers(new Set())
+    setShowDesignConstraintModal(true)
+  }
+
+  const openDesignConstraintBuilder = (constraint?: DesignConstraint) => {
+    if (constraint) {
+      const draft = {
+        anchors: [...constraint.anchors],
+        blocked: [...constraint.blocked],
+      }
+      setEditingConstraintId(constraint.id)
+      setConstraintDraft(draft)
+      setConstraintNameDraft(constraint.name || getDefaultConstraintName(constraint.id))
+      setConstraintExpandedAnchorLayers(getAnchorLayersToExpand(draft))
+      setConstraintExpandedBlockedLayers(getBlockedLayersToExpand(draft))
+    } else {
+      setEditingConstraintId(null)
+      setConstraintDraft({ anchors: [], blocked: [] })
+      setConstraintNameDraft(getDefaultConstraintName())
+      setConstraintExpandedAnchorLayers(new Set())
+      setConstraintExpandedBlockedLayers(new Set())
+    }
+    setConstraintError(null)
+    setConstraintNameError(null)
+    setShowConstraintNameDialog(false)
+    setDesignConstraintView('builder')
+    setShowDesignConstraintModal(true)
+  }
+
+  const toggleAnchorConstraintElement = (key: string) => {
+    const anchorElement = parseConstraintElementKey(key)
+    if (!anchorElement.layerId || !anchorElement.imageId) return
+
+    setConstraintDraft((prev) => {
+      const exists = prev.anchors.some((item) => isSameConstraintElement(item, anchorElement))
+      return {
+        anchors: exists
+          ? prev.anchors.filter((item) => !isSameConstraintElement(item, anchorElement))
+          : [...prev.anchors, anchorElement],
+        blocked: prev.blocked.filter((blockedItem) => !isSameConstraintElement(blockedItem, anchorElement)),
+      }
+    })
+    setConstraintError(null)
+  }
+
+  const toggleBlockedConstraintElement = (key: string) => {
+    const blockedElement = parseConstraintElementKey(key)
+    if (!blockedElement.layerId || !blockedElement.imageId) return
+    if (constraintDraft.anchors.some((anchorItem) => isSameConstraintElement(anchorItem, blockedElement))) {
+      setConstraintError('Choose a different element for the blocked side.')
+      return
+    }
+
+    setConstraintDraft((prev) => {
+      const exists = prev.blocked.some((item) => isSameConstraintElement(item, blockedElement))
+      return {
+        ...prev,
+        blocked: exists
+          ? prev.blocked.filter((item) => !isSameConstraintElement(item, blockedElement))
+          : [...prev.blocked, blockedElement],
+      }
+    })
+    setConstraintError(null)
+  }
+
+  const validateConstraintDraft = () => {
+    if (constraintDraft.anchors.length === 0) {
+      setConstraintError('Select at least one layer element that should be constrained.')
+      return null
+    }
+    if (constraintDraft.blocked.length === 0) {
+      setConstraintError('Select at least one element that should not appear with it.')
+      return null
+    }
+
+    const anchorKeys = Array.from(new Set(
+      constraintDraft.anchors.map((anchorItem) => getConstraintElementKey(anchorItem.layerId, anchorItem.imageId))
+    )).sort()
+    const blockedKeys = Array.from(new Set(
+      constraintDraft.blocked
+        .map((blockedItem) => getConstraintElementKey(blockedItem.layerId, blockedItem.imageId))
+        .filter((key) => !anchorKeys.includes(key))
+    )).sort()
+
+    if (blockedKeys.length === 0) {
+      setConstraintError('The blocked side must use different elements.')
+      return null
+    }
+
+    const duplicate = designConstraints.some((constraint) => {
+      if (constraint.id === editingConstraintId) return false
+      const existingAnchors = constraint.anchors
+        .map((anchorItem) => getConstraintElementKey(anchorItem.layerId, anchorItem.imageId))
+        .sort()
+        .join('|')
+      const existingBlocked = constraint.blocked
+        .map((blockedItem) => getConstraintElementKey(blockedItem.layerId, blockedItem.imageId))
+        .sort()
+        .join('|')
+      return existingAnchors === anchorKeys.join('|') && existingBlocked === blockedKeys.join('|')
+    })
+
+    if (duplicate) {
+      setConstraintError('This exact constraint already exists.')
+      return null
+    }
+
+    return {
+      anchors: anchorKeys.map(parseConstraintElementKey),
+      blocked: blockedKeys.map(parseConstraintElementKey),
+    }
+  }
+
+  const saveDesignConstraint = () => {
+    const validated = validateConstraintDraft()
+    if (!validated) return
+
+    setConstraintNameDraft((current) => current.trim() || getDefaultConstraintName(editingConstraintId || undefined))
+    setConstraintNameError(null)
+    setShowConstraintNameDialog(true)
+  }
+
+  const saveNamedDesignConstraint = () => {
+    const validated = validateConstraintDraft()
+    if (!validated) return
+
+    const trimmedName = constraintNameDraft.trim()
+    if (!trimmedName) {
+      setConstraintNameError('Enter a design constraint name.')
+      return
+    }
+
+    const nameExists = designConstraints.some((constraint) =>
+      constraint.id !== editingConstraintId && constraint.name.trim().toLowerCase() === trimmedName.toLowerCase()
+    )
+    if (nameExists) {
+      setConstraintNameError('A design constraint with this name already exists.')
+      return
+    }
+
+    const constraintId = editingConstraintId || crypto.randomUUID()
+    const nextConstraint: DesignConstraint = editingConstraintId
+      ? {
+        ...(designConstraints.find((constraint) => constraint.id === editingConstraintId) || {
+          id: constraintId,
+          createdAt: Date.now(),
+        }),
+        id: constraintId,
+        name: trimmedName,
+        anchors: validated.anchors,
+        blocked: validated.blocked,
+      }
+      : {
+        id: constraintId,
+        name: trimmedName,
+        anchors: validated.anchors,
+        blocked: validated.blocked,
+        createdAt: Date.now(),
+      }
+
+    const previousConstraints = designConstraints
+    const savedDraft = { ...constraintDraft }
+    const savedNameDraft = constraintNameDraft
+    const wasEditing = Boolean(editingConstraintId)
+
+    setDesignConstraints((prev) => {
+      if (editingConstraintId) {
+        return prev.map((constraint) => constraint.id === editingConstraintId
+          ? nextConstraint
+          : constraint
+        )
+      }
+      return [...prev, nextConstraint]
+    })
+
+    setOverviewExpandedConstraints((prev) => new Set([...prev, constraintId]))
+    setEditingConstraintId(null)
+    setConstraintDraft({ anchors: [], blocked: [] })
+    setConstraintError(null)
+    setShowConstraintNameDialog(false)
+    setConstraintNameDraft("")
+    setConstraintNameError(null)
+    setConstraintExpandedAnchorLayers(new Set())
+    setConstraintExpandedBlockedLayers(new Set())
+    setDesignConstraintView('overview')
+    setConstraintSavingId(constraintId)
+
+    void persistDesignConstraint(nextConstraint)
+      .catch((error) => {
+        console.error('Failed to save design constraint:', error)
+        setDesignConstraints(previousConstraints)
+        setConstraintError('Could not save this design constraint. Please try again.')
+        if (wasEditing) {
+          setEditingConstraintId(constraintId)
+          setConstraintDraft(savedDraft)
+          setConstraintNameDraft(savedNameDraft)
+          setDesignConstraintView('builder')
+          setShowConstraintNameDialog(true)
+        }
+      })
+      .finally(() => {
+        setConstraintSavingId((current) => (current === constraintId ? null : current))
+      })
+  }
+
+  const removeDesignConstraint = (constraintId: string) => {
+    const previous = designConstraints
+    setConstraintError(null)
+    setDesignConstraints(previous.filter((item) => item.id !== constraintId))
+    setOverviewExpandedConstraints((prev) => {
+      const next = new Set(prev)
+      next.delete(constraintId)
+      return next
+    })
+
+    void deletePersistedDesignConstraint(constraintId).catch((error) => {
+      console.error('Failed to delete design constraint:', error)
+      setDesignConstraints(previous)
+      setConstraintError('Could not delete this design constraint. Please try again.')
+    })
   }
 
   // Deselect layer when clicking outside of the preview canvas entirely
@@ -3187,6 +3646,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
         if (background && (background.secureUrl || background.previewUrl)) {
           updatePayload.background_image_url = background.secureUrl || background.previewUrl
         }
+        updatePayload.design_constraints = designConstraintsToApiPayload(readDesignConstraintsFromLocalStorage())
         putUpdateStudyAsync(studyId, updatePayload, 5)
       }
     } catch (e) {
@@ -3523,6 +3983,33 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
     }
   }, [layers, background, onDataChange]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const sanitized = sanitizeDesignConstraints(designConstraints)
+    if (JSON.stringify(sanitized) !== JSON.stringify(designConstraints)) {
+      setDesignConstraints(sanitized)
+      return
+    }
+    if (sanitized.length > 0) {
+      localStorage.setItem(DESIGN_CONSTRAINTS_STORAGE_KEY, JSON.stringify(sanitized))
+    } else {
+      localStorage.removeItem(DESIGN_CONSTRAINTS_STORAGE_KEY)
+    }
+    onDataChange?.()
+  }, [designConstraints, constraintElementOptions]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const reloadDesignConstraints = () => {
+      const loaded = readDesignConstraintsFromLocalStorage()
+      setDesignConstraints((prev) => (
+        JSON.stringify(prev) === JSON.stringify(loaded) ? prev : loaded
+      ))
+    }
+    window.addEventListener('stepDataChanged', reloadDesignConstraints)
+    return () => window.removeEventListener('stepDataChanged', reloadDesignConstraints)
+  }, [])
+
   // Persist preview aspect to local storage when it changes
   useEffect(() => {
     localStorage.setItem('cs_step5_layer_preview_aspect', previewAspect)
@@ -3530,15 +4017,24 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
 
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-lg font-semibold text-gray-800">Layer Configuration</h3>
           <p className="text-sm text-gray-600">Configure layers, upload images, and preview your layer study</p>
         </div>
-        <div className="relative" data-layer-type-menu>
+        <div className="relative flex flex-col items-end gap-1" data-layer-type-menu>
           <Button className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] cursor-pointer" onClick={addLayer} disabled={layers.length >= LAYER_MAX || isReadOnly}>+ Add New Layer</Button>
+          <button
+            type="button"
+            onClick={() => openDesignConstraintModal()}
+            disabled={isReadOnly || constraintElementOptions.length < 2}
+            className="cursor-pointer text-xs font-semibold text-[rgba(38,116,186,1)] hover:text-[rgba(38,116,186,0.8)] disabled:cursor-not-allowed disabled:text-gray-400"
+            title={constraintElementOptions.length < 2 ? 'Add at least two layer elements before creating constraints' : 'Add design constraint'}
+          >
+            + Design Constraint{designConstraints.length > 0 ? ` (${designConstraints.length})` : ''}
+          </button>
           {showLayerTypeMenu && (
-            <div className="absolute right-0 top-full mt-2 w-36 rounded-md border border-gray-200 bg-white shadow-lg p-2 space-y-1 z-20">
+            <div className="absolute right-0 top-10 mt-2 w-36 rounded-md border border-gray-200 bg-white shadow-lg p-2 space-y-1 z-20">
               <button
                 type="button"
                 className="w-full text-xs px-2 py-1 rounded-md text-left hover:bg-gray-100 cursor-pointer"
@@ -3558,7 +4054,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
         </div>
       </div>
 
-      <div className="mt-2 grid grid-cols-1 md:grid-cols-5 gap-4 md:items-start">
+      <div className="mt-4 grid grid-cols-1 md:grid-cols-5 gap-4 md:items-start">
         <div className={`${previewAspect === 'landscape' ? 'md:col-span-3' : 'md:col-span-2'} rounded-xl bg-white p-4 flex flex-col md:sticky md:top-4 md:self-start md:overflow-hidden`}>
           {/* Preview canvas built from z order with draggable/resizable layers */}
           <div
@@ -5940,6 +6436,381 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
         )
       }
 
+
+      {showDesignConstraintModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-6" onClick={resetConstraintDraft}>
+          <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="border-b border-gray-200 px-5 py-4 sm:px-6">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    {designConstraintView === 'overview' ? 'Design Constraints' : editingConstraintId ? 'Edit Design Constraint' : 'Add a Design Constraint'}
+                  </h3>
+                  {designConstraintView === 'overview' && (
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-600">
+                      In a layer study, tasks are randomly generated from your layer elements. Use a design constraint when one specific element should not appear together with one or more other elements.
+                    </p>
+                  )}
+                  {designConstraintView === 'builder' && (
+                    <p className="mt-1 max-w-3xl text-sm leading-6 text-gray-600">
+                      Select one or more layer elements, then choose the elements that must not appear with them.
+                    </p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={resetConstraintDraft}
+                  className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full border border-gray-200 text-xl leading-none text-gray-500 hover:bg-gray-50"
+                  aria-label="Close design constraint modal"
+                >
+                  ×
+                </button>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto bg-slate-50 p-4 sm:p-6">
+              {designConstraintView === 'overview' ? (
+                <div className="space-y-5">
+                  {designConstraints.length > 0 ? (
+                    <div className="space-y-3">
+                      {designConstraints.map((constraint, index) => {
+                        const anchors = constraint.anchors
+                          .map((anchorItem) => getConstraintElement(anchorItem.layerId, anchorItem.imageId))
+                          .filter((item): item is NonNullable<typeof item> => Boolean(item))
+                        const blocked = constraint.blocked
+                          .map((blockedItem) => getConstraintElement(blockedItem.layerId, blockedItem.imageId))
+                          .filter((item): item is NonNullable<typeof item> => Boolean(item))
+                        if (anchors.length === 0 || blocked.length === 0) return null
+
+                        return (
+                          <div key={constraint.id} className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+                            <div className="flex items-center justify-between gap-3 bg-slate-50 px-4 py-3">
+                              <button
+                                type="button"
+                                onClick={() => toggleOverviewConstraintExpanded(constraint.id)}
+                                className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 text-left"
+                              >
+                                {renderConstraintChevron(overviewExpandedConstraints.has(constraint.id))}
+                                <div className="min-w-0">
+                                  <div className="truncate text-sm font-semibold text-gray-900">{constraint.name || `Design Constraint ${index + 1}`}</div>
+                                  <div className="text-xs text-gray-500">{anchors.length} anchor{anchors.length === 1 ? '' : 's'} · {blocked.length} blocked element{blocked.length === 1 ? '' : 's'}</div>
+                                </div>
+                              </button>
+                              <div className="flex items-center gap-2">
+                                <Button type="button" variant="outline" className="cursor-pointer" onClick={() => openDesignConstraintBuilder(constraint)} disabled={isReadOnly || constraintSavingId === constraint.id}>
+                                  {constraintSavingId === constraint.id ? 'Saving...' : 'Edit'}
+                                </Button>
+                                <Button type="button" variant="outline" className="cursor-pointer border-red-200 text-red-600 hover:bg-red-50" onClick={() => removeDesignConstraint(constraint.id)} disabled={isReadOnly || constraintSavingId === constraint.id}>
+                                  Delete
+                                </Button>
+                              </div>
+                            </div>
+                            <div className={`overflow-hidden transition-all duration-300 ease-in-out ${overviewExpandedConstraints.has(constraint.id) ? 'max-h-[800px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                              <div className="flex flex-col gap-3 border-t px-4 py-3 md:flex-row md:items-center">
+                                <div className="flex flex-wrap gap-2">
+                                  {anchors.map((anchorItem) => (
+                                    <div key={anchorItem.key} className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 p-2">
+                                      <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg bg-white">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={anchorItem.src} alt={anchorItem.imageName} className="h-full w-full object-contain" />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="text-[10px] font-semibold text-blue-700">{anchorItem.layerName}</div>
+                                        <div className="max-w-[140px] truncate text-xs font-medium text-gray-800">{anchorItem.imageName}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                                <div className="text-center text-xs font-semibold uppercase tracking-wide text-gray-400 md:w-20">not with</div>
+                                <div className="flex flex-wrap gap-2">
+                                  {blocked.map((blockedItem) => (
+                                    <div key={blockedItem.key} className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 p-2">
+                                      <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg bg-white">
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={blockedItem.src} alt={blockedItem.imageName} className="h-full w-full object-contain" />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <div className="text-[10px] font-semibold text-red-700">{blockedItem.layerName}</div>
+                                        <div className="max-w-[140px] truncate text-xs font-medium text-gray-800">{blockedItem.imageName}</div>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border border-dashed border-blue-200 bg-white p-6 text-center">
+                      <div className="text-sm font-semibold text-gray-800">No design constraints added yet.</div>
+                      <p className="mt-1 text-sm text-gray-500">Add a design constraint to define which layer elements should not appear together.</p>
+                    </div>
+                  )}
+
+                  <div className="flex justify-end">
+                    <Button
+                      type="button"
+                      onClick={() => openDesignConstraintBuilder()}
+                      disabled={isReadOnly || constraintElementOptions.length < 2}
+                      className="cursor-pointer rounded-full bg-[rgba(38,116,186,1)] px-5 text-white hover:bg-[rgba(38,116,186,0.9)] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      + {designConstraints.length > 0 ? 'Add Another Constraint' : 'Add Design Constraint'}
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+                    <div className="mb-4">
+                      <div className="text-sm font-semibold text-gray-900">1. Which layer element?</div>
+                      <p className="mt-1 text-xs leading-5 text-gray-500">Select one or more elements. Click selected elements again to deselect.</p>
+                    </div>
+                    <div className="max-h-[56vh] space-y-3 overflow-y-auto pr-1">
+                      {layers.map((layer) => {
+                        const options = layer.images
+                          .map((image) => getConstraintElement(layer.id, image.id))
+                          .filter((item): item is NonNullable<typeof item> => Boolean(item))
+                        if (options.length === 0) return null
+
+                        return (
+                          <div key={layer.id} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                            <button
+                              type="button"
+                              onClick={() => toggleConstraintAnchorLayerExpanded(layer.id)}
+                              className="flex w-full cursor-pointer items-center justify-between bg-slate-50 px-4 py-3"
+                            >
+                              <span className="text-sm font-semibold text-gray-800">{layer.name}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-500">{options.length} element{options.length === 1 ? '' : 's'}</span>
+                                {renderConstraintChevron(constraintExpandedAnchorLayers.has(layer.id))}
+                              </div>
+                            </button>
+                            <div className={`overflow-hidden border-t transition-all duration-300 ease-in-out ${constraintExpandedAnchorLayers.has(layer.id) ? 'max-h-[2000px] opacity-100' : 'max-h-0 border-t-0 opacity-0'}`}>
+                              <div className="grid grid-cols-1 gap-2 p-3">
+                              {options.map((option) => {
+                                const selected = constraintDraft.anchors.some((anchorItem) => anchorItem.layerId === option.layerId && anchorItem.imageId === option.imageId)
+                                return (
+                                  <button
+                                    key={option.key}
+                                    type="button"
+                                    onClick={() => toggleAnchorConstraintElement(option.key)}
+                                    className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 text-left transition-all ${selected
+                                      ? 'border-blue-500 bg-blue-50 ring-2 ring-blue-100'
+                                      : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'
+                                      }`}
+                                  >
+                                    <div className="relative h-28 w-28 flex-shrink-0 overflow-hidden rounded-lg bg-gray-50">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img src={option.src} alt={option.imageName} className="h-full w-full object-contain" />
+                                      <span
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={(event) => { event.stopPropagation(); openConstraintImagePreview(option) }}
+                                        onKeyDown={(event) => {
+                                          if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault()
+                                            event.stopPropagation()
+                                            openConstraintImagePreview(option)
+                                          }
+                                        }}
+                                        className="absolute right-1.5 top-1.5 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-white/95 text-gray-700 shadow-sm hover:bg-blue-600 hover:text-white"
+                                        title="Preview image"
+                                      >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+                                      </span>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="truncate text-xs font-semibold text-blue-700">{option.layerName}</div>
+                                      <div className="truncate text-sm font-semibold text-gray-900">{option.imageName}</div>
+                                      {selected && <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-blue-600">Selected</div>}
+                                    </div>
+                                  </button>
+                                )
+                              })}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-red-100 bg-white p-4 shadow-sm">
+                    <div className="mb-4">
+                      <div className="text-sm font-semibold text-gray-900">2. Should not come with this</div>
+                      <p className="mt-1 text-xs leading-5 text-gray-500">Select one or more elements. Click selected elements again to deselect.</p>
+                    </div>
+                    <div className="max-h-[56vh] space-y-3 overflow-y-auto pr-1">
+                      {layers.map((layer) => {
+                        const options = layer.images
+                          .map((image) => getConstraintElement(layer.id, image.id))
+                          .filter((item): item is NonNullable<typeof item> => Boolean(item))
+                        if (options.length === 0) return null
+
+                        return (
+                          <div key={layer.id} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                            <button
+                              type="button"
+                              onClick={() => toggleConstraintBlockedLayerExpanded(layer.id)}
+                              className="flex w-full cursor-pointer items-center justify-between bg-slate-50 px-4 py-3"
+                            >
+                              <span className="text-sm font-semibold text-gray-800">{layer.name}</span>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-gray-500">{options.length} element{options.length === 1 ? '' : 's'}</span>
+                                {renderConstraintChevron(constraintExpandedBlockedLayers.has(layer.id))}
+                              </div>
+                            </button>
+                            <div className={`overflow-hidden border-t transition-all duration-300 ease-in-out ${constraintExpandedBlockedLayers.has(layer.id) ? 'max-h-[2000px] opacity-100' : 'max-h-0 border-t-0 opacity-0'}`}>
+                              <div className="grid grid-cols-1 gap-2 p-3">
+                              {options.map((option) => {
+                                const isAnchor = constraintDraft.anchors.some((anchorItem) => anchorItem.layerId === option.layerId && anchorItem.imageId === option.imageId)
+                                const selected = constraintDraft.blocked.some((blockedItem) => blockedItem.layerId === option.layerId && blockedItem.imageId === option.imageId)
+                                return (
+                                  <button
+                                    key={option.key}
+                                    type="button"
+                                    onClick={() => toggleBlockedConstraintElement(option.key)}
+                                    disabled={isAnchor}
+                                    className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${selected
+                                      ? 'cursor-pointer border-red-500 bg-red-50 ring-2 ring-red-100'
+                                      : isAnchor
+                                        ? 'cursor-not-allowed border-gray-200 bg-gray-100 opacity-60'
+                                        : 'cursor-pointer border-gray-200 bg-white hover:border-red-200 hover:bg-red-50/40'
+                                      }`}
+                                  >
+                                    <div className="relative h-28 w-28 flex-shrink-0 overflow-hidden rounded-lg bg-gray-50">
+                                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                                      <img src={option.src} alt={option.imageName} className="h-full w-full object-contain" />
+                                      <span
+                                        role="button"
+                                        tabIndex={0}
+                                        onClick={(event) => { event.stopPropagation(); openConstraintImagePreview(option) }}
+                                        onKeyDown={(event) => {
+                                          if (event.key === 'Enter' || event.key === ' ') {
+                                            event.preventDefault()
+                                            event.stopPropagation()
+                                            openConstraintImagePreview(option)
+                                          }
+                                        }}
+                                        className="absolute right-1.5 top-1.5 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-white/95 text-gray-700 shadow-sm hover:bg-red-600 hover:text-white"
+                                        title="Preview image"
+                                      >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></svg>
+                                      </span>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="truncate text-xs font-semibold text-red-700">{option.layerName}</div>
+                                      <div className="truncate text-sm font-semibold text-gray-900">{option.imageName}</div>
+                                      {selected && <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-red-600">Selected</div>}
+                                      {isAnchor && <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Selected left</div>}
+                                    </div>
+                                  </button>
+                                )
+                              })}
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {constraintError && (
+                <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {constraintError}
+                </div>
+              )}
+            </div>
+
+            {designConstraintView === 'builder' && (
+              <div className="flex flex-col-reverse gap-3 border-t border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+                <div className="text-xs text-gray-500">
+                  {constraintDraft.anchors.length > 0 || constraintDraft.blocked.length > 0
+                    ? `${constraintDraft.anchors.length} anchor element${constraintDraft.anchors.length === 1 ? '' : 's'} · ${constraintDraft.blocked.length} blocked element${constraintDraft.blocked.length === 1 ? '' : 's'} selected`
+                    : 'No elements selected yet'}
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <Button type="button" variant="outline" className="cursor-pointer" onClick={() => { setDesignConstraintView('overview'); setConstraintError(null); setShowConstraintNameDialog(false) }}>
+                    Back
+                  </Button>
+                  <Button
+                    type="button"
+                    className="cursor-pointer bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)]"
+                    onClick={saveDesignConstraint}
+                    disabled={constraintDraft.anchors.length === 0 || constraintDraft.blocked.length === 0}
+                  >
+                    Save Constraint
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {showConstraintNameDialog && (
+              <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={() => setShowConstraintNameDialog(false)}>
+                <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+                  <h4 className="text-base font-semibold text-gray-900">Name the design constraint</h4>
+                  <p className="mt-1 text-sm text-gray-600">Use a unique name so it is easy to find later.</p>
+                  <input
+                    value={constraintNameDraft}
+                    onChange={(event) => { setConstraintNameDraft(event.target.value); setConstraintNameError(null) }}
+                    className="mt-4 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgba(38,116,186,0.3)]"
+                    placeholder="Design Constraint 1"
+                  />
+                  {constraintNameError && (
+                    <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                      {constraintNameError}
+                    </div>
+                  )}
+                  <div className="mt-5 flex justify-end gap-2">
+                    <Button type="button" variant="outline" className="cursor-pointer" onClick={() => setShowConstraintNameDialog(false)}>
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      className="cursor-pointer bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)]"
+                      onClick={saveNamedDesignConstraint}
+                      disabled={Boolean(constraintSavingId)}
+                    >
+                      {constraintSavingId ? 'Saving...' : 'Save'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {constraintImagePreview && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black"
+          onClick={() => setConstraintImagePreview(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setConstraintImagePreview(null)}
+            className="absolute right-4 top-4 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-white/10 text-2xl leading-none text-white transition-colors hover:bg-white/20"
+            aria-label="Close preview"
+          >
+            ×
+          </button>
+          <div className="flex max-h-full max-w-full flex-col items-center px-4 py-12" onClick={(event) => event.stopPropagation()}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={constraintImagePreview.src}
+              alt={constraintImagePreview.alt}
+              className="max-h-[85vh] max-w-[90vw] object-contain"
+            />
+            <div className="mt-4 text-center text-sm text-white/80">
+              {constraintImagePreview.layerName} · {constraintImagePreview.imageName}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Fullscreen Preview Modal */}
       {

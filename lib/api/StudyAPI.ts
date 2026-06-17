@@ -1,4 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
+import {
+  type ApiDesignConstraint,
+  designConstraintsToApiPayload,
+  readDesignConstraintsFromLocalStorage,
+} from "@/lib/utils/designConstraintsStorage"
 import { API_BASE_URL } from "./LoginApi"
 
 // Types that mirror backend contract
@@ -109,6 +114,13 @@ export interface CreateStudyPayload {
   toggle_shuffle?: boolean // NEW: Shuffle classification questions
   project_id?: string
   product_keys?: Array<{ name: string; percentage: number }> // Optional; special creators only
+  design_constraints?: Array<{
+    id?: string
+    name: string
+    anchors: Array<{ layer_id: string; image_id: string }>
+    blocked: Array<{ layer_id: string; image_id: string }>
+    created_at?: number
+  }>
 }
 
 export type DesignMetric = "Top Down" | "Bottom Up" | "Response Time"
@@ -669,6 +681,7 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
     phase_order: normalizedType === 'hybrid' ? (Array.isArray(phaseOrder) ? phaseOrder : [phaseOrder]) : undefined, // NEW: Include phase_order for hybrid
     classification_questions: classification_questions.length > 0 ? classification_questions : undefined, // NEW: Include classification questions if any
     ...(normalizedType === 'layer' && layerBackground && (layerBackground.secureUrl || layerBackground.previewUrl) ? { background_image_url: layerBackground.secureUrl || layerBackground.previewUrl } : {}),
+    ...(normalizedType === 'layer' ? { design_constraints: designConstraintsToApiPayload(readDesignConstraintsFromLocalStorage()) } : {}),
     ...((() => {
       try {
         if (typeof window !== 'undefined') {
@@ -785,6 +798,13 @@ export interface TaskGenerationPayload {
   categories?: TaskGenerationCategoryPayload[]
   elements?: TaskGenerationElementPayload[]
   study_layers?: any[]
+  design_constraints?: Array<{
+    id?: string
+    name: string
+    anchors: Array<{ layer_id: string; image_id: string }>
+    blocked: Array<{ layer_id: string; image_id: string }>
+    created_at?: number
+  }>
   background_image_url?: string
   classification_questions?: Array<{
     question_id: string
@@ -800,6 +820,20 @@ export interface TaskGenerationPayload {
   }>
   aspect_ratio?: string
   project_id?: string
+}
+
+export interface ValidateDesignConstraintsResponse {
+  feasible: boolean
+  reason: string
+  valid_row_variety: number
+  required_row_variety: number
+  tasks_per_respondent: number
+  constraints_checked: number
+  incompatible_pairs_count: number
+  skipped_constraint_refs?: number
+  row_universe_rank?: number
+  required_rank?: number
+  suggestions: string[]
 }
 
 export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayload {
@@ -1103,6 +1137,7 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
     ...(categories.length > 0 && { categories }),
     ...(elements.length > 0 && { elements }),
     ...(study_layers.length > 0 && { study_layers }),
+    ...((s2.type as StudyType) === 'layer' ? { design_constraints: designConstraintsToApiPayload(readDesignConstraintsFromLocalStorage()) } : {}),
     ...(classification_questions.length > 0 && { classification_questions }),
     ...((s2.type === 'hybrid') && { phase_order: Array.isArray(phaseOrder) ? phaseOrder : [phaseOrder] }),
     ...(((layerBackground && (layerBackground.secureUrl || layerBackground.previewUrl))) && {
@@ -1147,6 +1182,7 @@ export async function generateTasks(payload: TaskGenerationPayload): Promise<any
     categories_count: payload.categories?.length || 0,
     elements_count: payload.elements?.length || 0,
     study_layers_count: payload.study_layers?.length || 0,
+    design_constraints_count: payload.design_constraints?.length || 0,
     classification_questions_count: payload.classification_questions?.length || 0,
     respondents: payload.audience_segmentation?.number_of_respondents || 0,
     countries: payload.audience_segmentation?.country || 'N/A'
@@ -1180,6 +1216,27 @@ export async function generateTasks(payload: TaskGenerationPayload): Promise<any
     throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
   }
   return data
+}
+
+export async function validateDesignConstraints(
+  payload: TaskGenerationPayload
+): Promise<ValidateDesignConstraintsResponse> {
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/validate-design-constraints`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+
+  const text = await res.text().catch(() => "")
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+
+  if (!res.ok) {
+    const msg = (data && (data.detail || data.message)) || text || `Validate design constraints failed (${res.status})`
+    throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+
+  return data as ValidateDesignConstraintsResponse
 }
 
 // Regenerate tasks for a specific study (after creation)
@@ -1857,6 +1914,13 @@ export interface StudyDetails {
   toggle_shuffle?: boolean
   product_keys?: Array<{ name: string; percentage: number }>
   product_id?: string
+  design_constraints?: Array<{
+    id?: string
+    name: string
+    anchors: Array<{ layer_id: string; image_id: string }>
+    blocked: Array<{ layer_id: string; image_id: string }>
+    created_at?: number
+  }>
 }
 
 export interface UpdateStudyStatusPayload {
@@ -1882,6 +1946,13 @@ export type UpdateStudyPutPayload = Partial<{
   project_id?: string
   product_keys?: Array<{ name: string; percentage: number }>
   product_id?: string
+  design_constraints?: Array<{
+    id?: string
+    name: string
+    anchors: Array<{ layer_id: string; image_id: string }>
+    blocked: Array<{ layer_id: string; image_id: string }>
+    created_at?: number
+  }>
 }>
 
 // Fetch study details by ID
@@ -2117,6 +2188,51 @@ export function putUpdateStudyAsync(studyId: string, payload: UpdateStudyPutPayl
   putUpdateStudy(studyId, payload, last_step ?? 8).catch((err) => {
     console.error('Background PUT update failed:', err)
   })
+}
+
+export async function upsertStudyDesignConstraint(
+  studyId: string,
+  constraint: ApiDesignConstraint & { id: string }
+): Promise<{ design_constraints: ApiDesignConstraint[] }> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/design-constraints/${encodeURIComponent(constraint.id)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(constraint),
+  })
+
+  const text = await res.text().catch(() => "")
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+
+  if (!res.ok) {
+    const msg = (data && (data.detail || data.message)) || text || `Failed to save design constraint (${res.status})`
+    throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+
+  return data
+}
+
+export async function deleteStudyDesignConstraint(
+  studyId: string,
+  constraintId: string
+): Promise<{ design_constraints: ApiDesignConstraint[] }> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/design-constraints/${encodeURIComponent(constraintId)}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+  })
+
+  const text = await res.text().catch(() => "")
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+
+  if (!res.ok) {
+    const msg = (data && (data.detail || data.message)) || text || `Failed to delete design constraint (${res.status})`
+    throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
+  }
+
+  return data
 }
 
 // Member Management API

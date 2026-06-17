@@ -20,6 +20,10 @@ import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 
 import { CreateStudyOnboarding } from "@/components/onboarding/CreateStudyOnboarding"
 import { shouldShowCreateStudyWalkthrough } from "@/lib/api/onboardingApi"
+import {
+  DESIGN_CONSTRAINTS_STORAGE_KEY,
+  persistDesignConstraintsFromStudyDetails,
+} from "@/lib/utils/designConstraintsStorage"
 
 // Type definitions for backend responses
 interface ClassificationQuestion {
@@ -339,6 +343,7 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
         localStorage.setItem(storageKey, JSON.stringify([]))
       }
       localStorage.setItem('cs_step5_layer', JSON.stringify([]))
+      localStorage.removeItem(DESIGN_CONSTRAINTS_STORAGE_KEY)
     } else if (studyDetails.study_type === 'layer' && studyDetails.study_layers) {
       // Handle layer study structure - transform to frontend format
       const layers = Array.isArray(studyDetails.study_layers) ? studyDetails.study_layers : []
@@ -387,7 +392,7 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
           }
 
           return {
-            id: layer.id || layer.layer_id || `layer-${layerIdx}`,
+            id: layer.layer_id || layer.id || `layer-${layerIdx}`,
             name: layer.name || layer.layer_name || `Layer ${layerIdx + 1}`,
             description: layer.description || '',
             z: typeof layer.z_index === 'number' ? layer.z_index : layerIdx,
@@ -422,7 +427,7 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
               const htmlContent = coerceString(config.html_content ?? (img as any).html_content ?? '')
 
               return {
-                id: img.id || img.image_id || `img-${layerIdx}-${imgIdx}`,
+                id: img.image_id || img.id || `img-${layerIdx}-${imgIdx}`,
                 previewUrl: img.url || '',
                 secureUrl: img.url || '',
                 name: img.name || '',
@@ -479,6 +484,9 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
         }
         localStorage.setItem('cs_step5_layer_preview_aspect', aspectMap[studyDetails.aspect_ratio] || 'portrait')
       }
+
+      persistDesignConstraintsFromStudyDetails(studyDetails)
+      notifyStepDataChanged()
     }
 
     // Populate Keys (step 7 for special creators) from product_keys and product_id
@@ -813,7 +821,7 @@ export default function CreateStudyPage() {
         const backupRaw = localStorage.getItem('cs_backup_steps')
         if (backupRaw) {
           const backup = JSON.parse(backupRaw) as Record<string, unknown>
-          const stepKeys = ['cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step5_grid', 'cs_step5_text', 'cs_step5_layer', 'cs_step6_optional_classification', 'cs_step6_optional_classification_completed', 'cs_step_keys', 'cs_step6']
+          const stepKeys = ['cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step5_grid', 'cs_step5_text', 'cs_step5_layer', 'cs_step5_layer_design_constraints', 'cs_step6_optional_classification', 'cs_step6_optional_classification_completed', 'cs_step_keys', 'cs_step6']
           stepKeys.forEach((k) => {
             if (!localStorage.getItem(k) && backup && Object.prototype.hasOwnProperty.call(backup, k)) {
               const v = backup[k]
@@ -842,6 +850,7 @@ export default function CreateStudyPage() {
             'cs_step5_hybrid_text',
             'cs_step5_hybrid_phase_order',
             'cs_step5_layer',
+            'cs_step5_layer_design_constraints',
             'cs_step5_layer_background',
             'cs_step5_layer_preview_aspect',
             'cs_step_keys',
@@ -922,6 +931,7 @@ export default function CreateStudyPage() {
             'cs_step5_hybrid_text',
             'cs_step5_hybrid_phase_order',
             'cs_step5_layer',
+            'cs_step5_layer_design_constraints',
             'cs_step5_layer_background',
             'cs_step5_layer_preview_aspect',
             'cs_step_keys',
@@ -990,6 +1000,7 @@ export default function CreateStudyPage() {
             'cs_step5_grid',
             'cs_step5_text',
             'cs_step5_layer',
+            'cs_step5_layer_design_constraints',
             'cs_step5_layer_background',
             'cs_step5_layer_preview_aspect',
             'cs_step_keys',
@@ -1056,7 +1067,7 @@ export default function CreateStudyPage() {
   // Periodically snapshot all step keys into a backup to survive accidental clears
   useEffect(() => {
     if (typeof window === 'undefined') return
-    const stepKeys = ['cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step5_grid', 'cs_step5_text', 'cs_step5_layer', 'cs_step6_optional_classification', 'cs_step6_optional_classification_completed', 'cs_step_keys', 'cs_step6']
+    const stepKeys = ['cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step5_grid', 'cs_step5_text', 'cs_step5_layer', 'cs_step5_layer_design_constraints', 'cs_step6_optional_classification', 'cs_step6_optional_classification_completed', 'cs_step_keys', 'cs_step6']
     const writeBackup = () => {
       try {
         const snapshot: Record<string, unknown> = {}

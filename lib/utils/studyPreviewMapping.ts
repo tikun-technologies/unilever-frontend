@@ -1,3 +1,4 @@
+import { persistDesignConstraintsFromStudyDetails } from "@/lib/utils/designConstraintsStorage"
 import { normalizeClassificationId } from "@/lib/api/StudyAPI"
 
 /**
@@ -95,11 +96,11 @@ export function hydrateLocalStorageFromStudy(data: any) {
         }
     } else if (info.study_type === "layer") {
         const layers = (info.study_layers || []).map((l: any) => ({
-            id: l.id || l.layer_id,
+            id: l.layer_id || l.id,
             name: l.name,
             z: l.z_index,
             images: l.images?.map((img: any) => ({
-                id: img.id || img.image_id,
+                id: img.image_id || img.id,
                 name: img.name,
                 secureUrl: img.url,
             })),
@@ -111,6 +112,8 @@ export function hydrateLocalStorageFromStudy(data: any) {
                 secureUrl: metadata.background_image_url || info.background_image_url
             }))
         }
+
+        persistDesignConstraintsFromStudyDetails(info)
     }
 
     // 6. Step 6: Study Design (Reverted as toggle_shuffle is for classification questions)

@@ -136,6 +136,7 @@ export function StudyGrid({
       'cs_step5_layer',
       'cs_step5_layer_background',
       'cs_step5_layer_preview_aspect',
+      'cs_step5_layer_design_constraints',
       'cs_step6',
       'cs_step7_tasks',
       'cs_step7_matrix',

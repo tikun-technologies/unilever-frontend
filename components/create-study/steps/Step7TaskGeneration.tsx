@@ -3,8 +3,50 @@
 
 import { useEffect, useState, useRef, useMemo, useLayoutEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { buildTaskGenerationPayloadFromLocalStorage, generateTasks, generateTasksWithPolling, JobStatus, subscribeTaskGenerationStatus, getTaskGenerationResult } from "@/lib/api/StudyAPI"
+import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, subscribeTaskGenerationStatus, getTaskGenerationResult, validateDesignConstraints } from "@/lib/api/StudyAPI"
 import JSZip from "jszip"
+
+const GENERATION_ERROR_KEY = 'cs_step7_generation_error'
+
+function getTaskGenerationFailureSuggestion(errorMessage: string): string {
+  const lower = String(errorMessage).toLowerCase()
+  const isCapacityError = /t\s*\/?\s*e|preflight|not enough|insufficient|a_min|absence|capacity|unable to lock t|design constraint|infeasible/i.test(lower)
+  if (isCapacityError) {
+    return 'Try adding more elements or categories in Step 5, loosening design constraints, or reducing tasks per respondent.'
+  }
+  if (/timeout|timed out|retry|retries|max attempts/i.test(lower)) {
+    return 'The server could not finish in time. Try simplifying your study structure or retry in a moment.'
+  }
+  return 'Please review your study structure and try again. If the problem persists, try adding more elements or adjusting task counts.'
+}
+
+function isTaskGenerationCapacityError(errorMessage: string): boolean {
+  const lower = String(errorMessage).toLowerCase()
+  return /t\s*\/?\s*e|preflight|not enough|insufficient|a_min|absence|capacity|unable to lock t|design constraint|infeasible/i.test(lower)
+}
+
+function saveGenerationError(message: string) {
+  try {
+    localStorage.setItem(GENERATION_ERROR_KEY, JSON.stringify({ message, timestamp: Date.now() }))
+  } catch { /* ignore */ }
+}
+
+function loadGenerationError(): string | null {
+  try {
+    const raw = localStorage.getItem(GENERATION_ERROR_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return typeof parsed?.message === 'string' ? parsed.message : null
+  } catch {
+    return null
+  }
+}
+
+function clearGenerationError() {
+  try {
+    localStorage.removeItem(GENERATION_ERROR_KEY)
+  } catch { /* ignore */ }
+}
 
 interface Step7TaskGenerationProps {
   onNext: () => void
@@ -164,25 +206,75 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     return false
   }
 
-  const clearJobState = () => {
+  const clearPersistedJobState = () => {
     try {
       localStorage.removeItem('cs_step7_job_state')
-      console.log('[Step7] Cleared job state')
-
-      // Also reset all related React state variables immediately
-      setJobStatus(null)
-      setIsPolling(false)
-      setPollingError(null)
-      setJobStartTime(null)
-      setHighestProgress(0)
-      setCountdownSeconds(0)
-      countdownRef.current = 0
-      isResuming.current = false
-
-      console.log('[Step7] Reset all job-related state variables')
+      console.log('[Step7] Cleared persisted job state')
     } catch (error) {
-      console.warn('Failed to clear job state:', error)
+      console.warn('Failed to clear persisted job state:', error)
     }
+  }
+
+  const clearJobState = () => {
+    clearPersistedJobState()
+    clearGenerationError()
+
+    // Reset all related React state variables immediately
+    setJobStatus(null)
+    setIsPolling(false)
+    setPollingError(null)
+    setJobStartTime(null)
+    setHighestProgress(0)
+    setCountdownSeconds(0)
+    countdownRef.current = 0
+    isResuming.current = false
+
+    console.log('[Step7] Reset all job-related state variables')
+  }
+
+  const handleTaskGenerationFailure = (errorMessage: string) => {
+    const message = (errorMessage || 'Task generation failed.').trim()
+    console.error('[Step7] Task generation failed:', message)
+
+    clearPersistedJobState()
+    clearTimerState()
+    stopTimerSaving()
+    saveGenerationError(message)
+
+    setPollingError(message)
+    setJobStatus({ status: 'failed', error: message, progress: 0 })
+    setIsPolling(false)
+    setIsGenerating(false)
+    setHighestProgress(0)
+    setJobStartTime(null)
+    setShowTimer(false)
+    isResuming.current = false
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort()
+      abortControllerRef.current = null
+    }
+  }
+
+  const handleRetryTaskGeneration = async () => {
+    if (isReadOnly || isGenerating || isPolling) return
+    clearGenerationError()
+    setPollingError(null)
+    setJobStatus(null)
+    setHighestProgress(0)
+    setShowTimer(false)
+    await generateNow()
+  }
+
+  const handleGoToStudyStructure = () => {
+    try {
+      localStorage.setItem('cs_flash_message', JSON.stringify({
+        type: 'error',
+        message: 'Task generation could not complete. Please add more elements/categories in Step 5 and try again.',
+      }))
+      localStorage.setItem('cs_current_step', '5')
+      window.location.href = '/home/create-study'
+    } catch { /* ignore */ }
   }
 
   // Timer persistence functions
@@ -305,12 +397,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     }
 
     const onError = (error: string) => {
-      console.error('[Step7] Resumed job error:', error)
-      setPollingError(error || 'Job failed')
-      clearJobState()
-      setJobStartTime(null)
-      setIsPolling(false)
-      isResuming.current = false
+      handleTaskGenerationFailure(error || 'Task generation failed.')
     }
 
     subscribeTaskGenerationStatus(jobId, onProgress, onComplete, onError, signal ?? undefined)
@@ -432,6 +519,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       setJobStartTime(null)
       setIsPolling(false)
       setPollingError(null)
+      clearGenerationError()
 
       // Force a brief delay to ensure state is reset before starting new generation
       await new Promise(resolve => setTimeout(resolve, 100))
@@ -448,6 +536,20 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       const payload = buildTaskGenerationPayloadFromLocalStorage()
       console.log('[Step7] Submitting task generation payload')
       console.log('[Step7] Payload includes study_id:', !!payload.study_id, payload.study_id)
+
+      const hasDesignConstraints = payload.study_type === 'layer' && Array.isArray(payload.design_constraints) && payload.design_constraints.length > 0
+      if (hasDesignConstraints) {
+        console.log('[Step7] Validating layer design constraints before task generation')
+        const validation = await validateDesignConstraints(payload)
+        if (!validation.feasible) {
+          const suggestions = Array.isArray(validation.suggestions) && validation.suggestions.length > 0
+            ? ` ${validation.suggestions.join(' ')}`
+            : ''
+          const validationMessage = `${validation.reason}${suggestions}`
+          handleTaskGenerationFailure(validationMessage)
+          return
+        }
+      }
 
       const ac = new AbortController()
       abortControllerRef.current = ac
@@ -623,30 +725,10 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       const err: any = e
       const message = err?.data?.detail || err?.message || 'Task generation failed.'
       const textMsg = typeof message === 'string' ? message : JSON.stringify(message)
-      setPollingError(textMsg)
-      alert(textMsg)
-      try {
-        const lower = String(textMsg).toLowerCase()
-        // Heuristics for T/E or capacity errors indicating insufficient elements
-        const isCapacityError = /t\s*\/?\s*e|preflight|not enough|insufficient|a_min|absence|capacity|unable to lock t/i.test(lower)
-        if (isCapacityError) {
-          // Persist a flash message for Step 5 and redirect there
-          localStorage.setItem('cs_flash_message', JSON.stringify({
-            type: 'error',
-            message: 'Task generation could not complete. Please add more elements/categories in Step 5 and try again.'
-          }))
-          localStorage.setItem('cs_current_step', '5')
-          window.location.href = '/home/create-study'
-        }
-      } catch { }
+      handleTaskGenerationFailure(textMsg)
     } finally {
       setIsGenerating(false)
       setIsPolling(false)
-      // Clear job state on error
-      if (pollingError) {
-        clearJobState()
-        setJobStartTime(null)
-      }
     }
   }
 
@@ -751,6 +833,12 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
           console.log('[Step7] ✅ Cleared timer and job state for completed tasks')
         } else {
           console.log('[Step7] No cached matrix found')
+          const savedError = loadGenerationError()
+          if (savedError) {
+            console.log('[Step7] Restoring previous generation failure state')
+            setPollingError(savedError)
+            setJobStatus({ status: 'failed', error: savedError, progress: 0 })
+          }
         }
       } catch (error) {
         console.log('[Step7] Error loading cached matrix:', error)
@@ -818,6 +906,14 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         console.error('[Step7] Error loading cached matrix:', error)
         generateNow()
       }
+      return
+    }
+
+    const savedError = loadGenerationError()
+    if (savedError) {
+      console.log('[Step7] Previous generation failed, waiting for user to retry')
+      setPollingError(savedError)
+      setJobStatus({ status: 'failed', error: savedError, progress: 0 })
       return
     }
 
@@ -1939,54 +2035,76 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
           </div>
           {!matrix ? (
             <div className="flex items-center justify-center py-10 sm:py-14 md:py-16 min-h-[220px] sm:min-h-[260px] md:min-h-[300px]">
-              <div className="text-center space-y-3">
-                {/* Main timer display - show after 1 second delay */}
-                {showTimer && (
-                  <div className="text-4xl sm:text-5xl md:text-6xl font-mono font-bold tracking-widest text-gray-900">
-                    {formattedCountdown}
-                  </div>
-                )}
-
-                {/* Status line - properly aligned under timer */}
-                {jobStatus && jobStatus.status !== 'completed' && (
-                  <div className="text-sm text-gray-600 font-medium">
-                    {jobStatus.status}
-                    {typeof jobStatus.progress === 'number' ? ` • ${Math.round(jobStatus.progress)}%` : ''}
-                    {/* {jobStatus.status === 'processing' && jobStatus.progress !== undefined && jobStatus.progress > 0 && isResuming.current && (
-                      <div className="text-xs text-blue-600 mt-1">
-                        Resuming from last progress...
-                      </div>
-                    )} */}
-                  </div>
-                )}
-
-                {/* Generating status with spinner - only show when actively generating */}
-                {(isGenerating || (isPolling && jobStatus && jobStatus.status !== 'completed')) && (
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-2 text-sm text-gray-600">
-                      <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></span>
-                      {isPolling ? 'Generating your task' : 'Generating...'}
+              <div className="text-center space-y-3 max-w-md mx-auto px-4">
+                {(pollingError || jobStatus?.status === 'failed') && !isGenerating && !isPolling ? (
+                  <div className="space-y-4">
+                    <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-red-600 text-xl font-bold">
+                      !
                     </div>
-
-                    {/* Progress bar - centered and properly sized */}
-                    {jobStatus && jobStatus.progress !== undefined && jobStatus.progress >= 0 && jobStatus.status === 'processing' && isPolling && (
-                      <div className="w-full max-w-xs mx-auto">
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                            style={{ width: `${Math.round(jobStatus.progress)}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Polling error */}
-                    {pollingError && (
-                      <div className="text-xs text-red-600 bg-red-50 p-2 rounded max-w-xs mx-auto">
-                        Error: {pollingError}
-                      </div>
-                    )}
+                    <div>
+                      <div className="text-base font-semibold text-gray-900">Task generation failed</div>
+                      <p className="mt-2 text-sm text-gray-600">
+                        {getTaskGenerationFailureSuggestion(pollingError || jobStatus?.error || '')}
+                      </p>
+                      {pollingError && (
+                        <p className="mt-2 text-xs text-gray-500 break-words">
+                          {pollingError}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+                      <Button
+                        onClick={() => { handleRetryTaskGeneration().catch(console.error) }}
+                        disabled={isReadOnly}
+                      >
+                        Retry
+                      </Button>
+                      {isTaskGenerationCapacityError(pollingError || jobStatus?.error || '') && (
+                        <Button
+                          variant="outline"
+                          onClick={handleGoToStudyStructure}
+                          disabled={isReadOnly}
+                        >
+                          Edit Study Structure
+                        </Button>
+                      )}
+                    </div>
                   </div>
+                ) : (
+                  <>
+                    {showTimer && (
+                      <div className="text-4xl sm:text-5xl md:text-6xl font-mono font-bold tracking-widest text-gray-900">
+                        {formattedCountdown}
+                      </div>
+                    )}
+
+                    {jobStatus && jobStatus.status !== 'completed' && jobStatus.status !== 'failed' && (
+                      <div className="text-sm text-gray-600 font-medium">
+                        {jobStatus.status}
+                        {typeof jobStatus.progress === 'number' ? ` • ${Math.round(jobStatus.progress)}%` : ''}
+                      </div>
+                    )}
+
+                    {(isGenerating || (isPolling && jobStatus && jobStatus.status !== 'completed' && jobStatus.status !== 'failed')) && (
+                      <div className="space-y-2">
+                        <div className="inline-flex items-center gap-2 text-sm text-gray-600">
+                          <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></span>
+                          {isPolling ? 'Generating your task' : 'Generating...'}
+                        </div>
+
+                        {jobStatus && jobStatus.progress !== undefined && jobStatus.progress >= 0 && jobStatus.status === 'processing' && isPolling && (
+                          <div className="w-full max-w-xs mx-auto">
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div
+                                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                style={{ width: `${Math.round(jobStatus.progress)}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
