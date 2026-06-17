@@ -2190,6 +2190,177 @@ export function putUpdateStudyAsync(studyId: string, payload: UpdateStudyPutPayl
   })
 }
 
+function getStudyIdFromLocalStorage(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem('cs_study_id')
+    if (!raw) return null
+    try {
+      const parsed = JSON.parse(raw)
+      return typeof parsed === 'string' ? parsed : String(parsed)
+    } catch {
+      return raw
+    }
+  } catch {
+    return null
+  }
+}
+
+function getStudyTypeFromLocalStorage(): string {
+  try {
+    const s2 = localStorage.getItem('cs_step2')
+    if (s2) return JSON.parse(s2).type || 'grid'
+  } catch { /* ignore */ }
+  return 'grid'
+}
+
+/** Persist the current create-study step to the backend when navigating via stepper or Back (not Save & Next). */
+export function saveStudyStepOnNavigate(stepNumber: number, isSpecialCreator = false): void {
+  if (typeof window === 'undefined') return
+  const studyId = getStudyIdFromLocalStorage()
+  if (!studyId) return
+
+  switch (stepNumber) {
+    case 1: {
+      const s1 = get('cs_step1', { title: '', description: '', language: 'en', agree: false }) as {
+        title?: string
+        description?: string
+        language?: string
+      }
+      const langCode = (s1.language || 'en').toString().toLowerCase().substring(0, 2)
+      putUpdateStudyAsync(studyId, {
+        title: s1.title,
+        background: s1.description,
+        language: langCode,
+        last_step: 1,
+      }, 1)
+      break
+    }
+    case 2: {
+      const s2 = get('cs_step2', { type: 'grid', mainQuestion: '', orientationText: '' }) as {
+        type?: string
+        mainQuestion?: string
+        orientationText?: string
+      }
+      updateStudyAsync(studyId, {
+        last_step: 2,
+        type: (s2.type as StudyType) || 'grid',
+        main_question: s2.mainQuestion || '',
+        orientation_text: s2.orientationText || '',
+      })
+      break
+    }
+    case 3: {
+      const s3 = get('cs_step3', { minValue: 1, maxValue: 5, minLabel: '', maxLabel: '', middleLabel: '' }) as {
+        minValue?: number
+        maxValue?: number
+        minLabel?: string
+        maxLabel?: string
+        middleLabel?: string
+      }
+      putUpdateStudyAsync(studyId, {
+        rating_scale: {
+          min_value: s3.minValue ?? 1,
+          max_value: s3.maxValue ?? 5,
+          min_label: s3.minLabel || '',
+          max_label: s3.maxLabel || '',
+          middle_label: isSpecialCreator ? '' : (s3.middleLabel || ''),
+        },
+      }, 3)
+      break
+    }
+    case 4: {
+      const classification_questions = buildClassificationQuestionsPayloadFromLocalStorage()
+      const payload: UpdateStudyPutPayload = {
+        last_step: 4,
+        study_type: getStudyTypeFromLocalStorage() as StudyType,
+        classification_questions: classification_questions.length > 0 ? classification_questions : undefined,
+        toggle_shuffle: localStorage.getItem('cs_step4_shuffle') === 'true',
+      }
+      putUpdateStudyAsync(studyId, payload, 4)
+      break
+    }
+    case 5: {
+      const payload = buildStudyPayloadFromLocalStorage()
+      if (payload.audience_segmentation) {
+        delete payload.audience_segmentation.number_of_respondents
+      }
+      putUpdateStudyAsync(studyId, payload, 5)
+      break
+    }
+    case 6: {
+      const classification_questions = buildClassificationQuestionsPayloadFromLocalStorage()
+      putUpdateStudyAsync(studyId, {
+        last_step: 6,
+        study_type: getStudyTypeFromLocalStorage() as StudyType,
+        classification_questions: classification_questions.length > 0 ? classification_questions : undefined,
+      }, 6)
+      break
+    }
+    case 7: {
+      const s6 = get('cs_step6', { respondents: 0, countries: [], genderMale: 0, genderFemale: 0, ageSelections: {} }) as {
+        respondents?: number
+        countries?: string[]
+        genderMale?: number
+        genderFemale?: number
+        ageSelections?: Record<string, { checked?: boolean; percent?: string | number }>
+      }
+      const age_distribution: Record<string, number> = {}
+      const ageSel = s6.ageSelections || {}
+      Object.keys(ageSel).forEach((label) => {
+        const v = ageSel[label]
+        if (v?.checked) {
+          const num = typeof v?.percent === 'string'
+            ? Number(v.percent.replace(/[^0-9.-]/g, ''))
+            : Number(v?.percent || 0)
+          age_distribution[label] = isNaN(num) ? 0 : num
+        }
+      })
+      putUpdateStudyAsync(studyId, {
+        last_step: 7,
+        audience_segmentation: {
+          number_of_respondents: Math.min(1500, Math.max(1, Number(s6.respondents || 0))),
+          country: Array.isArray(s6.countries) ? s6.countries.join(', ') : String(s6.countries || ''),
+          gender_distribution: { male: Number(s6.genderMale || 0), female: Number(s6.genderFemale || 0) },
+          age_distribution,
+        },
+      }, 7)
+      break
+    }
+    case 8: {
+      if (isSpecialCreator) {
+        try {
+          const keysRaw = localStorage.getItem('cs_step_keys')
+          if (!keysRaw) break
+          const parsed = JSON.parse(keysRaw)
+          const keys = Array.isArray(parsed) ? parsed : (parsed?.keys ?? [])
+          const productId = Array.isArray(parsed) ? '' : (parsed?.productId ?? parsed?.product_id ?? '')
+          const validKeys = keys.filter((k: { name?: string }) => k && typeof k.name === 'string' && k.name.trim().length > 0)
+          if (validKeys.length > 0) {
+            putUpdateStudyAsync(studyId, {
+              product_keys: validKeys,
+              product_id: String(productId).trim().slice(0, 100) || undefined,
+            }, 8)
+          }
+        } catch { /* ignore */ }
+      } else {
+        putUpdateStudyAsync(studyId, { last_step: 8 }, 8)
+      }
+      break
+    }
+    case 9: {
+      putUpdateStudyAsync(studyId, { last_step: 9 }, 9)
+      break
+    }
+    case 10: {
+      putUpdateStudyAsync(studyId, { last_step: 10 }, 10)
+      break
+    }
+    default:
+      break
+  }
+}
+
 export async function upsertStudyDesignConstraint(
   studyId: string,
   constraint: ApiDesignConstraint & { id: string }

@@ -14,7 +14,7 @@ import { StepKeys } from "@/components/create-study/steps/StepKeys"
 import { Step6AudienceSegmentation } from "@/components/create-study/steps/Step6AudienceSegmentation"
 import { Step7TaskGeneration } from "@/components/create-study/steps/Step7TaskGeneration"
 import { Step8LaunchPreview } from "@/components/create-study/steps/Step8LaunchPreview"
-import { getStudyPreview, normalizeClassificationId, StudyType } from "@/lib/api/StudyAPI"
+import { getStudyPreview, normalizeClassificationId, saveStudyStepOnNavigate, StudyType } from "@/lib/api/StudyAPI"
 import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 
@@ -799,6 +799,14 @@ export default function CreateStudyPage() {
   })
   const [showCreateStudyOnboarding] = useState(() => shouldShowCreateStudyWalkthrough())
 
+  const navigateToStep = (newStep: number, options?: { skipSave?: boolean }) => {
+    if (newStep === currentStep) return
+    if (!options?.skipSave && userRole !== 'viewer') {
+      saveStudyStepOnNavigate(currentStep, isSpecialCreator)
+    }
+    setCurrentStep(newStep)
+  }
+
   useEffect(() => {
     // Listen for storage changes in case it updates in another tab/component
     const handleStorage = () => {
@@ -1122,37 +1130,37 @@ export default function CreateStudyPage() {
                   )
                 } catch { return null }
               })()}
-              <Stepper currentStep={currentStep} onStepChange={setCurrentStep} isSpecialCreator={isSpecialCreator} />
+              <Stepper currentStep={currentStep} onStepChange={(step) => navigateToStep(step)} isSpecialCreator={isSpecialCreator} />
             </div>
 
             <div className="px-4 sm:px-6 lg:px-8 py-6">
               <div className={currentStep === 1 ? "block" : "hidden"} aria-hidden={currentStep !== 1}>
-                <Step1BasicDetails key={`step1-${isLoadingDraft}`} onNext={() => setCurrentStep(2)} onCancel={() => history.back()} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
+                <Step1BasicDetails key={`step1-${isLoadingDraft}`} onNext={() => navigateToStep(2, { skipSave: true })} onCancel={() => history.back()} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
               </div>
               <div className={currentStep === 2 ? "block" : "hidden"} aria-hidden={currentStep !== 2}>
                 <Step2StudyType
                   key={`step2-${isLoadingDraft}`}
                   value={studyType}
-                  onNext={(selected) => { setStudyType(selected); setCurrentStep(3) }}
-                  onBack={() => setCurrentStep(1)}
+                  onNext={(selected) => { setStudyType(selected); navigateToStep(3, { skipSave: true }) }}
+                  onBack={() => navigateToStep(1)}
                   onDataChange={notifyStepDataChanged}
                   isReadOnly={userRole === 'viewer'}
                 />
               </div>
               <div className={currentStep === 3 ? "block" : "hidden"} aria-hidden={currentStep !== 3}>
-                <Step3RatingScale key={`step3-${isLoadingDraft}`} onNext={() => setCurrentStep(4)} onBack={() => setCurrentStep(2)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} isSpecialCreator={isSpecialCreator} />
+                <Step3RatingScale key={`step3-${isLoadingDraft}`} onNext={() => navigateToStep(4, { skipSave: true })} onBack={() => navigateToStep(2)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} isSpecialCreator={isSpecialCreator} />
               </div>
               <div className={currentStep === 4 ? "block" : "hidden"} aria-hidden={currentStep !== 4}>
-                <Step4ClassificationQuestions key={`step4-${isLoadingDraft}`} onNext={() => setCurrentStep(5)} onBack={() => setCurrentStep(3)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
+                <Step4ClassificationQuestions key={`step4-${isLoadingDraft}`} onNext={() => navigateToStep(5, { skipSave: true })} onBack={() => navigateToStep(3)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
               </div>
               <div className={currentStep === 5 ? "block" : "hidden"} aria-hidden={currentStep !== 5}>
-                <Step5StudyStructure key={`step5-${isLoadingDraft}`} onNext={() => setCurrentStep(6)} onBack={() => setCurrentStep(4)} mode={studyType} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} />
+                <Step5StudyStructure key={`step5-${isLoadingDraft}`} onNext={() => navigateToStep(6, { skipSave: true })} onBack={() => navigateToStep(4)} mode={studyType} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} isActive={currentStep === 5} />
               </div>
               <div className={currentStep === 6 ? "block" : "hidden"} aria-hidden={currentStep !== 6}>
                 <Step4ClassificationQuestions
                   key={`step6-optional-classification-${isLoadingDraft}`}
-                  onNext={() => setCurrentStep(7)}
-                  onBack={() => setCurrentStep(5)}
+                  onNext={() => navigateToStep(7, { skipSave: true })}
+                  onBack={() => navigateToStep(5)}
                   onDataChange={notifyStepDataChanged}
                   isReadOnly={userRole === 'viewer'}
                   storageKey="cs_step6_optional_classification"
@@ -1165,24 +1173,24 @@ export default function CreateStudyPage() {
                 />
               </div>
               <div className={currentStep === 7 ? "block" : "hidden"} aria-hidden={currentStep !== 7}>
-                <Step6AudienceSegmentation key={`step7-audience-${isLoadingDraft}`} onNext={() => setCurrentStep(8)} onBack={() => setCurrentStep(6)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} lastStepNumber={7} />
+                <Step6AudienceSegmentation key={`step7-audience-${isLoadingDraft}`} onNext={() => navigateToStep(8, { skipSave: true })} onBack={() => navigateToStep(6)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} lastStepNumber={7} />
               </div>
               <div className={currentStep === 8 ? "block" : "hidden"} aria-hidden={currentStep !== 8}>
                 {isSpecialCreator ? (
-                  <StepKeys key={`step8-keys-${isLoadingDraft}`} onNext={() => setCurrentStep(9)} onBack={() => setCurrentStep(7)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} lastStepNumber={8} />
+                  <StepKeys key={`step8-keys-${isLoadingDraft}`} onNext={() => navigateToStep(9, { skipSave: true })} onBack={() => navigateToStep(7)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} lastStepNumber={8} />
                 ) : (
-                  <Step7TaskGeneration key={`step8-task-${isLoadingDraft}`} active={currentStep === 8} onNext={() => setCurrentStep(9)} onBack={() => setCurrentStep(7)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} lastStepNumber={8} />
+                  <Step7TaskGeneration key={`step8-task-${isLoadingDraft}`} active={currentStep === 8} onNext={() => navigateToStep(9, { skipSave: true })} onBack={() => navigateToStep(7)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} lastStepNumber={8} />
                 )}
               </div>
               <div className={currentStep === 9 ? "block" : "hidden"} aria-hidden={currentStep !== 9}>
                 {isSpecialCreator ? (
-                  <Step7TaskGeneration key={`step9-task-${isLoadingDraft}`} active={currentStep === 9} onNext={() => setCurrentStep(10)} onBack={() => setCurrentStep(8)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} lastStepNumber={9} />
+                  <Step7TaskGeneration key={`step9-task-${isLoadingDraft}`} active={currentStep === 9} onNext={() => navigateToStep(10, { skipSave: true })} onBack={() => navigateToStep(8)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} lastStepNumber={9} />
                 ) : (
-                  <Step8LaunchPreview key={`step9-launch-${isLoadingDraft}`} onBack={() => setCurrentStep(8)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} userRole={userRole} lastStepNumber={9} isSpecialCreator={isSpecialCreator} />
+                  <Step8LaunchPreview key={`step9-launch-${isLoadingDraft}`} onBack={() => navigateToStep(8)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} userRole={userRole} lastStepNumber={9} isSpecialCreator={isSpecialCreator} />
                 )}
               </div>
               <div className={currentStep === 10 ? "block" : "hidden"} aria-hidden={currentStep !== 10}>
-                <Step8LaunchPreview key={`step10-launch-${isLoadingDraft}`} onBack={() => setCurrentStep(9)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} userRole={userRole} lastStepNumber={10} isSpecialCreator={isSpecialCreator} />
+                <Step8LaunchPreview key={`step10-launch-${isLoadingDraft}`} onBack={() => navigateToStep(9)} onDataChange={notifyStepDataChanged} isReadOnly={userRole === 'viewer'} userRole={userRole} lastStepNumber={10} isSpecialCreator={isSpecialCreator} />
               </div>
             </div>
           </div>

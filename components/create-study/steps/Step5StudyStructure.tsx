@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
-import { Fragment, useEffect, useMemo, useRef, useState, forwardRef, type CSSProperties } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState, forwardRef, useCallback, type CSSProperties } from "react"
 import { Rnd } from "react-rnd"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -133,9 +133,10 @@ interface Step5StudyStructureProps {
   mode?: "grid" | "layer" | "text" | "hybrid"
   onDataChange?: () => void
   isReadOnly?: boolean
+  isActive?: boolean
 }
 
-export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChange, isReadOnly = false }: Step5StudyStructureProps) {
+export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChange, isReadOnly = false, isActive = true }: Step5StudyStructureProps) {
   // Dynamic limits from env with sensible defaults
   // const GRID_MIN = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MIN_ELEMENTS || '4') || 4
   const GRID_MAX = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MAX_ELEMENTS || '20') || 20
@@ -952,7 +953,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
 
   if (mode === "layer") {
     return (
-      <LayerMode onNext={onNext} onBack={onBack} onDataChange={onDataChange} isReadOnly={isReadOnly} />
+      <LayerMode onNext={onNext} onBack={onBack} onDataChange={onDataChange} isReadOnly={isReadOnly} isActive={isActive} />
     )
   }
 
@@ -1314,7 +1315,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
 }
 
 // ---------------- Layer Mode ----------------
-interface LayerModeProps { onNext: () => void; onBack: () => void; onDataChange?: () => void; isReadOnly?: boolean }
+interface LayerModeProps { onNext: () => void; onBack: () => void; onDataChange?: () => void; isReadOnly?: boolean; isActive?: boolean }
 
 type LayerImage = {
   id: string
@@ -1378,7 +1379,7 @@ type LayerTextModalState =
   | { layerId: string; mode: 'add' }
   | { layerId: string; mode: 'edit'; imageId: string }
 
-function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerModeProps) {
+function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive = true }: LayerModeProps) {
   // Dynamic limits from env with sensible defaults
   const LAYER_MIN = 3
   const LAYER_MAX = 15
@@ -2394,60 +2395,6 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
     return () => document.removeEventListener('click', handler)
   }, [showLayerTypeMenu])
 
-  // Update container size when it changes
-  useEffect(() => {
-    const updateSize = () => {
-      if (previewContainerRef.current) {
-        setContainerSize({
-          width: previewContainerRef.current.offsetWidth,
-          height: previewContainerRef.current.offsetHeight
-        })
-      }
-    }
-
-    updateSize()
-    const resizeObserver = new ResizeObserver(updateSize)
-    if (previewContainerRef.current) {
-      resizeObserver.observe(previewContainerRef.current)
-    }
-
-    return () => {
-      resizeObserver.disconnect()
-    }
-  }, [])
-
-  // Persist chosen aspect for Step 7 to use
-  useEffect(() => {
-    try { localStorage.setItem('cs_step5_layer_preview_aspect', previewAspect) } catch { }
-  }, [previewAspect])
-
-  // Compute background fit box (object-contain) within container
-  useEffect(() => {
-    const computeFit = () => {
-      const cw = containerSize.width
-      const ch = containerSize.height
-      // If no background image element, use full container
-      const hasBg = Boolean(bgImgRef.current)
-      if (!hasBg) {
-        setBgFit({ left: 0, top: 0, width: cw, height: ch })
-        return
-      }
-      const imgEl = bgImgRef.current
-      const iw = imgEl?.naturalWidth || cw
-      const ih = imgEl?.naturalHeight || ch
-      if (iw <= 0 || ih <= 0) {
-        setBgFit({ left: 0, top: 0, width: cw, height: ch })
-        return
-      }
-      const scale = Math.min(cw / iw, ch / ih)
-      const w = iw * scale
-      const h = ih * scale
-      const left = (cw - w) / 2
-      const top = (ch - h) / 2
-      setBgFit({ left, top, width: w, height: h })
-    }
-    computeFit()
-  }, [containerSize])
   // Hybrid uploader (layer): accumulate single-file adds per layer, debounce 2s
   const layerPendingRef = useRef<Record<string, Array<{ imageId: string; file: File }>>>({})
   const layerTimersRef = useRef<Record<string, ReturnType<typeof setTimeout> | null>>({})
@@ -2470,6 +2417,63 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
     } catch { }
     return null
   })
+
+  const measureLayerPreviewLayout = useCallback(() => {
+    const el = previewContainerRef.current
+    if (!el) return
+    const cw = el.offsetWidth
+    const ch = el.offsetHeight
+    if (!cw || !ch) return
+
+    setContainerSize({ width: cw, height: ch })
+
+    const imgEl = bgImgRef.current
+    if (!imgEl) {
+      setBgFit({ left: 0, top: 0, width: cw, height: ch })
+      return
+    }
+    const iw = imgEl.naturalWidth || cw
+    const ih = imgEl.naturalHeight || ch
+    if (iw <= 0 || ih <= 0) {
+      setBgFit({ left: 0, top: 0, width: cw, height: ch })
+      return
+    }
+    const scale = Math.min(cw / iw, ch / ih)
+    const w = iw * scale
+    const h = ih * scale
+    const left = (cw - w) / 2
+    const top = (ch - h) / 2
+    setBgFit({ left, top, width: w, height: h })
+  }, [])
+
+  // Re-measure when step becomes visible (hidden steps report 0×0; Edge may skip ResizeObserver)
+  useEffect(() => {
+    if (!isActive) return
+
+    measureLayerPreviewLayout()
+    const delayIds = [0, 50, 100, 350, 800].map((ms) => setTimeout(measureLayerPreviewLayout, ms))
+
+    const ro = new ResizeObserver(() => measureLayerPreviewLayout())
+    const el = previewContainerRef.current
+    if (el) ro.observe(el)
+
+    const vv = window.visualViewport
+    const onVvResize = () => measureLayerPreviewLayout()
+    if (vv) vv.addEventListener('resize', onVvResize)
+    window.addEventListener('resize', measureLayerPreviewLayout)
+
+    return () => {
+      delayIds.forEach(clearTimeout)
+      ro.disconnect()
+      if (vv) vv.removeEventListener('resize', onVvResize)
+      window.removeEventListener('resize', measureLayerPreviewLayout)
+    }
+  }, [isActive, measureLayerPreviewLayout, background, layers.length])
+
+  // Persist chosen aspect for Step 7 to use
+  useEffect(() => {
+    try { localStorage.setItem('cs_step5_layer_preview_aspect', previewAspect) } catch { }
+  }, [previewAspect])
 
   const addLayer = () => {
     if (layers.length >= LAYER_MAX) return
@@ -4072,25 +4076,21 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false }: LayerMo
                 className="absolute inset-0 w-full h-full object-contain"
                 style={{ zIndex: 0 }}
                 onLoad={() => {
-                  // recompute fit after image loads
-                  const cw = containerSize.width
-                  const ch = containerSize.height
-                  const iw = bgImgRef.current?.naturalWidth || cw
-                  const ih = bgImgRef.current?.naturalHeight || ch
-                  const scale = Math.min(cw / iw, ch / ih)
-                  const w = iw * scale
-                  const h = ih * scale
-                  const left = (cw - w) / 2
-                  const top = (ch - h) / 2
-                  setBgFit({ left, top, width: w, height: h })
+                  requestAnimationFrame(() => measureLayerPreviewLayout())
                 }}
               />
             )}
 
             {/* Overlay fit box; children are constrained within */}
             <div
-              className="absolute overflow-hidden"
-              style={{ left: bgFit.left, top: bgFit.top, width: bgFit.width, height: bgFit.height, zIndex: 1 }}
+              className="absolute overflow-hidden isolate"
+              style={{
+                left: bgFit.left,
+                top: bgFit.top,
+                width: bgFit.width || containerSize.width,
+                height: bgFit.height || containerSize.height,
+                zIndex: 1,
+              }}
             >
               {layers.map((l) => {
                 if (l.visible === false) return null

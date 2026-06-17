@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
-import { useEffect, useState, useRef, useMemo, useLayoutEffect } from "react"
+import { useEffect, useState, useRef, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, subscribeTaskGenerationStatus, getTaskGenerationResult, validateDesignConstraints } from "@/lib/api/StudyAPI"
 import JSZip from "jszip"
@@ -1226,42 +1226,56 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     return map
   }, [matrix])
 
-  // Observe preview container size
-  useEffect(() => {
-    const updateSize = () => {
-      if (previewContainerRef.current) {
-        setContainerSize({
-          width: previewContainerRef.current.offsetWidth,
-          height: previewContainerRef.current.offsetHeight,
-        })
-      }
-    }
-    updateSize()
-    const ro = new ResizeObserver(updateSize)
-    if (previewContainerRef.current) ro.observe(previewContainerRef.current)
-    // Also listen to visualViewport changes (DevTools responsive mode)
-    const vv = (window as any).visualViewport
-    const onVvResize = () => updateSize()
-    if (vv && vv.addEventListener) vv.addEventListener('resize', onVvResize)
-    return () => { ro.disconnect(); if (vv && vv.removeEventListener) vv.removeEventListener('resize', onVvResize) }
-  }, [])
+  const measurePreviewLayout = useCallback(() => {
+    const el = previewContainerRef.current
+    if (!el) return
+    const cw = el.offsetWidth
+    const ch = el.offsetHeight
+    // Skip while hidden (display:none) — keeps last valid fit until step is visible again
+    if (!cw || !ch) return
 
-  // Compute background fit box (object-contain) inside preview container
-  useLayoutEffect(() => {
-    const cw = containerSize.width
-    const ch = containerSize.height
-    if (!cw || !ch) { setBgFit({ left: 0, top: 0, width: 0, height: 0 }); return }
-    const iw = bgImgRef.current?.naturalWidth || cw
-    const ih = bgImgRef.current?.naturalHeight || ch
-    if (!iw || !ih) { setBgFit({ left: 0, top: 0, width: cw, height: ch }); return }
+    setContainerSize({ width: cw, height: ch })
+
+    const imgEl = bgImgRef.current
+    const iw = imgEl?.naturalWidth || cw
+    const ih = imgEl?.naturalHeight || ch
+    if (!iw || !ih) {
+      setBgFit({ left: 0, top: 0, width: cw, height: ch })
+      return
+    }
     const scale = Math.min(cw / iw, ch / ih)
     const w = iw * scale
     const h = ih * scale
     const left = (cw - w) / 2
     const top = (ch - h) / 2
-    // Use RAF to ensure layout has settled before applying
-    requestAnimationFrame(() => setBgFit({ left, top, width: w, height: h }))
-  }, [containerSize])
+    setBgFit({ left, top, width: w, height: h })
+    bgReadyRef.current = true
+  }, [])
+
+  // Re-measure when step becomes visible, matrix loads, or container resizes (Edge may not
+  // fire ResizeObserver when a hidden step is shown again — DevTools opening forces this).
+  useEffect(() => {
+    if (!active || studyType !== 'layer') return
+
+    measurePreviewLayout()
+    const delayIds = [0, 50, 100, 350, 800].map((ms) => setTimeout(measurePreviewLayout, ms))
+
+    const ro = new ResizeObserver(() => measurePreviewLayout())
+    const el = previewContainerRef.current
+    if (el) ro.observe(el)
+
+    const vv = window.visualViewport
+    const onVvResize = () => measurePreviewLayout()
+    if (vv) vv.addEventListener('resize', onVvResize)
+    window.addEventListener('resize', measurePreviewLayout)
+
+    return () => {
+      delayIds.forEach(clearTimeout)
+      ro.disconnect()
+      if (vv) vv.removeEventListener('resize', onVvResize)
+      window.removeEventListener('resize', measurePreviewLayout)
+    }
+  }, [active, studyType, matrix, measurePreviewLayout])
 
   // Compute additional derived statistics from preview data (first respondent only)
   const previewTasksForStats = Array.isArray(respondentBuckets?.[0]) ? respondentBuckets[0] : []
@@ -2176,18 +2190,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
                                         height: '100%'
                                       }}
                                       onLoad={() => {
-                                        const cw = previewContainerRef.current?.offsetWidth || 0
-                                        const ch = previewContainerRef.current?.offsetHeight || 0
-                                        if (!cw || !ch) return
-                                        const iw = bgImgRef.current?.naturalWidth || cw
-                                        const ih = bgImgRef.current?.naturalHeight || ch
-                                        const scale = Math.min(cw / iw, ch / ih)
-                                        const w = iw * scale
-                                        const h = ih * scale
-                                        const left = (cw - w) / 2
-                                        const top = (ch - h) / 2
-                                        setBgFit({ left, top, width: w, height: h })
-                                        bgReadyRef.current = true
+                                        requestAnimationFrame(() => measurePreviewLayout())
                                       }}
                                       onError={(e) => { e.currentTarget.style.display = 'none' }}
                                     />
@@ -2195,15 +2198,16 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
                                   {/* Overlay to anchor transforms to background fit box (or virtual box if no background) */}
                                   {(() => {
                                     if (backgroundUrl) {
-                                      // Use measured object-contain fit when background exists
-                                      if (!bgFit.width || !bgFit.height) return null
-                                      const efl = bgFit.left
-                                      const eft = bgFit.top
-                                      const efw = bgFit.width
-                                      const efh = bgFit.height
+                                      const fallbackW = previewContainerRef.current?.offsetWidth || containerSize.width || 0
+                                      const fallbackH = previewContainerRef.current?.offsetHeight || containerSize.height || 0
+                                      const efw = bgFit.width || fallbackW
+                                      const efh = bgFit.height || fallbackH
+                                      if (!efw || !efh) return null
+                                      const efl = bgFit.width ? bgFit.left : 0
+                                      const eft = bgFit.width ? bgFit.top : 0
                                       const bgFitKeySafe = `${efl}-${eft}-${efw}-${efh}-${tIdx}`
                                       return (
-                                        <div className="absolute overflow-hidden" style={{ left: efl, top: eft, width: efw, height: efh, zIndex: 1 }} key={bgFitKeySafe}>
+                                        <div className="absolute overflow-hidden isolate" style={{ left: efl, top: eft, width: efw, height: efh, zIndex: 1 }} key={bgFitKeySafe}>
                                           {visibleLayers.map((layer, layerIdx) => {
                                             const raw = layerTransformsByName[layer.layer_name] || { x: 0, y: 0, width: 100, height: 100 }
                                             const widthPct = Math.max(1, Math.min(100, raw.width))
