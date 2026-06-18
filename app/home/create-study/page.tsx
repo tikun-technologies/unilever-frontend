@@ -1,7 +1,8 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
-import { motion } from "framer-motion"
+import { motion, AnimatePresence } from "framer-motion"
+import { Loader2 } from "lucide-react"
 import { DashboardHeader } from "../components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
 import Stepper from "@/components/create-study/Stepper"
@@ -830,7 +831,15 @@ export default function CreateStudyPage() {
   const isSpecialCreator = checkIsSpecialCreator(user?.email)
   const [currentStep, setCurrentStep] = useState(1)
   const [studyType, setStudyType] = useState<StudyType>("grid")
-  const [isLoadingDraft, setIsLoadingDraft] = useState(false)
+  const [isLoadingDraft, setIsLoadingDraft] = useState(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      if (localStorage.getItem('cs_is_fresh_start') === 'true') return false
+      return Boolean(localStorage.getItem('cs_study_id'))
+    } catch {
+      return false
+    }
+  })
   const [draftLoadError, setDraftLoadError] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -1100,6 +1109,7 @@ export default function CreateStudyPage() {
         }
       } catch (error) {
         console.error('Error initializing page:', error)
+        setIsLoadingDraft(false)
       }
     }
 
@@ -1243,6 +1253,40 @@ export default function CreateStudyPage() {
         studyType={studyType}
         showCreateStudyOnboarding={showCreateStudyOnboarding}
       />
+
+      <AnimatePresence>
+        {isLoadingDraft && (
+          <motion.div
+            key="draft-study-loader"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.25 }}
+            className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-100/75 backdrop-blur-md"
+            aria-live="polite"
+            aria-busy="true"
+            role="status"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 12, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.98 }}
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+              className="mx-4 flex w-full max-w-md flex-col items-center rounded-2xl border border-white/80 bg-white/95 px-8 py-10 text-center shadow-2xl"
+            >
+              <div className="flex h-14 w-14 items-center justify-center rounded-full bg-[rgba(38,116,186,0.1)]">
+                <Loader2 className="h-8 w-8 animate-spin text-[rgba(38,116,186,1)]" />
+              </div>
+              <h2 className="mt-5 text-xl font-semibold tracking-tight text-gray-900">
+                Loading draft study
+              </h2>
+              <p className="mt-2 max-w-xs text-sm leading-6 text-gray-500">
+                Restoring your study settings, layers, and progress. This will only take a moment.
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </AuthGuard>
   )
 }
