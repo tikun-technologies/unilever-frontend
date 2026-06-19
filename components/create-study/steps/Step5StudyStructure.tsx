@@ -83,7 +83,8 @@ function LargePreview({ background, layers, aspect, selectedImageIds = {} }: { b
         {layers.map((l: any) => {
           if (l.visible === false) return null
           const selectedImageId = selectedImageIds[l.id]
-          const base = selectedImageId ? l.images?.find((img: any) => img.id === selectedImageId) : l.images?.[0]
+          if (!selectedImageId) return null
+          const base = l.images?.find((img: any) => img.id === selectedImageId)
 
           if (!base) return null
           const widthPct = Math.max(1, Math.min(100, Number(base.width ?? 100)))
@@ -1737,6 +1738,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
     layerName: string
     imageName: string
   } | null>(null)
+  const [selectionConflictNotice, setSelectionConflictNotice] = useState<string | null>(null)
   const [constraintExpandedAnchorLayers, setConstraintExpandedAnchorLayers] = useState<Set<string>>(new Set())
   const [constraintExpandedBlockedLayers, setConstraintExpandedBlockedLayers] = useState<Set<string>>(new Set())
   const [overviewExpandedConstraints, setOverviewExpandedConstraints] = useState<Set<string>>(new Set())
@@ -2142,10 +2144,143 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
   const getConstraintElement = (layerId: string, imageId: string) =>
     constraintElementOptions.find((option) => option.layerId === layerId && option.imageId === imageId)
 
+  const getLayerElementOption = useCallback((layerId: string, imageId: string) => {
+    const layer = layers.find((item) => item.id === layerId)
+    const image = layer?.images.find((item) => item.id === imageId)
+    if (!layer || !image) return null
+    return {
+      key: getConstraintElementKey(layer.id, image.id),
+      layerId: layer.id,
+      imageId: image.id,
+      layerName: layer.name || 'Untitled layer',
+      imageName: image.name || image.textContent || 'Untitled element',
+      src: image.secureUrl || image.previewUrl,
+    }
+  }, [layers])
+
   const getSelectedConstraintOptions = (refs: ConstraintElementRef[]) =>
     refs
       .map((item) => getConstraintElement(item.layerId, item.imageId))
       .filter((item): item is NonNullable<ReturnType<typeof getConstraintElement>> => Boolean(item))
+
+  const constraintConflictMap = useMemo(() => {
+    const map = new Map<string, DesignConstraint[]>()
+    const addPair = (a: ConstraintElementRef, b: ConstraintElementRef, constraint: DesignConstraint) => {
+      const aKey = getConstraintElementKey(a.layerId, a.imageId)
+      const bKey = getConstraintElementKey(b.layerId, b.imageId)
+      if (!aKey || !bKey || aKey === bKey) return
+      const pairKey = `${aKey}|${bKey}`
+      const existing = map.get(pairKey) || []
+      existing.push(constraint)
+      map.set(pairKey, existing)
+    }
+
+    designConstraints.forEach((constraint) => {
+      constraint.anchors.forEach((anchor) => {
+        constraint.blocked.forEach((blocked) => {
+          addPair(anchor, blocked, constraint)
+          addPair(blocked, anchor, constraint)
+        })
+      })
+    })
+
+    return map
+  }, [designConstraints])
+
+  const isSameSelectionMap = (a: Record<string, string>, b: Record<string, string>) => {
+    const aKeys = Object.keys(a)
+    const bKeys = Object.keys(b)
+    if (aKeys.length !== bKeys.length) return false
+    return aKeys.every((key) => a[key] === b[key])
+  }
+
+  const getSelectionConflictDetails = useCallback((
+    candidate: ConstraintElementRef,
+    selection: Record<string, string>,
+    options?: { ignoreLayerId?: string }
+  ) => {
+    const candidateKey = getConstraintElementKey(candidate.layerId, candidate.imageId)
+    const visibleLayerIds = new Set(layers.filter((layer) => layer.visible !== false).map((layer) => layer.id))
+    const details: Array<{
+      constraint: DesignConstraint
+      conflicting: NonNullable<ReturnType<typeof getLayerElementOption>>
+    }> = []
+    const seen = new Set<string>()
+
+    Object.entries(selection).forEach(([layerId, imageId]) => {
+      if (!imageId || layerId === options?.ignoreLayerId || !visibleLayerIds.has(layerId)) return
+      const selectedKey = getConstraintElementKey(layerId, imageId)
+      const constraints = constraintConflictMap.get(`${candidateKey}|${selectedKey}`)
+      if (!constraints?.length) return
+      const conflicting = getLayerElementOption(layerId, imageId)
+      if (!conflicting) return
+      constraints.forEach((constraint) => {
+        const key = `${constraint.id}|${conflicting.key}`
+        if (seen.has(key)) return
+        seen.add(key)
+        details.push({ constraint, conflicting })
+      })
+    })
+
+    return details
+  }, [constraintConflictMap, getLayerElementOption, layers])
+
+  const getSelectionConflictMessage = useCallback((
+    candidate: ConstraintElementRef,
+    selection: Record<string, string>,
+    options?: { ignoreLayerId?: string }
+  ) => {
+    const details = getSelectionConflictDetails(candidate, selection, options)
+    if (details.length === 0) return null
+    const candidateOption = getLayerElementOption(candidate.layerId, candidate.imageId)
+    const first = details[0]
+    const extra = details.length > 1 ? ` and ${details.length - 1} more conflict${details.length === 2 ? '' : 's'}` : ''
+    return `${candidateOption?.imageName || 'This element'} cannot be selected because "${first.constraint.name}" conflicts with ${first.conflicting.imageName} in ${first.conflicting.layerName}${extra}.`
+  }, [getLayerElementOption, getSelectionConflictDetails])
+
+  const buildConstraintAwareLayerSelection = useCallback((baseSelection: Record<string, string>) => {
+    const next: Record<string, string> = {}
+    const selectedKeys: string[] = []
+    const orderedLayers = [...layers]
+      .filter((layer) => layer.visible !== false && layer.images.length > 0)
+      .sort((a, b) => a.z - b.z)
+
+    orderedLayers.forEach((layer) => {
+      const preferredId = baseSelection[layer.id]
+      const candidates = [
+        ...(preferredId ? layer.images.filter((image) => image.id === preferredId) : []),
+        ...layer.images.filter((image) => image.id !== preferredId),
+      ]
+
+      const selected = candidates.find((image) => {
+        const candidateKey = getConstraintElementKey(layer.id, image.id)
+        return selectedKeys.every((selectedKey) => !constraintConflictMap.has(`${candidateKey}|${selectedKey}`))
+      })
+
+      if (selected) {
+        next[layer.id] = selected.id
+        selectedKeys.push(getConstraintElementKey(layer.id, selected.id))
+      }
+    })
+
+    return next
+  }, [constraintConflictMap, layers])
+
+  const effectiveSelectedImageIds = useMemo(
+    () => buildConstraintAwareLayerSelection(selectedImageIds),
+    [buildConstraintAwareLayerSelection, selectedImageIds]
+  )
+
+  const constrainedOutLayerNames = useMemo(() => {
+    return layers
+      .filter((layer) => layer.visible !== false && layer.images.length > 0 && !effectiveSelectedImageIds[layer.id])
+      .map((layer) => layer.name || 'Untitled layer')
+  }, [effectiveSelectedImageIds, layers])
+
+  useEffect(() => {
+    if (isSameSelectionMap(selectedImageIds, effectiveSelectedImageIds)) return
+    setSelectedImageIds(effectiveSelectedImageIds)
+  }, [effectiveSelectedImageIds, selectedImageIds])
 
   const groupSelectedConstraintOptions = (refs: ConstraintElementRef[]) => {
     const groups = new Map<string, {
@@ -3745,7 +3880,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
   const handleCanvasExport = async () => {
     setExportLoading(true)
     try {
-      const canvas = await renderLayersToCanvas(background, layers, selectedImageIds, previewAspect)
+      const canvas = await renderLayersToCanvas(background, layers, effectiveSelectedImageIds, previewAspect)
       const dataUrl = canvas.toDataURL('image/png')
       const link = document.createElement('a')
       link.download = `study-export-${previewAspect}-${Date.now()}.png`
@@ -3934,7 +4069,17 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
   }
 
   const selectImage = (layerId: string, imageId: string) => {
-    setSelectedImageIds(prev => ({ ...prev, [layerId]: imageId }))
+    const conflictMessage = getSelectionConflictMessage(
+      { layerId, imageId },
+      effectiveSelectedImageIds,
+      { ignoreLayerId: layerId }
+    )
+    if (conflictMessage) {
+      setSelectionConflictNotice(conflictMessage)
+      return
+    }
+    setSelectionConflictNotice(null)
+    setSelectedImageIds(prev => buildConstraintAwareLayerSelection({ ...prev, [layerId]: imageId }))
   }
 
   const removeImageFromLayer = (layerId: string, imageId: string) => {
@@ -3942,8 +4087,8 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
       if (layer.id !== layerId) return layer
       const newImages = layer.images.filter(img => img.id !== imageId)
       // If we're removing the selected image, select the first remaining image
-      if (selectedImageIds[layerId] === imageId && newImages.length > 0) {
-        setSelectedImageIds(prev => ({ ...prev, [layerId]: newImages[0].id }))
+      if (effectiveSelectedImageIds[layerId] === imageId && newImages.length > 0) {
+        setSelectedImageIds(prev => buildConstraintAwareLayerSelection({ ...prev, [layerId]: newImages[0].id }))
       } else if (newImages.length === 0) {
         // No images left, remove selection
         setSelectedImageIds(prev => {
@@ -4355,8 +4500,9 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
             >
               {layers.map((l) => {
                 if (l.visible === false) return null
-                const selectedImageId = selectedImageIds[l.id]
-                const selectedImage = selectedImageId ? l.images.find(img => img.id === selectedImageId) : l.images[0]
+                const selectedImageId = effectiveSelectedImageIds[l.id]
+                if (!selectedImageId) return null
+                const selectedImage = l.images.find(img => img.id === selectedImageId)
                 if (!selectedImage) return null
 
                 // Convert percentage to pixels using background fit box
@@ -4525,6 +4671,16 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
             </div>
             <Button variant="outline" className="rounded-full px-4 py-1 cursor-pointer" onClick={() => setShowFullPreview(true)}>Preview</Button>
           </div>
+          {selectionConflictNotice && (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+              {selectionConflictNotice}
+            </div>
+          )}
+          {constrainedOutLayerNames.length > 0 && (
+            <div className="mt-3 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+              {constrainedOutLayerNames.join(', ')} {constrainedOutLayerNames.length === 1 ? 'is' : 'are'} hidden in the preview because every element conflicts with the current visible selection.
+            </div>
+          )}
         </div>
         <div className={previewAspect === 'landscape' ? 'md:col-span-2 flex min-h-0 flex-col' : 'md:col-span-3 flex min-h-0 flex-col'}>
           <div className="text-xs text-gray-600 mb-2">Min {LAYER_MIN}, Max {LAYER_MAX}. Current: {layers.length}</div>
@@ -4635,16 +4791,28 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
                         </div>
                         <div className="flex flex-wrap gap-3">
                           {layer.images.map(img => {
-                            const isSelected = selectedImageIds[layer.id] === img.id || (!selectedImageIds[layer.id] && layer.images[0]?.id === img.id)
+                            const isSelected = effectiveSelectedImageIds[layer.id] === img.id
+                            const conflictMessage = getSelectionConflictMessage(
+                              { layerId: layer.id, imageId: img.id },
+                              effectiveSelectedImageIds,
+                              { ignoreLayerId: layer.id }
+                            )
+                            const isConflicting = Boolean(conflictMessage) && !isSelected && layer.visible !== false
                             return (
                               <div key={img.id} className="relative group">
                                 <div
-                                  className={`w-20 h-20 rounded-md border-2 cursor-pointer transition-all ${isSelected ? 'border-blue-500 ring-2 ring-blue-200' : 'border-gray-200 hover:border-gray-300'
+                                  className={`relative w-20 h-20 rounded-md border-2 transition-all ${isConflicting ? 'cursor-not-allowed border-amber-300 bg-amber-50 opacity-70 hover:border-amber-400' : 'cursor-pointer'} ${isSelected ? 'border-blue-500 ring-2 ring-blue-200' : isConflicting ? '' : 'border-gray-200 hover:border-gray-300'
                                     }`}
                                   onClick={() => selectImage(layer.id, img.id)}
+                                  title={conflictMessage || 'Select element'}
                                 >
                                   {/* eslint-disable-next-line @next/next/no-img-element */}
                                   <img src={img.secureUrl || img.previewUrl} alt="layer" className="w-full h-full object-contain rounded-md" />
+                                  {isConflicting && (
+                                    <div className="absolute inset-x-1 bottom-1 rounded bg-amber-600/90 px-1 py-0.5 text-center text-[9px] font-semibold text-white">
+                                      Conflict
+                                    </div>
+                                  )}
                                 </div>
                                 {layer.layer_type === 'text' && (
                                   <button
@@ -7137,7 +7305,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
                   <Button variant="outline" onClick={() => setShowFullPreview(false)} className="cursor-pointer">Close</Button>
                 </div>
               </div>
-              <LargePreview background={background} layers={layers} aspect={previewAspect} selectedImageIds={selectedImageIds} />
+              <LargePreview background={background} layers={layers} aspect={previewAspect} selectedImageIds={effectiveSelectedImageIds} />
             </div>
           </div>
         )
