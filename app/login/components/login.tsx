@@ -40,7 +40,7 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
         'cs_step1', 'cs_step2', 'cs_step3', 'cs_step4', 'cs_step4_shuffle', 'cs_step6_optional_classification', 'cs_step6_optional_classification_completed', 'cs_step5_grid',
         'cs_step5_layer', 'cs_step5_layer_background', 'cs_step5_layer_preview_aspect', 'cs_step5_layer_design_constraints',
         'cs_step6', 'cs_step7_tasks', 'cs_step7_matrix', 'cs_step7_job_state',
-        'cs_step7_timer_state', 'cs_current_step', 'cs_backup_steps',
+        'cs_step7_timer_state', 'cs_current_step', 'cs_study_last_step', 'cs_backup_steps',
         'cs_flash_message', 'cs_resuming_draft', 'cs_study_id', 'cs_is_fresh_start', 'cs_step8'
       ]
       keysToRemove.forEach(key => localStorage.removeItem(key))

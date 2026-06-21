@@ -917,7 +917,10 @@ export default function CreateStudyPage() {
             'cs_step7_matrix',
             'cs_step7_job_state',
             'cs_step7_timer_state',
-            'cs_step8'
+            'cs_step8',
+            'cs_current_step',
+            'cs_study_last_step',
+            'cs_study_id'
           ]
           keysToRemove.forEach(key => {
             try {
@@ -944,7 +947,7 @@ export default function CreateStudyPage() {
         const studyId = localStorage.getItem('cs_study_id')
         const isResumingDraft = localStorage.getItem('cs_resuming_draft') === 'true'
 
-        if (studyId) {
+        if (studyId && !isFreshStart) {
           // ALWAYS Sync with backend on mount if we have a study ID
           // This allows multiple users to see each other's changes on refresh
           // Load study data from backend
@@ -997,6 +1000,7 @@ export default function CreateStudyPage() {
             'cs_step7_tasks',
             'cs_step7_matrix',
             'cs_step7_timer_state',
+            'cs_study_last_step',
             'cs_backup_steps',
             'cs_flash_message',
             'cs_step8'
@@ -1067,8 +1071,11 @@ export default function CreateStudyPage() {
             'cs_step7_matrix',
             'cs_step7_job_state',
             'cs_step7_timer_state',
+            'cs_current_step',
+            'cs_study_last_step',
             'cs_backup_steps',
-            'cs_flash_message'
+            'cs_flash_message',
+            'cs_study_id'
           ]
           keysToRemove.forEach(key => {
             try {

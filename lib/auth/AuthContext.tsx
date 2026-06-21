@@ -97,6 +97,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         'cs_step7_job_state',
         'cs_step7_timer_state',
         'cs_current_step',
+        'cs_study_last_step',
         'cs_backup_steps',
         'cs_flash_message',
         'cs_resuming_draft',

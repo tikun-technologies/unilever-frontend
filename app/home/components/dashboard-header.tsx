@@ -12,6 +12,7 @@ import { ShareStudyModal } from "@/components/create-study/ShareStudyModal"
 import { ShareProjectModal } from "@/components/home/ShareProjectModal"
 import { deleteStudy } from "@/lib/api/StudyAPI"
 import { requestRestartWalkthrough } from "@/components/onboarding/MindSurveOnboarding"
+import { prepareFreshCreateStudy } from "@/lib/utils/createStudyStorage"
 
 export function DashboardHeader() {
   const { user, logout } = useAuth()
@@ -79,55 +80,7 @@ export function DashboardHeader() {
   }, [projId])
 
   const handleCreateNewStudy = () => {
-    // Clear all create-study related localStorage items to start fresh from Step 1
-    const keysToRemove = [
-      'cs_step1',
-      'cs_step2',
-      'cs_step3',
-      'cs_step4',
-      'cs_step4_shuffle',
-      'cs_step6_optional_classification',
-      'cs_step6_optional_classification_completed',
-      'cs_step5_grid',
-      'cs_step5_text',
-      'cs_step5_hybrid',
-      'cs_step5_hybrid_grid',
-      'cs_step5_hybrid_text',
-      'cs_step5_hybrid_phase_order',
-      'cs_step5_layer',
-      'cs_step5_layer_background',
-      'cs_step5_layer_preview_aspect',
-      'cs_step5_layer_design_constraints',
-      'cs_step6',
-      'cs_step7_tasks',
-      'cs_step7_matrix',
-      'cs_step7_job_state',
-      'cs_step7_timer_state',
-      'cs_current_step',
-      'cs_backup_steps',
-      'cs_flash_message',
-      'cs_resuming_draft',
-      'cs_study_id',
-      'cs_is_fresh_start',
-      'cs_step8'
-    ]
-
-    keysToRemove.forEach(key => {
-      try {
-        localStorage.removeItem(key)
-      } catch { }
-    })
-
-    // Also clear sessionStorage to remove study tracking
-    try {
-      sessionStorage.removeItem('cs_previous_study_id')
-    } catch { }
-
-    // Set flag to indicate this is a fresh start (no resuming)
-    try {
-      localStorage.setItem('cs_is_fresh_start', 'true')
-    } catch { }
-
+    prepareFreshCreateStudy()
     // Navigate to create-study page
     const url = projId ? `/home/create-study?proj_id=${projId}` : '/home/create-study'
     router.push(url)

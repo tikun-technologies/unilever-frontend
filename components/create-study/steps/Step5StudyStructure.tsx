@@ -4711,7 +4711,11 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
                 </label>
               )}
             </div>
-            {layers.map((layer, idx) => (
+            {layers.map((layer, idx) => {
+              const activeImageId = effectiveSelectedImageIds[layer.id]
+              const activeImage = activeImageId ? layer.images.find((img) => img.id === activeImageId) : undefined
+
+              return (
               <Fragment key={layer.id}>
                 {overIndex === idx && (
                   <div className="h-2 rounded bg-[rgba(38,116,186,0.3)] border border-[rgba(38,116,186,0.5)] mb-2" />
@@ -4721,7 +4725,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
                   onClick={() => setSelectedLayerId(layer.id)}
                 >
                   <div
-                    className={`flex items-center justify-between px-4 py-2 bg-slate-50 rounded-t-xl ${isReadOnly ? 'cursor-default' : 'cursor-move'}`}
+                    className={`flex items-start justify-between gap-2 px-4 py-2 bg-slate-50 rounded-t-xl ${isReadOnly ? 'cursor-default' : 'cursor-move'}`}
                     draggable={!isReadOnly}
                     onDragStart={(e) => { setDragIndex(idx); setOverIndex(idx); e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(idx)); } catch { } }}
                     onDragOver={(e) => {
@@ -4738,16 +4742,34 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
                     onDrop={(e) => { e.preventDefault(); if (dragIndex !== null && overIndex !== null) { let to = overIndex; if (dragIndex < to) to = to - 1; if (to !== dragIndex) moveLayer(dragIndex, to) } setDragIndex(null); setOverIndex(null) }}
                     onDragEnd={() => { if (dragIndex !== null && overIndex !== null) { let to = overIndex; if (dragIndex < to) to = to - 1; if (to !== dragIndex) moveLayer(dragIndex, to) } setDragIndex(null); setOverIndex(null) }}
                   >
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
-                        <span className="truncate max-w-[20ch]">{layer.name || `Layer ${idx + 1}`}</span>
-
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm font-medium text-gray-700">
+                        <span>{layer.name || `Layer ${idx + 1}`}</span>
+                        {layer.visible !== false && layer.images.length > 0 && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
+                            {activeImage ? (
+                              <>
+                                <span className="h-4 w-4 flex-shrink-0 overflow-hidden rounded-full border border-blue-100 bg-white">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={activeImage.secureUrl || activeImage.previewUrl}
+                                    alt=""
+                                    className="h-full w-full object-contain"
+                                  />
+                                </span>
+                                <span>{activeImage.name || 'Active'}</span>
+                              </>
+                            ) : (
+                              <span className="text-amber-700">No active element</span>
+                            )}
+                          </span>
+                        )}
                       </div>
                       {layer.description ? (
-                        <div className="text-xs text-gray-500 truncate max-w-[25ch]">{layer.description}</div>
+                        <div className="text-xs text-gray-500">{layer.description}</div>
                       ) : null}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-shrink-0 items-center gap-2">
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); setLayers(prev => prev.map(l => l.id === layer.id ? { ...l, visible: !l.visible } : l)) }}
@@ -4931,7 +4953,8 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
                   <div className="h-2 rounded bg-[rgba(38,116,186,0.3)] border border-[rgba(38,116,186,0.5)] mt-2" />
                 )}
               </Fragment>
-            ))}
+            )
+            })}
 
             {layers.length === 0 && (
               <div className="text-sm text-gray-500">No layers added yet. Click &quot;Add New Layer&quot; to begin.</div>

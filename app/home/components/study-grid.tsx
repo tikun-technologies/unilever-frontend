@@ -9,6 +9,7 @@ import { format } from "date-fns"
 import { useState, useEffect } from "react"
 import { Project, assignStudyToProject } from "@/api/projectApi"
 import { mapStudyToProject, unmapStudyFromProject, getStudyProjectMapping } from "@/lib/utils/projectUtils"
+import { prepareFreshCreateStudy } from "@/lib/utils/createStudyStorage"
 
 interface StudyGridProps {
   studies: StudyListItem[]
@@ -117,52 +118,6 @@ export function StudyGrid({
     setActiveMenuId(null)
   }
 
-  const clearCreateStudyLocalStorage = () => {
-    // Clear all create-study related localStorage items to start fresh from Step 1
-    const keysToRemove = [
-      'cs_step1',
-      'cs_step2',
-      'cs_step3',
-      'cs_step4',
-      'cs_step4_shuffle',
-      'cs_step6_optional_classification',
-      'cs_step6_optional_classification_completed',
-      'cs_step5_grid',
-      'cs_step5_text',
-      'cs_step5_hybrid',
-      'cs_step5_hybrid_grid',
-      'cs_step5_hybrid_text',
-      'cs_step5_hybrid_phase_order',
-      'cs_step5_layer',
-      'cs_step5_layer_background',
-      'cs_step5_layer_preview_aspect',
-      'cs_step5_layer_design_constraints',
-      'cs_step6',
-      'cs_step7_tasks',
-      'cs_step7_matrix',
-      'cs_step7_job_state',
-      'cs_step7_timer_state',
-      'cs_current_step',
-      'cs_backup_steps',
-      'cs_flash_message',
-      'cs_resuming_draft',
-      'cs_study_id',
-      'cs_is_fresh_start',
-      'cs_step8'
-    ]
-
-    keysToRemove.forEach(key => {
-      try {
-        localStorage.removeItem(key)
-      } catch { }
-    })
-
-    // Set flag to indicate this is a fresh start (no resuming)
-    try {
-      localStorage.setItem('cs_is_fresh_start', 'true')
-    } catch { }
-  }
-
   const handleViewDetails = (study: StudyListItem) => {
     // If study is draft, redirect to create-study page with last_step
     if (study.status === 'draft') {
@@ -208,8 +163,7 @@ export function StudyGrid({
   }
 
   const handleCreateNewStudy = () => {
-    // Clear all create-study localStorage to start fresh from Step 1
-    clearCreateStudyLocalStorage()
+    prepareFreshCreateStudy()
     // Navigate to create-study page
     const url = projId ? `/home/create-study?proj_id=${projId}` : '/home/create-study'
     router.push(url)

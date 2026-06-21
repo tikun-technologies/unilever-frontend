@@ -332,7 +332,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
           'cs_step5_grid', 'cs_step5_text', 'cs_step5_hybrid', 'cs_step5_layer', 'cs_step5_layer_background', 'cs_step5_layer_design_constraints',
           'cs_step5_hybrid_grid', 'cs_step5_hybrid_text', 'cs_step5_hybrid_phase_order',
           'cs_step_keys', 'cs_step6', 'cs_step7', 'cs_step7_tasks', 'cs_step7_matrix', 'cs_step7_meta', 'cs_step7_signature',
-          'cs_step8', 'cs_current_step', 'cs_backup_steps', 'cs_study_id', 'cs_flash_message'
+          'cs_step8', 'cs_current_step', 'cs_study_last_step', 'cs_backup_steps', 'cs_study_id', 'cs_flash_message'
         ]
 
         // Remove all keys and log for debugging
