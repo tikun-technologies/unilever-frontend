@@ -2366,17 +2366,34 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
     )
   }
 
-  const getDefaultConstraintName = (excludeId?: string) => {
+  const getConstraintNameFromElements = (
+    anchors: ConstraintElementRef[],
+    blocked: ConstraintElementRef[]
+  ) => {
+    const anchorNames = getSelectedConstraintOptions(anchors).map((option) => option.imageName.trim())
+    const blockedNames = getSelectedConstraintOptions(blocked).map((option) => option.imageName.trim())
+    const anchorPart = anchorNames.filter(Boolean).join(', ')
+    const blockedPart = blockedNames.filter(Boolean).join(', ')
+    if (anchorPart && blockedPart) return `${anchorPart} vs ${blockedPart}`
+    return anchorPart || blockedPart
+  }
+
+  const getDefaultConstraintName = (
+    excludeId?: string,
+    draft?: { anchors: ConstraintElementRef[]; blocked: ConstraintElementRef[] }
+  ) => {
     const usedNames = new Set(
       designConstraints
         .filter((constraint) => constraint.id !== excludeId)
         .map((constraint) => constraint.name.trim().toLowerCase())
     )
-    let index = 1
-    let candidate = `Design Constraint ${index}`
+    const elementName = draft ? getConstraintNameFromElements(draft.anchors, draft.blocked).trim() : ''
+    let baseName = elementName || 'Design Constraint'
+    let index = elementName ? 2 : 1
+    let candidate = elementName || `Design Constraint ${index}`
     while (usedNames.has(candidate.toLowerCase())) {
+      candidate = elementName ? `${baseName} (${index})` : `Design Constraint ${index}`
       index += 1
-      candidate = `Design Constraint ${index}`
     }
     return candidate
   }
@@ -2545,7 +2562,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
       }
       setEditingConstraintId(constraint.id)
       setConstraintDraft(draft)
-      setConstraintNameDraft(constraint.name || getDefaultConstraintName(constraint.id))
+      setConstraintNameDraft(constraint.name || getDefaultConstraintName(constraint.id, draft))
       setConstraintExpandedAnchorLayers(getAnchorLayersToExpand(draft))
       setConstraintExpandedBlockedLayers(getBlockedLayersToExpand(draft))
     } else {
@@ -2650,7 +2667,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
     const validated = validateConstraintDraft()
     if (!validated) return
 
-    setConstraintNameDraft((current) => current.trim() || getDefaultConstraintName(editingConstraintId || undefined))
+    setConstraintNameDraft(getDefaultConstraintName(editingConstraintId || undefined, validated))
     setConstraintNameError(null)
     setShowConstraintNameDialog(true)
   }
@@ -7254,7 +7271,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
                     value={constraintNameDraft}
                     onChange={(event) => { setConstraintNameDraft(event.target.value); setConstraintNameError(null) }}
                     className="mt-4 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[rgba(38,116,186,0.3)]"
-                    placeholder="Design Constraint 1"
+                    placeholder={getConstraintNameFromElements(constraintDraft.anchors, constraintDraft.blocked) || 'Design Constraint 1'}
                   />
                   {constraintNameError && (
                     <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
