@@ -110,6 +110,99 @@ type Task = {
   _elements_shown_content?: Record<string, unknown>
 }
 
+const isImageLikeUrl = (url: string | undefined): url is string =>
+  typeof url === "string" &&
+  (url.startsWith("http://") ||
+    url.startsWith("https://") ||
+    url.startsWith("/") ||
+    url.startsWith("blob:") ||
+    url.startsWith("data:image/"))
+
+const collectTaskImageUrls = (task: Task | undefined, backgroundUrl?: string | null): string[] => {
+  if (!task) return []
+  if (task.type === "text") return []
+
+  const urls: string[] = []
+  if (backgroundUrl) urls.push(backgroundUrl)
+  if (task.layeredImages) task.layeredImages.forEach((img) => { if (img?.url) urls.push(img.url) })
+  if (task.gridUrls) urls.push(...task.gridUrls.filter(Boolean))
+  if (task.leftImageUrl) urls.push(task.leftImageUrl)
+  if (task.rightImageUrl) urls.push(task.rightImageUrl)
+
+  return Array.from(new Set(urls.filter(isImageLikeUrl)))
+}
+
+const collectStudyImageUrls = (tasks: Task[], backgroundUrl?: string | null): string[] => {
+  const urls = tasks.flatMap((task) => collectTaskImageUrls(task, backgroundUrl))
+  return Array.from(new Set(urls))
+}
+
+const loadAndDecodeImage = async (url: string, timeoutMs = 15000): Promise<void> => {
+  if (!url || typeof window === "undefined") return
+
+  await new Promise<void>((resolve) => {
+    const img = new window.Image()
+    let settled = false
+
+    const finish = () => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      resolve()
+    }
+
+    const timeout = window.setTimeout(finish, timeoutMs)
+
+    img.decoding = "async"
+    img.loading = "eager"
+    img.onload = () => {
+      if (typeof img.decode === "function") {
+        img.decode().catch(() => undefined).finally(finish)
+        return
+      }
+      finish()
+    }
+    img.onerror = finish
+    img.src = getCachedUrl(url)
+  })
+}
+
+const decodeImageUrls = async (urls: string[], concurrencyLimit = 2): Promise<void> => {
+  const uniqueUrls = Array.from(new Set(urls.filter(Boolean)))
+  if (uniqueUrls.length === 0) return
+
+  const concurrency = Math.min(concurrencyLimit, uniqueUrls.length)
+  let nextIndex = 0
+
+  await Promise.all(
+    Array.from({ length: concurrency }, async () => {
+      while (nextIndex < uniqueUrls.length) {
+        const url = uniqueUrls[nextIndex]
+        nextIndex += 1
+        await loadAndDecodeImage(url)
+      }
+    }),
+  )
+}
+
+function PreparingAssetsLoader() {
+  return (
+    <div className="fixed inset-0 z-50 bg-white flex items-center justify-center px-6">
+      <div className="text-center">
+        <div className="mx-auto mb-6 h-16 w-16 rounded-full border-4 border-[rgba(38,116,186,0.16)] border-t-[rgba(38,116,186,1)] animate-spin" />
+        <h2 className="text-xl font-semibold text-gray-900">Preparing assets for your study</h2>
+        <div className="mt-3 flex justify-center">
+          <div className="flex gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-[rgba(38,116,186,1)] animate-bounce [animation-delay:-0.2s]" />
+            <span className="h-2 w-2 rounded-full bg-[rgba(38,116,186,1)] animate-bounce [animation-delay:-0.1s]" />
+            <span className="h-2 w-2 rounded-full bg-[rgba(38,116,186,1)] animate-bounce" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 const flattenAssignedTasksForPreload = (assignedTasks: unknown): any[] => {
   if (!Array.isArray(assignedTasks)) return []
 
@@ -370,6 +463,9 @@ export default function TasksPage() {
   const [lastSelected, setLastSelected] = useState<number | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isInitialLoading, setIsInitialLoading] = useState(true)
+  const [isTaskImagesReady, setIsTaskImagesReady] = useState(false)
+  const [isPreparingStudyAssets, setIsPreparingStudyAssets] = useState(false)
+  const decodedTaskImageKeysRef = useRef<Set<string>>(new Set())
 
   const totalTasks = tasks.length
 
@@ -377,52 +473,74 @@ export default function TasksPage() {
     setIsInitialLoading(false)
   }, [])
 
-  // Per-task warmup: make sure the NEXT task's image bytes are in the
-  // browser HTTP cache. We do this by injecting <link rel="preload"
-  // as="image"> tags into <head> for each URL of the next task, then
-  // removing them on cleanup. This is the only preload mechanism that
-  // provably does NOT decode the image into a full-size bitmap, which is
-  // what was crashing mobile Safari with 80-task / 14-layer studies of
-  // large PNGs (28 decoded bitmaps in the DOM at once exceeded the 384MB
-  // per-tab budget). When the user advances, the visible <img> for the
-  // new task mounts and decodes from the HTTP cache, which is fast enough
-  // to feel instant.
   useEffect(() => {
-    if (tasks.length === 0) return
-    if (typeof document === 'undefined') return
-
-    const collectUrls = (t: Task | undefined): string[] => {
-      if (!t) return []
-      const urls: string[] = []
-      if (t.layeredImages) t.layeredImages.forEach((img) => { if (img?.url) urls.push(img.url) })
-      if (t.gridUrls) urls.push(...t.gridUrls.filter(Boolean))
-      if (t.leftImageUrl) urls.push(t.leftImageUrl)
-      if (t.rightImageUrl) urls.push(t.rightImageUrl)
-      return urls
+    if (tasks.length === 0 || isFetching) {
+      setIsTaskImagesReady(false)
+      setIsPreparingStudyAssets(false)
+      return
     }
 
-    const nextUrls = Array.from(new Set(collectUrls(tasks[currentTaskIndex + 1]).filter(Boolean)))
-    if (nextUrls.length === 0) return
+    const urls = collectStudyImageUrls(tasks, backgroundUrl)
 
-    const links: HTMLLinkElement[] = []
-    for (const url of nextUrls) {
+    let cancelled = false
+    const prepareStudyAssets = async () => {
+      setIsTaskImagesReady(false)
+      setIsPreparingStudyAssets(urls.length > 0)
+
       try {
-        const link = document.createElement('link')
-        link.rel = 'preload'
-        link.as = 'image'
-        link.href = url
-        try { (link as any).fetchPriority = 'high' } catch { /* not supported */ }
-        document.head.appendChild(link)
-        links.push(link)
-      } catch { /* best effort */ }
-    }
+        if (urls.length > 0) {
+          await imageCacheManager.prewarmUrls(urls, "critical")
 
-    return () => {
-      for (const link of links) {
-        try { if (link.parentNode) link.parentNode.removeChild(link) } catch { /* best effort */ }
+          const firstTaskUrls = collectTaskImageUrls(tasks[0], backgroundUrl)
+          const shouldDecodeAllBeforeStart =
+            typeof window !== "undefined" &&
+            window.matchMedia("(min-width: 1024px)").matches
+          const blockingDecodeUrls = shouldDecodeAllBeforeStart ? urls : firstTaskUrls
+
+          await decodeImageUrls(blockingDecodeUrls, 2)
+
+          if (firstTaskUrls.length > 0) {
+            decodedTaskImageKeysRef.current.add(`0:${firstTaskUrls.join("|")}`)
+          }
+        }
+      } catch (error) {
+        console.warn("Study asset preparation failed:", error)
+      } finally {
+        if (cancelled) return
+        setIsPreparingStudyAssets(false)
+        taskStartRef.current = Date.now()
+        setIsTaskImagesReady(true)
       }
     }
-  }, [currentTaskIndex, tasks])
+
+    prepareStudyAssets()
+
+    return () => {
+      cancelled = true
+    }
+  }, [backgroundUrl, isFetching, tasks])
+
+  useEffect(() => {
+    if (!isTaskImagesReady || tasks.length === 0) return
+
+    const nextTaskIndex = currentTaskIndex + 1
+    const nextUrls = collectTaskImageUrls(tasks[nextTaskIndex], backgroundUrl)
+    if (nextUrls.length === 0) return
+
+    const key = `${nextTaskIndex}:${nextUrls.join("|")}`
+    if (decodedTaskImageKeysRef.current.has(key)) return
+    decodedTaskImageKeysRef.current.add(key)
+
+    const decodeNextTask = () => {
+      void decodeImageUrls(nextUrls, 1)
+    }
+
+    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+      window.requestIdleCallback(decodeNextTask, { timeout: 1000 })
+    } else {
+      setTimeout(decodeNextTask, 500)
+    }
+  }, [backgroundUrl, currentTaskIndex, isTaskImagesReady, tasks])
 
   // ResizeObserver for container size (mobile)
   useEffect(() => {
@@ -623,6 +741,8 @@ export default function TasksPage() {
   }, [currentTaskIndex])
 
   const handleSelect = async (value: number) => {
+    if (isPreparingStudyAssets || !isTaskImagesReady) return
+
     // Guard against double-clicks on same task - silently ignore if already processed
     if (processedTaskRef.current === currentTaskIndex) return
     processedTaskRef.current = currentTaskIndex
@@ -742,9 +862,15 @@ export default function TasksPage() {
           
           // Finalize: verify all tasks were received by the backend
           let finalStatus = await getSessionStatus(sessionId)
+          const hasPostTaskClassificationQuestions = hasPostClassificationQuestions(studyIdFromParams)
+          const taskCountsMatch = () =>
+            finalStatus.total_tasks_assigned > 0 &&
+            finalStatus.completed_tasks_count >= finalStatus.total_tasks_assigned
           
-          if (!finalStatus.is_completed) {
-            // Some tasks missing - resend ALL from localStorage (backend dedup handles duplicates)
+          if (!finalStatus.is_completed && !(hasPostTaskClassificationQuestions && taskCountsMatch())) {
+            // Some tasks missing - resend ALL from localStorage (backend dedup handles duplicates).
+            // For post-classification studies, is_completed can remain false until the
+            // post questions are answered, so matching task counts are enough to continue.
             const stored = getPendingFromStorage()
             if (stored && stored.sessionId === sessionId && stored.tasks.length > 0) {
               const recoverySuccess = await submitTasksBulkWithRetries(
@@ -765,8 +891,7 @@ export default function TasksPage() {
           const isMerged = isMergeStateActive()
           const doneById = getMergeDoneById()
           
-          const allTasksSubmitted = finalStatus.total_tasks_assigned > 0
-            && finalStatus.completed_tasks_count >= finalStatus.total_tasks_assigned
+          const allTasksSubmitted = taskCountsMatch()
 
           if (allTasksSubmitted) {
             // Clear localStorage only after backend confirms the session is complete.
@@ -914,7 +1039,7 @@ export default function TasksPage() {
           }
           
           // Default: go to post-task classification if configured, otherwise thank you.
-          const nextRoute = allTasksSubmitted && hasPostClassificationQuestions(studyIdFromParams)
+          const nextRoute = allTasksSubmitted && hasPostTaskClassificationQuestions
             ? `/participate/${studyIdFromParams}/post-classification-questions`
             : `/participate/${studyIdFromParams}/thank-you`
           router.push(nextRoute)
@@ -944,6 +1069,7 @@ export default function TasksPage() {
   const mobileGridFrameStyle = mobileGridFrameSize
     ? { width: mobileGridFrameSize, height: mobileGridFrameSize, zIndex: 1 }
     : { zIndex: 1 }
+  const showTaskImageLoader = isInitialLoading || isPreparingStudyAssets || !isTaskImagesReady
 
   return (
     <div
@@ -989,6 +1115,8 @@ export default function TasksPage() {
           <div className="p-6 text-center text-sm text-red-600">{fetchError}</div>
         ) : totalTasks === 0 ? (
           <div className="p-6 text-center text-sm text-gray-600">No tasks assigned.</div>
+        ) : showTaskImageLoader ? (
+          <PreparingAssetsLoader />
         ) : (
           <>
             {/* Mobile Layout */}
@@ -1018,14 +1146,6 @@ export default function TasksPage() {
                       <h2 className="text-xl font-semibold text-gray-900">Processing your responses...</h2>
                       <p className="mt-2 text-sm text-gray-600">Please wait while we save your study data.</p>
                       <p className="mt-1 text-sm font-medium text-gray-700">Please don&apos;t close your tab.</p>
-                    </div>
-                  </div>
-                ) : isInitialLoading ? (
-                  <div className="flex-1 flex items-center justify-center pb-2 min-h-0">
-                    <div className="text-center">
-                      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgba(38,116,186,1)] mx-auto mb-4"></div>
-                      <h2 className="text-xl font-semibold text-gray-900">Loading images...</h2>
-                      <p className="mt-2 text-sm text-gray-600">Preparing task images for optimal display.</p>
                     </div>
                   </div>
                 ) : (
@@ -1090,7 +1210,7 @@ export default function TasksPage() {
                                       <img
                                         key={`${img.url}-${idx}`}
                                         src={resolved || "/placeholder.svg"}
-                                        alt={String(img.z)}
+                                        alt=""
                                         decoding="async"
                                         loading="eager"
                                         fetchPriority="high"
@@ -1103,8 +1223,20 @@ export default function TasksPage() {
                                           width: `calc(${widthPct}% + 1.5px)`,
                                           height: `calc(${heightPct}% + 1.5px)`,
                                         }}
-                                        onError={() => {
-                                          console.error("Layer image failed to load:", img.url)
+                                        onError={(event) => {
+                                          const node = event.currentTarget
+                                          if (node.dataset.retryAttempt === "1") {
+                                            node.style.visibility = "hidden"
+                                            console.error("Layer image failed to load:", img.url)
+                                            return
+                                          }
+
+                                          node.dataset.retryAttempt = "1"
+                                          node.removeAttribute("src")
+                                          setTimeout(() => {
+                                            node.style.visibility = "visible"
+                                            node.src = resolved || "/placeholder.svg"
+                                          }, 120)
                                         }}
                                       />
                                     )
@@ -1421,7 +1553,7 @@ export default function TasksPage() {
                                       <img
                                         key={`${img.url}-${idx}`}
                                         src={resolved || "/placeholder.svg"}
-                                        alt={String(img.z)}
+                                        alt=""
                                         decoding="async"
                                         loading="eager"
                                         fetchPriority="high"
@@ -1433,6 +1565,21 @@ export default function TasksPage() {
                                           left: `${leftPct}%`,
                                           width: `${widthPct}%`,
                                           height: `${heightPct}%`,
+                                        }}
+                                        onError={(event) => {
+                                          const node = event.currentTarget
+                                          if (node.dataset.retryAttempt === "1") {
+                                            node.style.visibility = "hidden"
+                                            console.error("Layer image failed to load:", img.url)
+                                            return
+                                          }
+
+                                          node.dataset.retryAttempt = "1"
+                                          node.removeAttribute("src")
+                                          setTimeout(() => {
+                                            node.style.visibility = "visible"
+                                            node.src = resolved || "/placeholder.svg"
+                                          }, 120)
                                         }}
                                       />
                                     )

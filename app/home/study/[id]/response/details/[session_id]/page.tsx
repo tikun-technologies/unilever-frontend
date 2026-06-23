@@ -6,6 +6,42 @@ import { AuthGuard } from "@/components/auth/AuthGuard"
 import { DashboardHeader } from "../../../../../components/dashboard-header"
 import { getResponseSessionDetails, type ResponseSessionDetails, type SessionTaskItem } from "@/lib/api/ResponseAPI"
 
+function resolveTaskType(task: SessionTaskItem, studyType?: string): string {
+  const explicit = task.task_type || (task as { phase_type?: string }).phase_type
+  if (explicit) return explicit
+  const normalized = String(studyType || "").toLowerCase()
+  if (normalized === "layer" || normalized === "text" || normalized === "grid") return normalized
+  return "grid"
+}
+
+function isElementShown(element: unknown): boolean {
+  if (element == null) return false
+  if (typeof element === "number" || typeof element === "string") return Number(element) === 1
+  if (typeof element === "object" && element !== null && "visible" in element) {
+    return Number((element as { visible?: number }).visible) === 1
+  }
+  return false
+}
+
+function getElementZIndex(element: unknown, fallback = 0): number {
+  if (element && typeof element === "object" && "z_index" in element) {
+    return Number((element as { z_index?: number }).z_index ?? fallback)
+  }
+  return fallback
+}
+
+/** Prefer object-format elements_shown_in_task; fall back to numeric elements_shown */
+function getShownElementsMap(task: SessionTaskItem): Record<string, unknown> {
+  const inTask = (task.elements_shown_in_task || {}) as Record<string, unknown>
+  const shown = (task.elements_shown || {}) as Record<string, unknown>
+  const inTaskUsesObjectFormat = Object.values(inTask).some(
+    (v) => v !== null && typeof v === "object"
+  )
+  if (inTaskUsesObjectFormat && Object.keys(inTask).length > 0) return inTask
+  if (Object.keys(shown).length > 0) return shown
+  return inTask
+}
+
 export default function ResponseDetailsPage() {
   const params = useParams()
   const router = useRouter()
@@ -43,6 +79,14 @@ export default function ResponseDetailsPage() {
   }, [sessionId])
 
   const tasks: SessionTaskItem[] = useMemo(() => data?.completed_tasks || [], [data])
+  const studyType = useMemo(
+    () => String((data as ResponseSessionDetails & { study_type?: string })?.study_type || "").toLowerCase(),
+    [data]
+  )
+  const isLayerStudy = useMemo(
+    () => studyType === "layer" || tasks.some((t) => resolveTaskType(t, studyType) === "layer"),
+    [studyType, tasks]
+  )
 
   const measureLayerBgFit = useRef(() => {
     const cont = layerPreviewContainerRef.current
@@ -63,14 +107,14 @@ export default function ResponseDetailsPage() {
   })
 
   useEffect(() => {
-    if (!data?.background_image_url || !tasks.some(tt => (tt.task_type || (tt as any).phase_type) === 'layer')) return
+    if (!data?.background_image_url || !isLayerStudy) return
     const run = () => { measureLayerBgFit.current() }
     const t1 = setTimeout(run, 0)
     const t2 = setTimeout(run, 100)
     const t3 = setTimeout(run, 350)
     const t4 = setTimeout(run, 800)
     return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3); clearTimeout(t4) }
-  }, [data, tasks])
+  }, [data, isLayerStudy])
 
   useEffect(() => {
     if (!layerBgFit) return
@@ -167,7 +211,12 @@ export default function ResponseDetailsPage() {
                 </div>
                 <div className="p-4">
                   <div className="max-h-[420px] overflow-auto pr-2 space-y-4">
-                    {tasks.map((t, idx) => (
+                    {tasks.map((t, idx) => {
+                      const taskType = resolveTaskType(t, studyType)
+                      const isLayerTask = taskType === "layer"
+                      const isTextTask = taskType === "text"
+
+                      return (
                       <div key={`${t.task_id || 'task'}_${idx}`} className="border rounded-lg">
                         <div className="grid grid-cols-1 md:grid-cols-[350px_1fr] gap-4 p-4">
                           {/* Left: meta */}
@@ -193,40 +242,35 @@ export default function ResponseDetailsPage() {
                               <div className="mt-2 pt-2 border-t border-gray-100">
                                 <div className="text-xs text-gray-500 uppercase">TASK TYPE :</div>
                                 <div className="text-sm font-medium text-gray-700 capitalize">
-                                  {t.task_type === 'grid' ? 'Grid' : t.task_type === 'text' ? 'Texts' : t.task_type === 'layer' ? 'Layer' : (t as any).phase_type || 'Grid'}
+                                  {taskType === 'grid' ? 'Grid' : taskType === 'text' ? 'Texts' : taskType === 'layer' ? 'Layer' : taskType}
                                 </div>
                               </div>
                             </div>
                           </div>
 
                           {/* Right: images/elements */}
-                          <div className={(t.task_type || (t as any).phase_type) === 'layer' || (t.task_type || (t as any).phase_type) === 'text' ? "flex justify-center w-full" : "grid grid-cols-2 gap-4 items-center"}>
-                            {((t.task_type || (t as any).phase_type) === 'layer') && (t.elements_shown_content || t.elements_shown) && (
+                          <div className={isLayerTask || isTextTask ? "flex justify-center w-full" : "grid grid-cols-2 gap-4 items-center"}>
+                            {isLayerTask && (t.elements_shown_content || t.elements_shown || t.elements_shown_in_task) && (
                               (() => {
-                                // Process layer elements from elements_shown_content
                                 const layerElements: Array<{ url: string, z: number, alt: string, transform?: { x: number, y: number, width: number, height: number } }> = []
 
-                                // Try elements_shown first (preferred), fallback to elements_shown_in_task
-                                const shownElements = t.elements_shown || t.elements_shown_in_task || {}
+                                const shownElements = getShownElementsMap(t)
                                 const content = t.elements_shown_content || {}
 
-                                // Process each layer element
                                 Object.keys(shownElements).forEach(key => {
                                   const element = shownElements[key]
-                                  const isShown = element && element.visible === 1
+                                  const isShown = isElementShown(element)
                                   const raw = content?.[key]
                                   const hasContent = raw !== undefined && raw !== null
-                                  // Skip background layer — it's already rendered via data.background_image_url; including it here would draw it on top and hide foreground layers
-                                  const isBackground = key.startsWith('Background Image') || (raw && typeof raw === 'object' && (raw as any).layer_name === 'Background Image')
+                                  const isBackground = key.startsWith('Background Image') || (raw && typeof raw === 'object' && (raw as { layer_name?: string }).layer_name === 'Background Image')
                                   if (isBackground) return
 
-                                  // Layer study API returns objects { url, name, z_index, transform, layer_name }, not URL strings
-                                  const url = hasContent && typeof raw === 'object' && typeof (raw as any).url === 'string'
-                                    ? (raw as any).url
+                                  const url = hasContent && typeof raw === 'object' && typeof (raw as { url?: string }).url === 'string'
+                                    ? (raw as { url: string }).url
                                     : typeof raw === 'string' && raw
                                       ? raw
                                       : ''
-                                  const tForm = (raw as any)?.transform
+                                  const tForm = (raw as { transform?: { x: number; y: number; width: number; height: number } })?.transform
                                   const transform = tForm && typeof tForm === 'object' && [tForm.x, tForm.y, tForm.width, tForm.height].every(n => typeof n === 'number')
                                     ? { x: tForm.x, y: tForm.y, width: tForm.width, height: tForm.height }
                                     : undefined
@@ -234,15 +278,14 @@ export default function ResponseDetailsPage() {
                                   if (isShown && hasContent && url) {
                                     layerElements.push({
                                       url,
-                                      z: Number(element.z_index ?? (raw as any)?.z_index ?? 0),
-                                      alt: (raw as any)?.name ?? key,
+                                      z: getElementZIndex(element, Number((raw as { z_index?: number })?.z_index ?? 0)),
+                                      alt: (raw as { name?: string })?.name ?? key,
                                       transform
                                     })
                                   }
                                 })
 
-                                // Sort by z-index (layer number) - higher z-index should be on top
-                                layerElements.sort((a, b) => b.z - a.z)
+                                layerElements.sort((a, b) => a.z - b.z)
 
                                 if (layerElements.length === 0) {
                                   return (
@@ -250,7 +293,7 @@ export default function ResponseDetailsPage() {
                                   )
                                 }
 
-                                const isFirstLayerTask = tasks.findIndex(tt => (tt.task_type || (tt as any).phase_type) === 'layer') === idx
+                                const isFirstLayerTask = tasks.findIndex(tt => resolveTaskType(tt, studyType) === 'layer') === idx
                                 const overlayStyle = layerBgFit
                                   ? { left: layerBgFit.left, top: layerBgFit.top, width: layerBgFit.width, height: layerBgFit.height, zIndex: 1 as const }
                                   : { left: 0, top: 0, right: 0, bottom: 0, zIndex: 1 as const }
@@ -290,12 +333,12 @@ export default function ResponseDetailsPage() {
                                             alt={img.alt}
                                             className="absolute object-contain"
                                             style={{
-                                              zIndex: Math.max(1, img.z),
+                                              zIndex: img.z,
                                               position: 'absolute',
                                               top: `${topPct}%`,
                                               left: `${leftPct}%`,
-                                              width: `${widthPct}%`,
-                                              height: `${heightPct}%`,
+                                              width: `calc(${widthPct}% + 1.5px)`,
+                                              height: `calc(${heightPct}% + 1.5px)`,
                                             }}
                                           />
                                         )
@@ -305,13 +348,11 @@ export default function ResponseDetailsPage() {
                                 )
                               })()
                             )}
-                            {((t.task_type || (t as any).phase_type) === 'text') && (
+                            {isTextTask && (
                               (() => {
-                                // Process text elements from elements_shown_content
                                 const textElements: Array<{ text: string, name: string }> = []
 
-                                // Try elements_shown first (preferred), fallback to elements_shown_in_task
-                                const shownElements = t.elements_shown || t.elements_shown_in_task || {}
+                                const shownElements = getShownElementsMap(t)
                                 const content = t.elements_shown_content || {}
 
                                 // Process each element
@@ -331,8 +372,7 @@ export default function ResponseDetailsPage() {
                                 // Fallback if regular parsing yielded nothing but we have raw content
                                 if (textElements.length === 0 && shownElements) {
                                   Object.keys(shownElements).forEach(key => {
-                                    // Check if visible
-                                    const visible = Number(shownElements[key]) === 1 || (shownElements[key] as any)?.visible === 1;
+                                    const visible = isElementShown(shownElements[key])
                                     if (visible) {
                                       // Try to find content
                                       let text = key;
@@ -369,18 +409,16 @@ export default function ResponseDetailsPage() {
                                 )
                               })()
                             )}
-                            {((t.task_type || (t as any).phase_type) !== 'layer' && (t.task_type || (t as any).phase_type) !== 'text') && (
+                            {!isLayerTask && !isTextTask && (
                               (() => {
-                                // Build list of URLs for grid tasks
                                 const list: Array<{ url: string; name?: string; alt_text?: string }> = []
 
-                                // Case 1: elements_shown_content is an object of strings or objects
                                 if (t.elements_shown_content && typeof t.elements_shown_content === 'object') {
-                                  const contentObj: Record<string, any> = t.elements_shown_content as any
-                                  const shownMap: Record<string, any> = t.elements_shown_in_task || t.elements_shown || {}
+                                  const contentObj: Record<string, unknown> = t.elements_shown_content as Record<string, unknown>
+                                  const shownMap = getShownElementsMap(t)
 
                                   Object.entries(contentObj).forEach(([key, val]) => {
-                                    const isVisible = Number(shownMap[key]) === 1 || (val && typeof val === 'object' && Number((val as any).visible) === 1)
+                                    const isVisible = isElementShown(shownMap[key])
 
                                     if (isVisible) {
                                       if (val && typeof val === 'object') {
@@ -438,7 +476,7 @@ export default function ResponseDetailsPage() {
                           </div>
                         </div>
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               </div>

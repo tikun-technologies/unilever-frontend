@@ -1555,9 +1555,7 @@ type LayerTextModalState =
 function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive = true }: LayerModeProps) {
   // Dynamic limits from env with sensible defaults
   const LAYER_MIN = 3
-  const LAYER_MAX = 15
   const ELEMENT_MIN = 3
-  const ELEMENT_MAX = 10
   const [layers, setLayers] = useState<Layer[]>(() => {
     try {
       const raw = localStorage.getItem('cs_step5_layer')
@@ -2889,7 +2887,6 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
   }, [previewAspect])
 
   const addLayer = () => {
-    if (layers.length >= LAYER_MAX) return
     setShowLayerTypeMenu(true)
   }
 
@@ -3570,11 +3567,6 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
     const targetLayer = layers.find(l => l.id === layerId)
     if (!targetLayer) return
 
-    if (targetLayer.images.length >= ELEMENT_MAX) {
-      setLayerTextError(`Maximum ${ELEMENT_MAX} elements allowed per layer`)
-      return
-    }
-
     setLayerTextSaving(true)
     setLayerTextError(null)
 
@@ -3813,11 +3805,6 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
       setDraftError('Add at least one image to this layer')
       return
     }
-    if (draftImages.length > ELEMENT_MAX) {
-      setDraftError(`Maximum ${ELEMENT_MAX} images allowed per layer`)
-      return
-    }
-
     setDraftError(null)
     const id = crypto.randomUUID()
     const nextZ = layers.length
@@ -4156,15 +4143,10 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
   }
 
   const addImagesToLayer = (layerId: string, files: FileList | null) => {
-    const layer = layers.find(l => l.id === layerId)
-    if (layer && layer.images.length >= ELEMENT_MAX) return
-
     const list = Array.from(files || [])
-    const remaining = ELEMENT_MAX - (layer?.images.length || 0)
-    const limitedList = list.slice(0, remaining)
 
     const ids: string[] = []
-    limitedList.forEach((file) => {
+    list.forEach((file) => {
       const tempId = crypto.randomUUID()
       const url = URL.createObjectURL(file)
       const fileName = file.name.replace(/\.[^/.]+$/, "")
@@ -4450,7 +4432,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
           <p className="text-sm text-gray-600">Configure layers, upload images, and preview your layer study</p>
         </div>
         <div className="relative flex flex-col items-end gap-1" data-layer-type-menu>
-          <Button className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] cursor-pointer" onClick={addLayer} disabled={layers.length >= LAYER_MAX || isReadOnly}>+ Add New Layer</Button>
+          <Button className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] cursor-pointer" onClick={addLayer} disabled={isReadOnly}>+ Add New Layer</Button>
           <button
             type="button"
             onClick={() => openDesignConstraintModal()}
@@ -4700,7 +4682,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
           )}
         </div>
         <div className={previewAspect === 'landscape' ? 'md:col-span-2 flex min-h-0 flex-col' : 'md:col-span-3 flex min-h-0 flex-col'}>
-          <div className="text-xs text-gray-600 mb-2">Min {LAYER_MIN}, Max {LAYER_MAX}. Current: {layers.length}</div>
+          <div className="text-xs text-gray-600 mb-2">Min {LAYER_MIN}. Current: {layers.length}</div>
           <div
             className="custom-scrollbar md:h-[var(--layer-preview-height)] md:overflow-y-auto md:pr-2"
             style={{ '--layer-preview-height': `${containerSize.height}px` } as CSSProperties}
@@ -4826,7 +4808,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <div className="text-sm font-medium text-gray-700">Elements ({layer.images.length})</div>
-                          <div className="text-[10px] text-gray-500">Min {ELEMENT_MIN}, Max {ELEMENT_MAX}</div>
+                          <div className="text-[10px] text-gray-500">Min {ELEMENT_MIN}</div>
                         </div>
                         <div className="flex flex-wrap gap-3">
                           {layer.images.map(img => {
@@ -5968,11 +5950,10 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
                   onClick={() => void saveLayer()}
                   disabled={
                     draftSaving ||
-                    layers.length >= LAYER_MAX ||
                     (draftType === 'image' ? draftImages.length === 0 : !draftText.trim())
                   }
                 >
-                  {draftSaving ? 'Saving...' : layers.length >= LAYER_MAX ? 'Max layers reached' : 'Save Layer'}
+                  {draftSaving ? 'Saving...' : 'Save Layer'}
                 </Button>
               </div>
             </div>
