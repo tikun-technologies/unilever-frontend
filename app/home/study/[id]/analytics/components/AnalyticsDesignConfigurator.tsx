@@ -85,6 +85,7 @@ const METRIC_PREFIX: Record<Metric, string> = {
 
 const MAX_NON_LAYER_SELECTIONS = 4
 const CATEGORY_THUMBNAIL_BATCH_SIZE = 4
+const MOBILE_DECODE_CONCURRENCY = 2
 const AGE_SEGMENTS = ["13-17", "18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
 
 function safeFileName(value: string, fallback = "download"): string {
@@ -1740,6 +1741,9 @@ export function AnalyticsDesignConfigurator({
   const [highlightedSelectionId, setHighlightedSelectionId] = useState<string | null>(null)
   const [thumbnailRenderLimit, setThumbnailRenderLimit] = useState(CATEGORY_THUMBNAIL_BATCH_SIZE)
   const [settledThumbnailKeys, setSettledThumbnailKeys] = useState<Set<string>>(() => new Set())
+  const [isMobileViewport, setIsMobileViewport] = useState(false)
+  const [mobileDecodeGrantCount, setMobileDecodeGrantCount] = useState(MOBILE_DECODE_CONCURRENCY)
+  const [mobileSettledDecodeKeys, setMobileSettledDecodeKeys] = useState<Set<string>>(() => new Set())
   const previewCaptureRef = useRef<HTMLDivElement>(null)
   const elementMediaLookup = useMemo(() => {
     const lookup: Record<string, Partial<ConfiguratorElement>> = {}
@@ -1821,6 +1825,15 @@ export function AnalyticsDesignConfigurator({
   }, [isMobileElementDrawerOpen])
 
   useEffect(() => {
+    if (typeof window === "undefined") return
+    const mediaQuery = window.matchMedia("(max-width: 1023px)")
+    const applyMatch = () => setIsMobileViewport(mediaQuery.matches)
+    applyMatch()
+    mediaQuery.addEventListener("change", applyMatch)
+    return () => mediaQuery.removeEventListener("change", applyMatch)
+  }, [])
+
+  useEffect(() => {
     setOpenCategoryNames((current) =>
       categories.reduce<Record<string, boolean>>((next, category) => {
         next[category.key] = current[category.key] ?? false
@@ -1857,6 +1870,21 @@ export function AnalyticsDesignConfigurator({
     () => new Set(openCategoryThumbnailKeys.slice(0, thumbnailRenderLimit)),
     [openCategoryThumbnailKeys, thumbnailRenderLimit]
   )
+  const mobileDecodeCandidateKeys = useMemo(
+    () =>
+      isMobileViewport
+        ? openCategoryThumbnailKeys.filter((key) => visibleCategoryThumbnailKeys.has(key))
+        : [],
+    [isMobileViewport, openCategoryThumbnailKeys, visibleCategoryThumbnailKeys]
+  )
+  const mobileDecodeIndexByKey = useMemo(() => {
+    const indexByKey = new Map<string, number>()
+    mobileDecodeCandidateKeys.forEach((key, index) => {
+      indexByKey.set(key, index)
+    })
+    return indexByKey
+  }, [mobileDecodeCandidateKeys])
+  const mobileDecodeCandidateSignature = mobileDecodeCandidateKeys.join("|")
 
   useEffect(() => {
     setSettledThumbnailKeys(new Set())
@@ -1878,6 +1906,32 @@ export function AnalyticsDesignConfigurator({
     return () => window.clearTimeout(timeoutId)
   }, [openCategoryThumbnailKeys, settledThumbnailKeys, thumbnailRenderLimit])
 
+  useEffect(() => {
+    if (!isMobileViewport) {
+      setMobileDecodeGrantCount(MOBILE_DECODE_CONCURRENCY)
+      setMobileSettledDecodeKeys(new Set())
+      return
+    }
+
+    setMobileSettledDecodeKeys(new Set())
+    setMobileDecodeGrantCount(Math.min(MOBILE_DECODE_CONCURRENCY, mobileDecodeCandidateKeys.length))
+  }, [isMobileViewport, mobileDecodeCandidateSignature, mobileDecodeCandidateKeys.length])
+
+  useEffect(() => {
+    if (!isMobileViewport) return
+    if (mobileDecodeGrantCount >= mobileDecodeCandidateKeys.length) return
+
+    const grantedKeys = mobileDecodeCandidateKeys.slice(0, mobileDecodeGrantCount)
+    const settledGrantedCount = grantedKeys.filter((key) => mobileSettledDecodeKeys.has(key)).length
+    const activeDecodes = grantedKeys.length - settledGrantedCount
+    const availableSlots = MOBILE_DECODE_CONCURRENCY - activeDecodes
+    if (availableSlots <= 0) return
+
+    setMobileDecodeGrantCount((current) =>
+      Math.min(current + availableSlots, mobileDecodeCandidateKeys.length)
+    )
+  }, [isMobileViewport, mobileDecodeCandidateKeys, mobileDecodeGrantCount, mobileSettledDecodeKeys])
+
   const handleCategoryThumbnailSettled = (thumbnailKey: string) => {
     setSettledThumbnailKeys((current) => {
       if (current.has(thumbnailKey)) return current
@@ -1885,6 +1939,14 @@ export function AnalyticsDesignConfigurator({
       next.add(thumbnailKey)
       return next
     })
+    if (isMobileViewport) {
+      setMobileSettledDecodeKeys((current) => {
+        if (current.has(thumbnailKey)) return current
+        const next = new Set(current)
+        next.add(thumbnailKey)
+        return next
+      })
+    }
   }
 
   const totalCoefficient = selectedElements.reduce((sum, element) => sum + element.value, 0)
@@ -2000,13 +2062,23 @@ export function AnalyticsDesignConfigurator({
     }
     setSelectedByCategory(bestSelection)
     setSettledThumbnailKeys(new Set())
+    setMobileSettledDecodeKeys(new Set())
     setThumbnailRenderLimit(0)
-    setOpenCategoryNames(
-      categories.reduce<Record<string, boolean>>((next, category) => {
-        next[category.key] = Boolean(bestSelection[category.key])
-        return next
-      }, {})
-    )
+    if (isMobileViewport) {
+      setOpenCategoryNames(
+        categories.reduce<Record<string, boolean>>((next, category) => {
+          next[category.key] = false
+          return next
+        }, {})
+      )
+    } else {
+      setOpenCategoryNames(
+        categories.reduce<Record<string, boolean>>((next, category) => {
+          next[category.key] = Boolean(bestSelection[category.key])
+          return next
+        }, {})
+      )
+    }
     window.requestAnimationFrame(() => {
       setThumbnailRenderLimit(CATEGORY_THUMBNAIL_BATCH_SIZE)
     })
@@ -2653,7 +2725,13 @@ export function AnalyticsDesignConfigurator({
                             selectedCount >= MAX_NON_LAYER_SELECTIONS
                           const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
                           const thumbnailKey = `${category.key}::${element.id}`
-                          const shouldRenderThumbnail = isText || visibleCategoryThumbnailKeys.has(thumbnailKey)
+                          const mobileDecodeIndex = mobileDecodeIndexByKey.get(thumbnailKey)
+                          const isAllowedByMobileQueue =
+                            !isMobileViewport ||
+                            mobileDecodeIndex === undefined ||
+                            mobileDecodeIndex < mobileDecodeGrantCount
+                          const shouldRenderThumbnail =
+                            isText || (visibleCategoryThumbnailKeys.has(thumbnailKey) && isAllowedByMobileQueue)
 
                           return (
                             <div
@@ -2830,7 +2908,13 @@ export function AnalyticsDesignConfigurator({
                                   selectedCount >= MAX_NON_LAYER_SELECTIONS
                                 const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
                                 const thumbnailKey = `${category.key}::${element.id}`
-                                const shouldRenderThumbnail = isText || visibleCategoryThumbnailKeys.has(thumbnailKey)
+                                const mobileDecodeIndex = mobileDecodeIndexByKey.get(thumbnailKey)
+                                const isAllowedByMobileQueue =
+                                  !isMobileViewport ||
+                                  mobileDecodeIndex === undefined ||
+                                  mobileDecodeIndex < mobileDecodeGrantCount
+                                const shouldRenderThumbnail =
+                                  isText || (visibleCategoryThumbnailKeys.has(thumbnailKey) && isAllowedByMobileQueue)
 
                                 return (
                                   <div
