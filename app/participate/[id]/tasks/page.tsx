@@ -132,59 +132,6 @@ const collectTaskImageUrls = (task: Task | undefined, backgroundUrl?: string | n
   return Array.from(new Set(urls.filter(isImageLikeUrl)))
 }
 
-const collectStudyImageUrls = (tasks: Task[], backgroundUrl?: string | null): string[] => {
-  const urls = tasks.flatMap((task) => collectTaskImageUrls(task, backgroundUrl))
-  return Array.from(new Set(urls))
-}
-
-const loadAndDecodeImage = async (url: string, timeoutMs = 15000): Promise<void> => {
-  if (!url || typeof window === "undefined") return
-
-  await new Promise<void>((resolve) => {
-    const img = new window.Image()
-    let settled = false
-
-    const finish = () => {
-      if (settled) return
-      settled = true
-      clearTimeout(timeout)
-      resolve()
-    }
-
-    const timeout = window.setTimeout(finish, timeoutMs)
-
-    img.decoding = "async"
-    img.loading = "eager"
-    img.onload = () => {
-      if (typeof img.decode === "function") {
-        img.decode().catch(() => undefined).finally(finish)
-        return
-      }
-      finish()
-    }
-    img.onerror = finish
-    img.src = getCachedUrl(url)
-  })
-}
-
-const decodeImageUrls = async (urls: string[], concurrencyLimit = 2): Promise<void> => {
-  const uniqueUrls = Array.from(new Set(urls.filter(Boolean)))
-  if (uniqueUrls.length === 0) return
-
-  const concurrency = Math.min(concurrencyLimit, uniqueUrls.length)
-  let nextIndex = 0
-
-  await Promise.all(
-    Array.from({ length: concurrency }, async () => {
-      while (nextIndex < uniqueUrls.length) {
-        const url = uniqueUrls[nextIndex]
-        nextIndex += 1
-        await loadAndDecodeImage(url)
-      }
-    }),
-  )
-}
-
 function PreparingAssetsLoader() {
   return (
     <div className="fixed inset-0 z-50 bg-white flex items-center justify-center px-6">
@@ -480,28 +427,26 @@ export default function TasksPage() {
       return
     }
 
-    const urls = collectStudyImageUrls(tasks, backgroundUrl)
-
     let cancelled = false
+
     const prepareStudyAssets = async () => {
       setIsTaskImagesReady(false)
-      setIsPreparingStudyAssets(urls.length > 0)
+
+      const remainingUrls = imageCacheManager.getUnpreloadedUrls(tasks, backgroundUrl)
+      const needsImagePrep = remainingUrls.length > 0
+      setIsPreparingStudyAssets(needsImagePrep)
+
+      if (!needsImagePrep) {
+        taskStartRef.current = Date.now()
+        setIsTaskImagesReady(true)
+        return
+      }
 
       try {
-        if (urls.length > 0) {
-          await imageCacheManager.prewarmUrls(urls, "critical")
-
-          const firstTaskUrls = collectTaskImageUrls(tasks[0], backgroundUrl)
-          const shouldDecodeAllBeforeStart =
-            typeof window !== "undefined" &&
-            window.matchMedia("(min-width: 1024px)").matches
-          const blockingDecodeUrls = shouldDecodeAllBeforeStart ? urls : firstTaskUrls
-
-          await decodeImageUrls(blockingDecodeUrls, 2)
-
-          if (firstTaskUrls.length > 0) {
-            decodedTaskImageKeysRef.current.add(`0:${firstTaskUrls.join("|")}`)
-          }
+        await imageCacheManager.prewarmRemainingStudyAssets(tasks, backgroundUrl, "critical")
+        const firstTaskUrls = collectTaskImageUrls(tasks[0], backgroundUrl)
+        if (firstTaskUrls.length > 0) {
+          decodedTaskImageKeysRef.current.add(`0:${firstTaskUrls.join("|")}`)
         }
       } catch (error) {
         console.warn("Study asset preparation failed:", error)
@@ -531,14 +476,14 @@ export default function TasksPage() {
     if (decodedTaskImageKeysRef.current.has(key)) return
     decodedTaskImageKeysRef.current.add(key)
 
-    const decodeNextTask = () => {
-      void decodeImageUrls(nextUrls, 1)
+    const prewarmNextTask = () => {
+      void imageCacheManager.prewarmUrls(nextUrls, "high")
     }
 
     if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(decodeNextTask, { timeout: 1000 })
+      window.requestIdleCallback(prewarmNextTask, { timeout: 1000 })
     } else {
-      setTimeout(decodeNextTask, 500)
+      setTimeout(prewarmNextTask, 500)
     }
   }, [backgroundUrl, currentTaskIndex, isTaskImagesReady, tasks])
 

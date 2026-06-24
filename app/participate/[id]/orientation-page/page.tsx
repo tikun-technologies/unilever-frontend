@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
+import { runParticipatePhasePreload } from "@/lib/utils/participatePreload"
 
 export default function OrientationPage() {
   const params = useParams<{ id: string }>()
@@ -50,6 +51,11 @@ export default function OrientationPage() {
       window.removeEventListener('popstate', handlePopState)
     }
   }, [params.id, router])
+
+  // Staged preload: final third of study images while user reads orientation
+  useEffect(() => {
+    runParticipatePhasePreload('orientation')
+  }, [])
 
   const handleStartSurvey = async () => {
     if (!isChecked) return

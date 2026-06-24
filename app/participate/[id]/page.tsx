@@ -87,36 +87,7 @@ export default function ParticipateIntroPage() {
       try {
         const details = await getStudyDetailsWithoutAuth(params.id)
         setStudyDetails(details)
-        // Proactively preload study assets to avoid first-task lag
-        try {
-          const urls = new Set<string>()
-          if (details?.study_type === 'grid' && Array.isArray(details?.elements)) {
-            details.elements.forEach((el: any) => el?.content && urls.add(String(el.content)))
-          } else if (details?.study_type === 'layer' && Array.isArray(details?.study_layers)) {
-            details.study_layers.forEach((layer: any) => {
-              (layer?.images || []).forEach((img: any) => img?.url && urls.add(String(img.url)))
-            })
-          } else if (details?.study_type === 'text') {
-            // For text studies, we don't need to preload images in this way
-            console.log('Skipping image preloading for text study type')
-          }
-
-          if (urls.size > 0 && details?.study_type !== 'text') {
-            // Fallback: scan tasks map if present
-            const tasksObj: any = (details as any)?.tasks || {}
-            if (tasksObj && typeof tasksObj === 'object') {
-              const arrays = Array.isArray(tasksObj) ? tasksObj : Object.values(tasksObj).flat?.() || []
-              arrays.forEach((t: any) => {
-                const content = t?.elements_shown_content || {}
-                Object.values(content).forEach((v: any) => {
-                  if (v && typeof v === 'object' && v.url) urls.add(String(v.url))
-                  if (typeof v === 'string') urls.add(String(v))
-                })
-              })
-            }
-            Array.from(urls).forEach((src) => { try { const img = new Image(); (img as any).decoding = 'async'; (img as any).referrerPolicy = 'no-referrer'; img.src = src } catch { } })
-          }
-        } catch { }
+        // Image preloading is staged on personal-info → classification → orientation → tasks
       } catch (error: unknown) {
         console.error('Failed to fetch study details:', error)
 

@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation"
 // import { DashboardHeader } from "@/app/home/components/dashboard-header"
 import { useState, useEffect } from "react"
-import { imageCacheManager } from "@/lib/utils/imageCacheManager"
+import { runParticipatePhasePreload } from "@/lib/utils/participatePreload"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
 import { Search, User, Check, CalendarIcon } from "lucide-react"
@@ -25,45 +25,10 @@ export default function PersonalInformationPage() {
   // Guard: ensure session exists before allowing input
   const [sessionReady, setSessionReady] = useState<boolean>(false)
   const [guardChecked, setGuardChecked] = useState<boolean>(false)
-  const [preloadProgress, setPreloadProgress] = useState({ total: 0, loaded: 0, failed: 0 })
-  const [isPreloading, setIsPreloading] = useState(false)
 
   const [isSpecialCreator, setIsSpecialCreator] = useState(false)
   const [creatorEmail, setCreatorEmail] = useState("")
   const [sessionId, setSessionId] = useState<string | null>(null)
-
-  // Smart preloading with cache management and CORS handling
-  const startSmartPreload = async (tasks: any[]) => {
-    // ... existing preload logic ...
-    if (imageCacheManager.isPreloadingInProgress()) {
-      return
-    }
-
-    setIsPreloading(true)
-    try {
-      await imageCacheManager.preloadAllTaskImages(tasks)
-      const progress = imageCacheManager.getPreloadProgress()
-      setPreloadProgress(progress)
-
-      // Check for CORS issues and provide feedback
-      const errorDetails = imageCacheManager.getErrorDetails()
-      const corsErrors = errorDetails.filter(error =>
-        error.error.includes('CORS') ||
-        error.error.includes('Failed to fetch') ||
-        error.error.includes('blocked by CORS policy')
-      )
-
-      if (corsErrors.length > 0) {
-        // dev-only info suppressed
-      }
-
-      imageCacheManager.logCacheStatus()
-    } catch (error) {
-      // preload failure suppressed in UI
-    } finally {
-      setIsPreloading(false)
-    }
-  }
 
   useEffect(() => {
     // COMMENTED OUT: For now, allow users to retake the study (do not check completed_studies)
@@ -120,61 +85,9 @@ export default function PersonalInformationPage() {
     }
   }, [params.id, router])
 
-  // Smart preloading logic truncated for brevity (no changes here)
+  // Staged preload: first third of study images while user fills personal info
   useEffect(() => {
-    const preloadTaskImages = async () => {
-      try {
-        const detailsRaw = localStorage.getItem('current_study_details')
-        const sessionRaw = localStorage.getItem('study_session')
-        if (!detailsRaw) return
-
-        const study = JSON.parse(detailsRaw || '{}')
-        const { respondentId } = sessionRaw ? JSON.parse(sessionRaw) : { respondentId: 0 }
-
-        const studyInfo = study?.study_info || study
-        const assignedTasks = study?.assigned_tasks || []
-
-        let userTasks: any[] = []
-        if (Array.isArray(assignedTasks) && assignedTasks.length > 0) {
-          userTasks = assignedTasks
-        } else {
-          const tasksObj = study?.tasks || study?.data?.tasks || study?.task_map || study?.task || {}
-          const respondentKey = String(respondentId ?? 0)
-          let respondentTasks: any[] = tasksObj?.[respondentKey] || tasksObj?.[Number(respondentKey)] || []
-          if (!Array.isArray(respondentTasks) || respondentTasks.length === 0) {
-            if (Array.isArray(tasksObj)) {
-              respondentTasks = tasksObj
-            } else if (tasksObj && typeof tasksObj === 'object') {
-              for (const [k, v] of Object.entries(tasksObj)) {
-                if (Array.isArray(v) && v.length) { respondentTasks = v as any[]; break }
-              }
-            }
-          }
-          userTasks = respondentTasks
-        }
-
-        if (userTasks.length === 0) return
-
-        // Extract background image URL for layer studies
-        const backgroundUrl = studyInfo?.metadata?.background_image_url || study?.metadata?.background_image_url || studyInfo?.background_image_url
-
-        // Use smart preloading with cache management
-        await startSmartPreload(userTasks)
-
-        // Preload background image for layer studies
-        if (backgroundUrl && typeof backgroundUrl === 'string') {
-          try {
-            await imageCacheManager.prewarmUrls([backgroundUrl], 'high')
-          } catch (error) {
-            // Background preload failure suppressed
-          }
-        }
-      } catch (error) {
-        // preload failure suppressed
-      }
-    }
-
-    preloadTaskImages()
+    runParticipatePhasePreload('personal-info')
   }, [])
 
   const [dob, setDob] = useState<Date>()

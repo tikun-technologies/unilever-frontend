@@ -32,6 +32,8 @@ interface PreloadProgress {
   failed: number
 }
 
+export type ParticipatePreloadPhase = 'personal-info' | 'classification' | 'orientation'
+
 class ImageCacheManager {
   private cache = new Map<string, CacheEntry>()
   private loadingPromises = new Map<string, Promise<void>>()
@@ -155,19 +157,102 @@ class ImageCacheManager {
   // Public: download many images, throttled to avoid saturating a mobile
   // connection or hitting per-host socket limits.
   async preloadImages(urls: string[], priority: 'critical' | 'high' | 'low' = 'high'): Promise<void> {
-    const uniqueUrls = [...new Set(urls)].filter((url) => url && !this.isPreloaded(url))
+    const uniqueUrls = [...new Set(urls.filter(Boolean))].filter((url) => url && !this.isPreloaded(url))
     if (uniqueUrls.length === 0) return
 
     this.preloadProgress.total += uniqueUrls.length
 
-    // 4-at-a-time is friendly to mobile (browsers cap ~6 connections per
-    // origin, and we want some headroom for other resources).
-    const batchSize = 4
+    // 2-at-a-time keeps mobile connections stable during staged funnel preloads.
+    const batchSize = 2
 
     for (let i = 0; i < uniqueUrls.length; i += batchSize) {
       const batch = uniqueUrls.slice(i, i + batchSize)
       await Promise.all(batch.map((url) => this.preloadImage(url, priority)))
     }
+  }
+
+  /** Split study tasks into thirds for the participate funnel pages. */
+  getTaskRangeForPhase(taskCount: number, phase: ParticipatePreloadPhase): { start: number; end: number } {
+    if (taskCount <= 0) return { start: 0, end: 0 }
+    if (taskCount <= 2) {
+      return phase === 'personal-info' ? { start: 0, end: taskCount } : { start: 0, end: 0 }
+    }
+    const third = Math.ceil(taskCount / 3)
+    switch (phase) {
+      case 'personal-info':
+        return { start: 0, end: third }
+      case 'classification':
+        return { start: third, end: Math.min(third * 2, taskCount) }
+      case 'orientation':
+        return { start: Math.min(third * 2, taskCount), end: taskCount }
+    }
+  }
+
+  extractImageUrlsFromTasks(tasks: any[], startIndex: number, endIndex: number): string[] {
+    if (startIndex >= endIndex) return []
+    return this.extractImageUrls(tasks.slice(startIndex, endIndex))
+  }
+
+  /** URLs from the full study that are not yet in the HTTP cache tracker. */
+  getUnpreloadedUrls(tasks: any[], backgroundUrl?: string | null): string[] {
+    const all = this.extractImageUrls(tasks)
+    const combined = backgroundUrl ? [backgroundUrl, ...all] : all
+    return [
+      ...new Set(
+        combined.filter(
+          (u) => typeof u === 'string' && u.startsWith('http') && !this.isPreloaded(u),
+        ),
+      ),
+    ]
+  }
+
+  async preloadTaskRange(
+    tasks: any[],
+    startIndex: number,
+    endIndex: number,
+    priority: 'critical' | 'high' | 'low' = 'high',
+  ): Promise<void> {
+    const urls = this.extractImageUrlsFromTasks(tasks, startIndex, endIndex)
+    if (urls.length === 0) return
+    await this.preloadImages(urls, priority)
+  }
+
+  /**
+   * Staged preload for participate funnel pages (does not use the global isPreloading lock).
+   * personal-info → first third (+ background + task 1 first)
+   * classification → second third
+   * orientation → final third
+   */
+  async preloadParticipatePhase(
+    tasks: any[],
+    phase: ParticipatePreloadPhase,
+    backgroundUrl?: string | null,
+  ): Promise<void> {
+    const n = tasks.length
+    if (n === 0) return
+
+    if (phase === 'personal-info') {
+      if (backgroundUrl) await this.prewarmUrls([backgroundUrl], 'high')
+      await this.preloadTaskRange(tasks, 0, 1, 'critical')
+      const { end } = this.getTaskRangeForPhase(n, phase)
+      if (end > 1) await this.preloadTaskRange(tasks, 1, end, 'high')
+      else if (n > 1) await this.preloadTaskRange(tasks, 1, n, 'high')
+      return
+    }
+
+    const { start, end } = this.getTaskRangeForPhase(n, phase)
+    if (start < end) await this.preloadTaskRange(tasks, start, end, 'high')
+  }
+
+  /** Tasks page: prewarm only images not loaded during earlier funnel pages. */
+  async prewarmRemainingStudyAssets(
+    tasks: any[],
+    backgroundUrl?: string | null,
+    priority: 'critical' | 'high' | 'low' = 'critical',
+  ): Promise<void> {
+    const remaining = this.getUnpreloadedUrls(tasks, backgroundUrl)
+    if (remaining.length === 0) return
+    await this.preloadImages(remaining, priority)
   }
 
   // Public: ensure a small set of URLs is in the browser HTTP cache.
@@ -448,6 +533,11 @@ export function useImageCache() {
     getDuration: () => imageCacheManager.getPreloadDuration(),
     preloadImages: (urls: string[]) => imageCacheManager.preloadImages(urls),
     preloadAllTasks: (tasks: any[]) => imageCacheManager.preloadAllTaskImages(tasks),
+    preloadParticipatePhase: (
+      tasks: any[],
+      phase: ParticipatePreloadPhase,
+      bg?: string | null,
+    ) => imageCacheManager.preloadParticipatePhase(tasks, phase, bg),
     clearCache: () => imageCacheManager.clearCache(),
     getStats: () => imageCacheManager.getCacheStats(),
   }

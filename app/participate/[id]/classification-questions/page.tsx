@@ -4,7 +4,7 @@ import { useParams, useRouter } from "next/navigation"
 import { DashboardHeader } from "@/app/home/components/dashboard-header"
 import { useState, useEffect, useRef } from "react"
 import { submitClassificationAnswers } from "@/lib/api/ResponseAPI"
-import { imageCacheManager } from "@/lib/utils/imageCacheManager"
+import { runParticipatePhasePreload } from "@/lib/utils/participatePreload"
 import { FRAGRANCE_QUESTION_ID } from "@/lib/config/specialCreators"
 
 interface ClassificationQuestion {
@@ -24,8 +24,6 @@ export default function ClassificationQuestionsPage() {
   const [questions, setQuestions] = useState<ClassificationQuestion[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [preloadProgress, setPreloadProgress] = useState({ total: 0, loaded: 0, failed: 0 })
-  const [isPreloading, setIsPreloading] = useState(false)
 
   // Track time spent on classification page
   const classStartRef = useRef<number>(Date.now())
@@ -120,80 +118,9 @@ export default function ClassificationQuestionsPage() {
     }
   }, [])
 
-  // Smart preloading with cache management
-  const startSmartPreload = async (tasks: any[]) => {
-    if (imageCacheManager.isPreloadingInProgress()) {
-      return
-    }
-
-    setIsPreloading(true)
-    try {
-      await imageCacheManager.preloadAllTaskImages(tasks)
-      const progress = imageCacheManager.getPreloadProgress()
-      setPreloadProgress(progress)
-      imageCacheManager.logCacheStatus()
-    } catch (error) {
-      // preload failure suppressed
-    } finally {
-      setIsPreloading(false)
-    }
-  }
-
-  // Smart preloading: preload all task images with cache management
+  // Staged preload: second third of study images while user answers questions
   useEffect(() => {
-    const preloadTaskImages = async () => {
-      try {
-        const detailsRaw = localStorage.getItem('current_study_details')
-        const sessionRaw = localStorage.getItem('study_session')
-        if (!detailsRaw) return
-
-        const study = JSON.parse(detailsRaw || '{}')
-        const { respondentId } = sessionRaw ? JSON.parse(sessionRaw) : { respondentId: 0 }
-
-        const studyInfo = study?.study_info || study
-        const assignedTasks = study?.assigned_tasks || []
-
-        let userTasks: any[] = []
-        if (Array.isArray(assignedTasks) && assignedTasks.length > 0) {
-          userTasks = assignedTasks
-        } else {
-          const tasksObj = study?.tasks || study?.data?.tasks || study?.task_map || study?.task || {}
-          const respondentKey = String(respondentId ?? 0)
-          let respondentTasks: any[] = tasksObj?.[respondentKey] || tasksObj?.[Number(respondentKey)] || []
-          if (!Array.isArray(respondentTasks) || respondentTasks.length === 0) {
-            if (Array.isArray(tasksObj)) {
-              respondentTasks = tasksObj
-            } else if (tasksObj && typeof tasksObj === 'object') {
-              for (const [k, v] of Object.entries(tasksObj)) {
-                if (Array.isArray(v) && v.length) { respondentTasks = v as any[]; break }
-              }
-            }
-          }
-          userTasks = respondentTasks
-        }
-
-        if (userTasks.length === 0) return
-
-        // Extract background image URL for layer studies
-        const backgroundUrl = studyInfo?.metadata?.background_image_url || study?.metadata?.background_image_url || studyInfo?.background_image_url
-
-        // Use smart preloading with cache management
-        await startSmartPreload(userTasks)
-
-        // Preload background image for layer studies
-        if (backgroundUrl && typeof backgroundUrl === 'string') {
-          try {
-            await imageCacheManager.prewarmUrls([backgroundUrl], 'high')
-          } catch (error) {
-            // Background preload failure suppressed
-          }
-        }
-      } catch (error) {
-        // preload failure suppressed
-      }
-    }
-
-    preloadTaskImages()
+    runParticipatePhasePreload('classification')
   }, [])
 
   const submitAnswerInBackground = (questionId: string, answerOptionId: string) => {
