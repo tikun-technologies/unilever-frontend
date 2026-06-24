@@ -84,6 +84,7 @@ const METRIC_PREFIX: Record<Metric, string> = {
 }
 
 const MAX_NON_LAYER_SELECTIONS = 4
+const CATEGORY_THUMBNAIL_BATCH_SIZE = 4
 const AGE_SEGMENTS = ["13-17", "18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
 
 function safeFileName(value: string, fallback = "download"): string {
@@ -968,6 +969,8 @@ function SelectionPreview({
             ref={backgroundImgRef}
             src={backgroundUrl}
             alt="Background"
+            loading="eager"
+            decoding="async"
             className="absolute inset-0 h-full w-full object-contain"
             style={{ zIndex: 0 }}
             onLoad={() => {
@@ -1049,6 +1052,8 @@ function SelectionPreview({
                 key={element.id}
                 src={element.imageUrl}
                 alt={element.name}
+                loading="eager"
+                decoding="async"
                 className="absolute object-contain"
                 style={{
                   zIndex: element.zIndex + 1,
@@ -1116,6 +1121,8 @@ function SelectionPreview({
         <img
           src={backgroundUrl}
           alt="Background"
+          loading="eager"
+          decoding="async"
           className="absolute inset-0 h-full w-full object-contain opacity-10"
           onError={(event) => {
             event.currentTarget.style.display = "none"
@@ -1142,6 +1149,8 @@ function SelectionPreview({
                 <img
                   src={element.imageUrl || ""}
                   alt={element.name}
+                  loading="eager"
+                  decoding="async"
                   className="h-full w-full object-contain"
                   onError={(event) => {
                     event.currentTarget.style.display = "none"
@@ -1728,6 +1737,8 @@ export function AnalyticsDesignConfigurator({
   const [compareDesigns, setCompareDesigns] = useState<SavedDesignPayload[]>([])
   const [activeSelectionImage, setActiveSelectionImage] = useState<{ url: string; name: string } | null>(null)
   const [highlightedSelectionId, setHighlightedSelectionId] = useState<string | null>(null)
+  const [thumbnailRenderLimit, setThumbnailRenderLimit] = useState(CATEGORY_THUMBNAIL_BATCH_SIZE)
+  const [settledThumbnailKeys, setSettledThumbnailKeys] = useState<Set<string>>(() => new Set())
   const previewCaptureRef = useRef<HTMLDivElement>(null)
   const elementMediaLookup = useMemo(() => {
     const lookup: Record<string, Partial<ConfiguratorElement>> = {}
@@ -1815,6 +1826,56 @@ export function AnalyticsDesignConfigurator({
         .filter((element): element is ConfiguratorElement => Boolean(element)),
     [categories, selectedByCategory]
   )
+
+  const openCategoryThumbnailKeys = useMemo(() => {
+    const keys: string[] = []
+    categories.forEach((category) => {
+      if (!(openCategoryNames[category.key] ?? false)) return
+      const elements = isInputDesignMode
+        ? [...category.elements]
+        : [...category.elements].sort((a, b) => b.value - a.value)
+      elements.forEach((element) => {
+        const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
+        if (!isText) keys.push(`${category.key}::${element.id}`)
+      })
+    })
+    return keys
+  }, [categories, isInputDesignMode, openCategoryNames])
+
+  const openCategoryThumbnailSignature = openCategoryThumbnailKeys.join("|")
+  const visibleCategoryThumbnailKeys = useMemo(
+    () => new Set(openCategoryThumbnailKeys.slice(0, thumbnailRenderLimit)),
+    [openCategoryThumbnailKeys, thumbnailRenderLimit]
+  )
+
+  useEffect(() => {
+    setSettledThumbnailKeys(new Set())
+    setThumbnailRenderLimit(openCategoryThumbnailKeys.length > 0 ? CATEGORY_THUMBNAIL_BATCH_SIZE : 0)
+  }, [openCategoryThumbnailSignature, openCategoryThumbnailKeys.length])
+
+  useEffect(() => {
+    if (thumbnailRenderLimit <= 0 || thumbnailRenderLimit >= openCategoryThumbnailKeys.length) return
+
+    const visibleKeys = openCategoryThumbnailKeys.slice(0, thumbnailRenderLimit)
+    if (visibleKeys.length === 0 || !visibleKeys.every((key) => settledThumbnailKeys.has(key))) return
+
+    const timeoutId = window.setTimeout(() => {
+      setThumbnailRenderLimit((current) =>
+        Math.min(current + CATEGORY_THUMBNAIL_BATCH_SIZE, openCategoryThumbnailKeys.length)
+      )
+    }, 80)
+
+    return () => window.clearTimeout(timeoutId)
+  }, [openCategoryThumbnailKeys, settledThumbnailKeys, thumbnailRenderLimit])
+
+  const handleCategoryThumbnailSettled = (thumbnailKey: string) => {
+    setSettledThumbnailKeys((current) => {
+      if (current.has(thumbnailKey)) return current
+      const next = new Set(current)
+      next.add(thumbnailKey)
+      return next
+    })
+  }
 
   const totalCoefficient = selectedElements.reduce((sum, element) => sum + element.value, 0)
   const selectedCount = selectedElements.length
@@ -1928,12 +1989,17 @@ export function AnalyticsDesignConfigurator({
       return
     }
     setSelectedByCategory(bestSelection)
+    setSettledThumbnailKeys(new Set())
+    setThumbnailRenderLimit(0)
     setOpenCategoryNames(
       categories.reduce<Record<string, boolean>>((next, category) => {
         next[category.key] = Boolean(bestSelection[category.key])
         return next
       }, {})
     )
+    window.requestAnimationFrame(() => {
+      setThumbnailRenderLimit(CATEGORY_THUMBNAIL_BATCH_SIZE)
+    })
   }
 
   const handleDownloadPreview = async () => {
@@ -2565,6 +2631,8 @@ export function AnalyticsDesignConfigurator({
                             !selectedId &&
                             selectedCount >= MAX_NON_LAYER_SELECTIONS
                           const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
+                          const thumbnailKey = `${category.key}::${element.id}`
+                          const shouldRenderThumbnail = isText || visibleCategoryThumbnailKeys.has(thumbnailKey)
 
                           return (
                             <div
@@ -2593,16 +2661,22 @@ export function AnalyticsDesignConfigurator({
                               <div className="mb-3 flex aspect-square w-full items-center justify-center rounded-xl bg-gray-50 p-2">
                                 {isText ? (
                                   <Type className="h-8 w-8 text-gray-300" />
-                                ) : (
+                                ) : shouldRenderThumbnail ? (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
                                     src={element.imageUrl || ""}
                                     alt={element.name}
+                                    loading="lazy"
+                                    decoding="async"
                                     className="h-full w-full object-contain"
+                                    onLoad={() => handleCategoryThumbnailSettled(thumbnailKey)}
                                     onError={(event) => {
+                                      handleCategoryThumbnailSettled(thumbnailKey)
                                       event.currentTarget.style.display = "none"
                                     }}
                                   />
+                                ) : (
+                                  <ImageIcon className="h-8 w-8 text-gray-300" />
                                 )}
                               </div>
                               <div className="flex w-full flex-1 flex-col justify-between">
