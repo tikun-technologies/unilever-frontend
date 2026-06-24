@@ -1722,6 +1722,7 @@ export function AnalyticsDesignConfigurator({
   )
   const [isSelectionOpen, setIsSelectionOpen] = useState(false)
   const [openCategoryNames, setOpenCategoryNames] = useState<Record<string, boolean>>({})
+  const [isMobileElementDrawerOpen, setIsMobileElementDrawerOpen] = useState(false)
   const [isPreviewDownloading, setIsPreviewDownloading] = useState(false)
   const [isPreviewFullscreenOpen, setIsPreviewFullscreenOpen] = useState(false)
   const [downloadingElementId, setDownloadingElementId] = useState<string | null>(null)
@@ -1809,6 +1810,15 @@ export function AnalyticsDesignConfigurator({
       setActiveSegmentId(segmentOptions[0].id)
     }
   }, [segmentOptions, activeSegmentId])
+
+  useEffect(() => {
+    if (!isMobileElementDrawerOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isMobileElementDrawerOpen])
 
   useEffect(() => {
     setOpenCategoryNames((current) =>
@@ -2293,6 +2303,15 @@ export function AnalyticsDesignConfigurator({
               )}
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={() => setIsMobileElementDrawerOpen(true)}
+            className="inline-flex h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white shadow-sm transition-all duration-150 hover:bg-blue-700 active:scale-[0.98] active:bg-blue-800 lg:hidden"
+          >
+            <ImageIcon className="h-4 w-4" />
+            Select Elements
+          </button>
         </div>
       </div>
 
@@ -2308,9 +2327,11 @@ export function AnalyticsDesignConfigurator({
                     type="button"
                     onClick={() => setShowLayerBackground((current) => !current)}
                     disabled={!backgroundUrl}
-                    className={`inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-full px-2 py-1.5 text-xs font-semibold transition-colors sm:px-2.5 sm:text-sm ${
-                      showLayerBackground ? "bg-blue-50 text-blue-600" : "text-gray-600 hover:bg-gray-100 hover:text-gray-900"
-                    } disabled:cursor-not-allowed disabled:opacity-50`}
+                    className={`inline-flex h-11 min-w-11 touch-manipulation cursor-pointer items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-semibold transition-all duration-150 active:scale-95 sm:h-auto sm:min-w-0 sm:px-2.5 sm:py-1.5 sm:text-sm sm:active:scale-100 ${
+                      showLayerBackground
+                        ? "bg-blue-50 text-blue-600 hover:bg-blue-100 active:bg-blue-200"
+                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 active:bg-gray-200"
+                    } disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100`}
                     aria-pressed={showLayerBackground}
                   >
                     <ImageIcon className="h-4 w-4 flex-shrink-0" />
@@ -2320,7 +2341,7 @@ export function AnalyticsDesignConfigurator({
                     type="button"
                     onClick={handleDownloadPreview}
                     disabled={isPreviewDownloading || (selectedElements.length === 0 && !showLayerBackground)}
-                    className="inline-flex min-w-0 cursor-pointer items-center gap-1.5 rounded-full bg-blue-50 px-2 py-1.5 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-100 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50 sm:px-2.5 sm:text-sm"
+                    className="inline-flex h-11 min-w-11 touch-manipulation cursor-pointer items-center justify-center gap-1.5 rounded-full bg-blue-50 px-2.5 text-xs font-semibold text-blue-600 transition-all duration-150 hover:bg-blue-100 hover:text-blue-700 active:scale-95 active:bg-blue-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 sm:h-auto sm:min-w-0 sm:px-2.5 sm:py-1.5 sm:text-sm sm:active:scale-100"
                   >
                     <Download className="h-4 w-4 flex-shrink-0" />
                     <span className="hidden min-w-0 truncate min-[420px]:inline">{isPreviewDownloading ? "Downloading..." : "Download"}</span>
@@ -2358,16 +2379,16 @@ export function AnalyticsDesignConfigurator({
                   <button
                     type="button"
                     onClick={handleBestMix}
-                    className="inline-flex min-w-0 cursor-pointer items-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold text-blue-600 transition-colors hover:bg-blue-50 hover:text-blue-700 sm:gap-1.5 sm:px-3 sm:text-sm"
+                    className="inline-flex h-11 min-w-[96px] touch-manipulation cursor-pointer items-center justify-center gap-1.5 rounded-full bg-blue-50/80 px-3 text-xs font-semibold text-blue-600 transition-all duration-150 hover:bg-blue-100 hover:text-blue-700 active:scale-95 active:bg-blue-200 sm:h-auto sm:min-w-0 sm:bg-transparent sm:px-3 sm:py-1.5 sm:text-sm sm:hover:bg-blue-50 sm:active:scale-100 sm:active:bg-blue-100"
                   >
                     <Sparkles className="h-4 w-4 flex-shrink-0" />
-                    <span className="hidden min-w-0 truncate min-[420px]:inline">Best Mix</span>
+                    <span className="min-w-0 truncate">Best Mix</span>
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setSelectedByCategory({})}
-                  className="inline-flex min-w-0 cursor-pointer items-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800 sm:gap-1.5 sm:px-3 sm:text-sm"
+                  className="inline-flex h-11 min-w-11 touch-manipulation cursor-pointer items-center justify-center gap-1 rounded-full px-2.5 text-xs font-semibold text-gray-500 transition-all duration-150 hover:bg-gray-100 hover:text-gray-800 active:scale-95 active:bg-gray-200 sm:h-auto sm:min-w-0 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm sm:active:scale-100"
                 >
                   <RotateCcw className="h-4 w-4 flex-shrink-0" />
                   <span className="hidden min-w-0 truncate min-[420px]:inline">Clear</span>
@@ -2582,7 +2603,7 @@ export function AnalyticsDesignConfigurator({
         </div>
 
         {/* Right Column - Categories */}
-        <div className="space-y-4 pb-10 lg:w-7/12 lg:pr-4">
+        <div className="hidden space-y-4 pb-10 lg:block lg:w-7/12 lg:pr-4">
           {!isLayerStudy && selectedCount >= MAX_NON_LAYER_SELECTIONS && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-medium text-amber-800">
               Maximum 4 elements can be selected. Remove one to add another category.
@@ -2724,6 +2745,183 @@ export function AnalyticsDesignConfigurator({
           })}
         </div>
       </div>
+
+      {isMobileElementDrawerOpen && (
+        <BodyPortal>
+          <div className="fixed inset-0 z-[210] lg:hidden">
+            <button
+              type="button"
+              className="absolute inset-0 bg-black/35"
+              aria-label="Close element selector"
+              onClick={() => setIsMobileElementDrawerOpen(false)}
+            />
+            <aside
+              role="dialog"
+              aria-modal="true"
+              aria-label="Select design elements"
+              className="absolute right-0 top-0 flex h-full w-[min(92vw,420px)] flex-col overflow-hidden rounded-l-3xl bg-white shadow-2xl"
+            >
+              <div className="border-b border-gray-100 bg-white px-5 py-4">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-black text-gray-900">Select Elements</h3>
+                    <p className="mt-1 text-xs font-semibold text-gray-500">
+                      {selectedCount} selected · {categories.length} {isLayerStudy ? "layers" : "categories"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsMobileElementDrawerOpen(false)}
+                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-gray-100 text-gray-600 transition hover:bg-gray-200"
+                    aria-label="Close element selector"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 space-y-4 overflow-y-auto overscroll-contain bg-gray-50 px-4 py-4 [-webkit-overflow-scrolling:touch]">
+                {!isLayerStudy && selectedCount >= MAX_NON_LAYER_SELECTIONS && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+                    Maximum 4 elements can be selected. Remove one to add another category.
+                  </div>
+                )}
+
+                {categories.map((category) => {
+                  const selectedId = selectedByCategory[category.key]
+                  const isOpen = openCategoryNames[category.key] ?? false
+                  return (
+                    <div key={`mobile-${category.key}`} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
+                      <button
+                        type="button"
+                        onClick={() => toggleCategoryOpen(category.key)}
+                        className="flex w-full cursor-pointer items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-gray-50"
+                        aria-expanded={isOpen}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-base font-bold text-gray-900">
+                              {isLayerStudy ? "Layer" : "Category"}: {category.name}
+                            </h3>
+                            {selectedId && (
+                              <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
+                                <CheckCircle2 className="h-3.5 w-3.5" /> Selected
+                              </span>
+                            )}
+                          </div>
+                          <p className="mt-1 text-sm text-gray-500">
+                            {category.elements.length} option{category.elements.length === 1 ? "" : "s"}{" "}
+                            {isLayerStudy ? `· z-index ${category.zIndex}` : ""}
+                          </p>
+                        </div>
+                        <ChevronDown className={`h-5 w-5 flex-shrink-0 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                      </button>
+
+                      {isOpen && (
+                        <div className="border-t border-gray-100 p-4">
+                          <div className="grid grid-cols-2 gap-3">
+                            {(isInputDesignMode ? [...category.elements] : [...category.elements].sort((a, b) => b.value - a.value))
+                              .map((element) => {
+                                const isSelected = selectedId === element.id
+                                const disabled =
+                                  !isLayerStudy &&
+                                  !isSelected &&
+                                  !selectedId &&
+                                  selectedCount >= MAX_NON_LAYER_SELECTIONS
+                                const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
+                                const thumbnailKey = `${category.key}::${element.id}`
+                                const shouldRenderThumbnail = isText || visibleCategoryThumbnailKeys.has(thumbnailKey)
+
+                                return (
+                                  <div
+                                    key={`mobile-${element.id}`}
+                                    role="button"
+                                    tabIndex={disabled ? -1 : 0}
+                                    onClick={() => {
+                                      if (!disabled) handleSelect(category, element)
+                                    }}
+                                    onKeyDown={(event) => {
+                                      if (disabled) return
+                                      if (event.key === "Enter" || event.key === " ") {
+                                        event.preventDefault()
+                                        handleSelect(category, element)
+                                      }
+                                    }}
+                                    aria-disabled={disabled}
+                                    className={`relative flex min-h-[178px] flex-col rounded-2xl border p-3 text-left transition-all ${
+                                      isSelected
+                                        ? "border-blue-500 ring-2 ring-blue-500 shadow-md bg-white"
+                                        : disabled
+                                          ? "cursor-not-allowed border-gray-200 bg-gray-50/50 opacity-50"
+                                          : "cursor-pointer border-gray-200 bg-white active:scale-[0.99]"
+                                    }`}
+                                  >
+                                    <div className="mb-3 flex aspect-square w-full items-center justify-center rounded-xl bg-gray-50 p-2">
+                                      {isText ? (
+                                        <Type className="h-8 w-8 text-gray-300" />
+                                      ) : shouldRenderThumbnail ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img
+                                          src={element.imageUrl || ""}
+                                          alt={element.name}
+                                          loading="lazy"
+                                          decoding="async"
+                                          className="h-full w-full object-contain"
+                                          onLoad={() => handleCategoryThumbnailSettled(thumbnailKey)}
+                                          onError={(event) => {
+                                            handleCategoryThumbnailSettled(thumbnailKey)
+                                            event.currentTarget.style.display = "none"
+                                          }}
+                                        />
+                                      ) : (
+                                        <ImageIcon className="h-8 w-8 text-gray-300" />
+                                      )}
+                                    </div>
+                                    <div className="flex w-full flex-1 flex-col justify-between">
+                                      <p className="mb-2 text-sm font-medium leading-snug text-gray-900 break-words">
+                                        {element.name}
+                                      </p>
+                                      <div className="mt-auto flex items-center justify-between">
+                                        {!isInputDesignMode && (
+                                          <span
+                                            className={`rounded-md px-2 py-0.5 text-sm font-bold tabular-nums ${
+                                              element.value >= 0 ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-700"
+                                            }`}
+                                          >
+                                            {element.value >= 0 ? "+" : ""}
+                                            {formatValue(element.value, activeMetric)}
+                                          </span>
+                                        )}
+                                        {!isText && (
+                                          <button
+                                            type="button"
+                                            onClick={(event) => {
+                                              event.stopPropagation()
+                                              void handleDownloadElement(element)
+                                            }}
+                                            disabled={Boolean(downloadingElementId)}
+                                            className="flex h-10 w-10 cursor-pointer items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                            aria-label={`Download ${element.name}`}
+                                          >
+                                            <Download className="h-4 w-4" />
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </aside>
+          </div>
+        </BodyPortal>
+      )}
 
       <SaveDesignModal
         isOpen={isSaveModalOpen}
