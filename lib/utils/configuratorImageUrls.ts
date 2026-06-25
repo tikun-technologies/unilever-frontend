@@ -1,7 +1,8 @@
 export const CONFIGURATOR_THUMB_WIDTH = 240
-export const CONFIGURATOR_PREVIEW_WIDTH = 1080
+export const CONFIGURATOR_PREVIEW_WIDTH = 720
 export const CONFIGURATOR_IMAGE_QUALITY = 82
 export const CONFIGURATOR_PRELOAD_BATCH_SIZE = 8
+export const CONFIGURATOR_PREVIEW_PRELOAD_BATCH_SIZE = 2
 
 function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value)
@@ -53,18 +54,11 @@ export function collectConfiguratorDisplayUrls(input: {
   const previewUrls = new Set<string>()
   const thumbnailUrls = new Set<string>()
 
-  if (input.backgroundUrl) {
-    const preview = getConfiguratorPreviewUrl(input.backgroundUrl)
-    if (preview) previewUrls.add(preview)
-  }
-
   input.categories.forEach((category) => {
     category.elements.forEach((element) => {
       const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
       if (isText || !element.imageUrl) return
-      const preview = getConfiguratorPreviewUrl(element.imageUrl)
       const thumb = getConfiguratorThumbnailUrl(element.imageUrl)
-      if (preview) previewUrls.add(preview)
       if (thumb) thumbnailUrls.add(thumb)
     })
   })

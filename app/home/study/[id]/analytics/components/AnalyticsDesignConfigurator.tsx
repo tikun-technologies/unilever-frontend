@@ -30,6 +30,7 @@ import { imageCacheManager } from "@/lib/utils/imageCacheManager"
 import {
   collectConfiguratorDisplayUrls,
   CONFIGURATOR_PRELOAD_BATCH_SIZE,
+  CONFIGURATOR_PREVIEW_PRELOAD_BATCH_SIZE,
   getConfiguratorExportProxyUrl,
   getConfiguratorPreviewUrl,
   getConfiguratorThumbnailUrl,
@@ -1840,19 +1841,39 @@ export function AnalyticsDesignConfigurator({
     [backgroundUrl, categories]
   )
 
+  const selectedPreviewUrls = useMemo(() => {
+    const urls = new Set<string>()
+    if ((!isLayerStudy || showLayerBackground) && backgroundUrl) {
+      const preview = getConfiguratorPreviewUrl(backgroundUrl)
+      if (preview) urls.add(preview)
+    }
+    selectedElements.forEach((element) => {
+      const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
+      if (isText || !element.imageUrl) return
+      const preview = getConfiguratorPreviewUrl(element.imageUrl)
+      if (preview) urls.add(preview)
+    })
+    return [...urls]
+  }, [backgroundUrl, isLayerStudy, selectedElements, showLayerBackground])
+
   useEffect(() => {
-    const { previewUrls, thumbnailUrls } = configuratorDisplayUrls
-    if (previewUrls.length === 0 && thumbnailUrls.length === 0) return
+    const { thumbnailUrls } = configuratorDisplayUrls
+    if (thumbnailUrls.length === 0) return
 
     void (async () => {
-      if (previewUrls.length > 0) {
-        await imageCacheManager.prewarmUrls(previewUrls, "critical", CONFIGURATOR_PRELOAD_BATCH_SIZE)
-      }
-      if (thumbnailUrls.length > 0) {
-        await imageCacheManager.prewarmUrls(thumbnailUrls, "low", CONFIGURATOR_PRELOAD_BATCH_SIZE)
-      }
+      await imageCacheManager.prewarmUrls(thumbnailUrls, "low", CONFIGURATOR_PRELOAD_BATCH_SIZE)
     })()
   }, [configuratorDisplayUrls])
+
+  useEffect(() => {
+    if (selectedPreviewUrls.length === 0) return
+
+    void imageCacheManager.prewarmUrls(
+      selectedPreviewUrls,
+      "critical",
+      CONFIGURATOR_PREVIEW_PRELOAD_BATCH_SIZE
+    )
+  }, [selectedPreviewUrls])
 
   const totalCoefficient = selectedElements.reduce((sum, element) => sum + element.value, 0)
   const selectedCount = selectedElements.length
