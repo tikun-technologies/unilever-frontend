@@ -148,25 +148,32 @@ class ImageCacheManager {
 
   // Public: download a set of URLs into the browser HTTP cache.
   // Compatible with the previous implementation's signature.
-  async prewarmUrls(urls: string[], priority: 'critical' | 'high' | 'low' = 'high'): Promise<void> {
+  async prewarmUrls(
+    urls: string[],
+    priority: 'critical' | 'high' | 'low' = 'high',
+    batchSize = 2
+  ): Promise<void> {
     if (!Array.isArray(urls) || urls.length === 0) return
     const unique = [...new Set(urls.filter(Boolean))]
-    await this.preloadImages(unique, priority)
+    await this.preloadImages(unique, priority, batchSize)
   }
 
   // Public: download many images, throttled to avoid saturating a mobile
   // connection or hitting per-host socket limits.
-  async preloadImages(urls: string[], priority: 'critical' | 'high' | 'low' = 'high'): Promise<void> {
+  async preloadImages(
+    urls: string[],
+    priority: 'critical' | 'high' | 'low' = 'high',
+    batchSize = 2
+  ): Promise<void> {
     const uniqueUrls = [...new Set(urls.filter(Boolean))].filter((url) => url && !this.isPreloaded(url))
     if (uniqueUrls.length === 0) return
 
     this.preloadProgress.total += uniqueUrls.length
 
-    // 2-at-a-time keeps mobile connections stable during staged funnel preloads.
-    const batchSize = 2
+    const safeBatchSize = Math.max(1, Math.min(batchSize, 12))
 
-    for (let i = 0; i < uniqueUrls.length; i += batchSize) {
-      const batch = uniqueUrls.slice(i, i + batchSize)
+    for (let i = 0; i < uniqueUrls.length; i += safeBatchSize) {
+      const batch = uniqueUrls.slice(i, i + safeBatchSize)
       await Promise.all(batch.map((url) => this.preloadImage(url, priority)))
     }
   }

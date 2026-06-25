@@ -26,6 +26,14 @@ import {
   type LocalSavedDesignsStore,
 } from "@/lib/export/savedDesignLocalStorage"
 import type { ApiDesignConstraint } from "@/lib/utils/designConstraintsStorage"
+import { imageCacheManager } from "@/lib/utils/imageCacheManager"
+import {
+  collectConfiguratorDisplayUrls,
+  CONFIGURATOR_PRELOAD_BATCH_SIZE,
+  getConfiguratorExportProxyUrl,
+  getConfiguratorPreviewUrl,
+  getConfiguratorThumbnailUrl,
+} from "@/lib/utils/configuratorImageUrls"
 
 type Metric = "Top Down" | "Bottom Up" | "Response Time"
 
@@ -84,8 +92,6 @@ const METRIC_PREFIX: Record<Metric, string> = {
 }
 
 const MAX_NON_LAYER_SELECTIONS = 4
-const CATEGORY_THUMBNAIL_BATCH_SIZE = 4
-const MOBILE_DECODE_CONCURRENCY = 2
 const AGE_SEGMENTS = ["13-17", "18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
 
 function safeFileName(value: string, fallback = "download"): string {
@@ -96,10 +102,7 @@ function safeFileName(value: string, fallback = "download"): string {
 }
 
 function getProxiedImageUrl(url: string): string {
-  if (!isHttpUrl(url)) return url
-  if (typeof window !== "undefined" && window.location.protocol === "file:") return url
-  if (typeof window !== "undefined" && url.includes(window.location.host)) return url
-  return `/api/proxy-image?url=${encodeURIComponent(url)}`
+  return getConfiguratorExportProxyUrl(url)
 }
 
 function getExtensionFromType(contentType: string | null): string {
@@ -300,10 +303,6 @@ function toNumber(value: unknown, fallback = 0): number {
 
 function normalizeText(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
-}
-
-function isHttpUrl(value: unknown): value is string {
-  return typeof value === "string" && /^https?:\/\//i.test(value)
 }
 
 function isImageUrl(value: unknown): value is string {
@@ -968,7 +967,7 @@ function SelectionPreview({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             ref={backgroundImgRef}
-            src={backgroundUrl}
+            src={getConfiguratorPreviewUrl(backgroundUrl)}
             alt="Background"
             loading="eager"
             decoding="async"
@@ -1051,7 +1050,7 @@ function SelectionPreview({
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 key={element.id}
-                src={element.imageUrl}
+                src={getConfiguratorPreviewUrl(element.imageUrl)}
                 alt={element.name}
                 loading="eager"
                 decoding="async"
@@ -1120,7 +1119,7 @@ function SelectionPreview({
       {backgroundUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={backgroundUrl}
+          src={getConfiguratorPreviewUrl(backgroundUrl)}
           alt="Background"
           loading="eager"
           decoding="async"
@@ -1148,7 +1147,7 @@ function SelectionPreview({
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={element.imageUrl || ""}
+                  src={getConfiguratorPreviewUrl(element.imageUrl) || ""}
                   alt={element.name}
                   loading="eager"
                   decoding="async"
@@ -1226,7 +1225,7 @@ function SelectionImageLightbox({
         </button>
         <div className="max-h-[86vh] max-w-[92vw] text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={image.url} alt={image.name} className="max-h-[78vh] max-w-full rounded-2xl object-contain shadow-2xl" />
+          <img src={getConfiguratorPreviewUrl(image.url) || image.url} alt={image.name} className="max-h-[78vh] max-w-full rounded-2xl object-contain shadow-2xl" />
           <p className="mt-4 text-sm font-semibold text-white">{image.name}</p>
         </div>
       </div>
@@ -1611,7 +1610,7 @@ function SavedDesignCompareOverlay({
                         >
                           {element.imageUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={element.imageUrl} alt={element.name} className="h-full w-full object-contain" />
+                            <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="h-full w-full object-contain" />
                           ) : (
                             <Type className="h-4 w-4 text-gray-400" />
                           )}
@@ -1739,11 +1738,6 @@ export function AnalyticsDesignConfigurator({
   const [compareDesigns, setCompareDesigns] = useState<SavedDesignPayload[]>([])
   const [activeSelectionImage, setActiveSelectionImage] = useState<{ url: string; name: string } | null>(null)
   const [highlightedSelectionId, setHighlightedSelectionId] = useState<string | null>(null)
-  const [thumbnailRenderLimit, setThumbnailRenderLimit] = useState(CATEGORY_THUMBNAIL_BATCH_SIZE)
-  const [settledThumbnailKeys, setSettledThumbnailKeys] = useState<Set<string>>(() => new Set())
-  const [isMobileViewport, setIsMobileViewport] = useState(false)
-  const [mobileDecodeGrantCount, setMobileDecodeGrantCount] = useState(MOBILE_DECODE_CONCURRENCY)
-  const [mobileSettledDecodeKeys, setMobileSettledDecodeKeys] = useState<Set<string>>(() => new Set())
   const previewCaptureRef = useRef<HTMLDivElement>(null)
   const elementMediaLookup = useMemo(() => {
     const lookup: Record<string, Partial<ConfiguratorElement>> = {}
@@ -1825,15 +1819,6 @@ export function AnalyticsDesignConfigurator({
   }, [isMobileElementDrawerOpen])
 
   useEffect(() => {
-    if (typeof window === "undefined") return
-    const mediaQuery = window.matchMedia("(max-width: 1023px)")
-    const applyMatch = () => setIsMobileViewport(mediaQuery.matches)
-    applyMatch()
-    mediaQuery.addEventListener("change", applyMatch)
-    return () => mediaQuery.removeEventListener("change", applyMatch)
-  }, [])
-
-  useEffect(() => {
     setOpenCategoryNames((current) =>
       categories.reduce<Record<string, boolean>>((next, category) => {
         next[category.key] = current[category.key] ?? false
@@ -1850,104 +1835,24 @@ export function AnalyticsDesignConfigurator({
     [categories, selectedByCategory]
   )
 
-  const openCategoryThumbnailKeys = useMemo(() => {
-    const keys: string[] = []
-    categories.forEach((category) => {
-      if (!(openCategoryNames[category.key] ?? false)) return
-      const elements = isInputDesignMode
-        ? [...category.elements]
-        : [...category.elements].sort((a, b) => b.value - a.value)
-      elements.forEach((element) => {
-        const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
-        if (!isText) keys.push(`${category.key}::${element.id}`)
-      })
-    })
-    return keys
-  }, [categories, isInputDesignMode, openCategoryNames])
-
-  const openCategoryThumbnailSignature = openCategoryThumbnailKeys.join("|")
-  const visibleCategoryThumbnailKeys = useMemo(
-    () => new Set(openCategoryThumbnailKeys.slice(0, thumbnailRenderLimit)),
-    [openCategoryThumbnailKeys, thumbnailRenderLimit]
+  const configuratorDisplayUrls = useMemo(
+    () => collectConfiguratorDisplayUrls({ backgroundUrl, categories }),
+    [backgroundUrl, categories]
   )
-  const mobileDecodeCandidateKeys = useMemo(
-    () =>
-      isMobileViewport
-        ? openCategoryThumbnailKeys.filter((key) => visibleCategoryThumbnailKeys.has(key))
-        : [],
-    [isMobileViewport, openCategoryThumbnailKeys, visibleCategoryThumbnailKeys]
-  )
-  const mobileDecodeIndexByKey = useMemo(() => {
-    const indexByKey = new Map<string, number>()
-    mobileDecodeCandidateKeys.forEach((key, index) => {
-      indexByKey.set(key, index)
-    })
-    return indexByKey
-  }, [mobileDecodeCandidateKeys])
-  const mobileDecodeCandidateSignature = mobileDecodeCandidateKeys.join("|")
 
   useEffect(() => {
-    setSettledThumbnailKeys(new Set())
-    setThumbnailRenderLimit(openCategoryThumbnailKeys.length > 0 ? CATEGORY_THUMBNAIL_BATCH_SIZE : 0)
-  }, [openCategoryThumbnailSignature, openCategoryThumbnailKeys.length])
+    const { previewUrls, thumbnailUrls } = configuratorDisplayUrls
+    if (previewUrls.length === 0 && thumbnailUrls.length === 0) return
 
-  useEffect(() => {
-    if (thumbnailRenderLimit <= 0 || thumbnailRenderLimit >= openCategoryThumbnailKeys.length) return
-
-    const visibleKeys = openCategoryThumbnailKeys.slice(0, thumbnailRenderLimit)
-    if (visibleKeys.length === 0 || !visibleKeys.every((key) => settledThumbnailKeys.has(key))) return
-
-    const timeoutId = window.setTimeout(() => {
-      setThumbnailRenderLimit((current) =>
-        Math.min(current + CATEGORY_THUMBNAIL_BATCH_SIZE, openCategoryThumbnailKeys.length)
-      )
-    }, 80)
-
-    return () => window.clearTimeout(timeoutId)
-  }, [openCategoryThumbnailKeys, settledThumbnailKeys, thumbnailRenderLimit])
-
-  useEffect(() => {
-    if (!isMobileViewport) {
-      setMobileDecodeGrantCount(MOBILE_DECODE_CONCURRENCY)
-      setMobileSettledDecodeKeys(new Set())
-      return
-    }
-
-    setMobileSettledDecodeKeys(new Set())
-    setMobileDecodeGrantCount(Math.min(MOBILE_DECODE_CONCURRENCY, mobileDecodeCandidateKeys.length))
-  }, [isMobileViewport, mobileDecodeCandidateSignature, mobileDecodeCandidateKeys.length])
-
-  useEffect(() => {
-    if (!isMobileViewport) return
-    if (mobileDecodeGrantCount >= mobileDecodeCandidateKeys.length) return
-
-    const grantedKeys = mobileDecodeCandidateKeys.slice(0, mobileDecodeGrantCount)
-    const settledGrantedCount = grantedKeys.filter((key) => mobileSettledDecodeKeys.has(key)).length
-    const activeDecodes = grantedKeys.length - settledGrantedCount
-    const availableSlots = MOBILE_DECODE_CONCURRENCY - activeDecodes
-    if (availableSlots <= 0) return
-
-    setMobileDecodeGrantCount((current) =>
-      Math.min(current + availableSlots, mobileDecodeCandidateKeys.length)
-    )
-  }, [isMobileViewport, mobileDecodeCandidateKeys, mobileDecodeGrantCount, mobileSettledDecodeKeys])
-
-  const handleCategoryThumbnailSettled = (thumbnailKey: string) => {
-    setSettledThumbnailKeys((current) => {
-      if (current.has(thumbnailKey)) return current
-      const next = new Set(current)
-      next.add(thumbnailKey)
-      return next
-    })
-    if (isMobileViewport) {
-      setMobileSettledDecodeKeys((current) => {
-        if (current.has(thumbnailKey)) return current
-        const next = new Set(current)
-        next.add(thumbnailKey)
-        return next
-      })
-    }
-  }
+    void (async () => {
+      if (previewUrls.length > 0) {
+        await imageCacheManager.prewarmUrls(previewUrls, "critical", CONFIGURATOR_PRELOAD_BATCH_SIZE)
+      }
+      if (thumbnailUrls.length > 0) {
+        await imageCacheManager.prewarmUrls(thumbnailUrls, "low", CONFIGURATOR_PRELOAD_BATCH_SIZE)
+      }
+    })()
+  }, [configuratorDisplayUrls])
 
   const totalCoefficient = selectedElements.reduce((sum, element) => sum + element.value, 0)
   const selectedCount = selectedElements.length
@@ -2061,27 +1966,12 @@ export function AnalyticsDesignConfigurator({
       return
     }
     setSelectedByCategory(bestSelection)
-    setSettledThumbnailKeys(new Set())
-    setMobileSettledDecodeKeys(new Set())
-    setThumbnailRenderLimit(0)
-    if (isMobileViewport) {
-      setOpenCategoryNames(
-        categories.reduce<Record<string, boolean>>((next, category) => {
-          next[category.key] = false
-          return next
-        }, {})
-      )
-    } else {
-      setOpenCategoryNames(
-        categories.reduce<Record<string, boolean>>((next, category) => {
-          next[category.key] = Boolean(bestSelection[category.key])
-          return next
-        }, {})
-      )
-    }
-    window.requestAnimationFrame(() => {
-      setThumbnailRenderLimit(CATEGORY_THUMBNAIL_BATCH_SIZE)
-    })
+    setOpenCategoryNames(
+      categories.reduce<Record<string, boolean>>((next, category) => {
+        next[category.key] = Boolean(bestSelection[category.key])
+        return next
+      }, {})
+    )
   }
 
   const handleDownloadPreview = async () => {
@@ -2615,7 +2505,7 @@ export function AnalyticsDesignConfigurator({
                         >
                           {element.imageUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={element.imageUrl} alt={element.name} className="h-full w-full object-contain" />
+                            <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="h-full w-full object-contain" />
                           ) : (
                             <Type className="h-4 w-4 text-gray-400" />
                           )}
@@ -2724,14 +2614,6 @@ export function AnalyticsDesignConfigurator({
                             !selectedId &&
                             selectedCount >= MAX_NON_LAYER_SELECTIONS
                           const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
-                          const thumbnailKey = `${category.key}::${element.id}`
-                          const mobileDecodeIndex = mobileDecodeIndexByKey.get(thumbnailKey)
-                          const isAllowedByMobileQueue =
-                            !isMobileViewport ||
-                            mobileDecodeIndex === undefined ||
-                            mobileDecodeIndex < mobileDecodeGrantCount
-                          const shouldRenderThumbnail =
-                            isText || (visibleCategoryThumbnailKeys.has(thumbnailKey) && isAllowedByMobileQueue)
 
                           return (
                             <div
@@ -2760,22 +2642,18 @@ export function AnalyticsDesignConfigurator({
                               <div className="mb-3 flex aspect-square w-full items-center justify-center rounded-xl bg-gray-50 p-2">
                                 {isText ? (
                                   <Type className="h-8 w-8 text-gray-300" />
-                                ) : shouldRenderThumbnail ? (
+                                ) : (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img
-                                    src={element.imageUrl || ""}
+                                    src={getConfiguratorThumbnailUrl(element.imageUrl) || ""}
                                     alt={element.name}
                                     loading="lazy"
                                     decoding="async"
                                     className="h-full w-full object-contain"
-                                    onLoad={() => handleCategoryThumbnailSettled(thumbnailKey)}
                                     onError={(event) => {
-                                      handleCategoryThumbnailSettled(thumbnailKey)
                                       event.currentTarget.style.display = "none"
                                     }}
                                   />
-                                ) : (
-                                  <ImageIcon className="h-8 w-8 text-gray-300" />
                                 )}
                               </div>
                               <div className="flex w-full flex-1 flex-col justify-between">
@@ -2907,14 +2785,6 @@ export function AnalyticsDesignConfigurator({
                                   !selectedId &&
                                   selectedCount >= MAX_NON_LAYER_SELECTIONS
                                 const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
-                                const thumbnailKey = `${category.key}::${element.id}`
-                                const mobileDecodeIndex = mobileDecodeIndexByKey.get(thumbnailKey)
-                                const isAllowedByMobileQueue =
-                                  !isMobileViewport ||
-                                  mobileDecodeIndex === undefined ||
-                                  mobileDecodeIndex < mobileDecodeGrantCount
-                                const shouldRenderThumbnail =
-                                  isText || (visibleCategoryThumbnailKeys.has(thumbnailKey) && isAllowedByMobileQueue)
 
                                 return (
                                   <div
@@ -2943,22 +2813,18 @@ export function AnalyticsDesignConfigurator({
                                     <div className="mb-3 flex aspect-square w-full items-center justify-center rounded-xl bg-gray-50 p-2">
                                       {isText ? (
                                         <Type className="h-8 w-8 text-gray-300" />
-                                      ) : shouldRenderThumbnail ? (
+                                      ) : (
                                         // eslint-disable-next-line @next/next/no-img-element
                                         <img
-                                          src={element.imageUrl || ""}
+                                          src={getConfiguratorThumbnailUrl(element.imageUrl) || ""}
                                           alt={element.name}
                                           loading="lazy"
                                           decoding="async"
                                           className="h-full w-full object-contain"
-                                          onLoad={() => handleCategoryThumbnailSettled(thumbnailKey)}
                                           onError={(event) => {
-                                            handleCategoryThumbnailSettled(thumbnailKey)
                                             event.currentTarget.style.display = "none"
                                           }}
                                         />
-                                      ) : (
-                                        <ImageIcon className="h-8 w-8 text-gray-300" />
                                       )}
                                     </div>
                                     <div className="flex w-full flex-1 flex-col justify-between">
