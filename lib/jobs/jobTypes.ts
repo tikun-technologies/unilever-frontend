@@ -1,5 +1,7 @@
 export type JobKind = 'task_generation' | 'simulate_ai'
 
+export type NotificationType = 'job' | 'study_invite' | 'project_invite'
+
 export type JobLifecycleStatus =
   | 'pending'
   | 'started'
@@ -9,10 +11,17 @@ export type JobLifecycleStatus =
   | 'cancelled'
 
 export interface TrackedJob {
-  jobId: string
+  notificationId: string
+  notificationType: NotificationType
+  jobId?: string
   studyId: string
+  projectId?: string
   studyTitle?: string
-  jobKind: JobKind
+  projectTitle?: string
+  resourceTitle?: string
+  inviterName?: string
+  role?: string
+  jobKind?: JobKind
   status: JobLifecycleStatus
   progress: number
   message?: string
@@ -44,24 +53,48 @@ export function isActiveJobStatus(status: JobLifecycleStatus): boolean {
   return status === 'pending' || status === 'started' || status === 'processing'
 }
 
+export function isJobNotification(item: TrackedJob): boolean {
+  return item.notificationType === 'job'
+}
+
+export function isInvitationNotification(item: TrackedJob): boolean {
+  return item.notificationType === 'study_invite' || item.notificationType === 'project_invite'
+}
+
 export function jobKindLabel(kind: JobKind): string {
   return kind === 'simulate_ai' ? 'Synthetic respondents' : 'Task generation'
 }
 
+export function invitationKindLabel(kind: NotificationType): string {
+  return kind === 'project_invite' ? 'Project invitation' : 'Study invitation'
+}
+
 export function normalizeJobFromApi(raw: Record<string, unknown>): TrackedJob | null {
-  const jobId = String(raw.job_id || '')
-  const studyId = String(raw.study_id || '')
-  if (!jobId || !studyId) return null
+  const notificationType = (raw.notification_type as NotificationType) || 'job'
+  const notificationId = String(raw.notification_id || raw.job_id || '')
+  const studyId = raw.study_id ? String(raw.study_id) : ''
+  const projectId = raw.project_id ? String(raw.project_id) : undefined
+
+  if (!notificationId) return null
+  if (notificationType === 'job' && !studyId) return null
+  if (notificationType !== 'job' && !studyId && !projectId) return null
 
   const kind = raw.job_kind === 'simulate_ai' ? 'simulate_ai' : 'task_generation'
   const status = (raw.status as JobLifecycleStatus) || 'pending'
   const progress = typeof raw.progress === 'number' ? raw.progress : 0
 
   return {
-    jobId,
-    studyId,
+    notificationId,
+    notificationType,
+    jobId: raw.job_id ? String(raw.job_id) : undefined,
+    studyId: studyId || projectId || '',
+    projectId,
     studyTitle: typeof raw.study_title === 'string' ? raw.study_title : undefined,
-    jobKind: kind,
+    projectTitle: typeof raw.project_title === 'string' ? raw.project_title : undefined,
+    resourceTitle: typeof raw.resource_title === 'string' ? raw.resource_title : undefined,
+    inviterName: typeof raw.inviter_name === 'string' ? raw.inviter_name : undefined,
+    role: typeof raw.role === 'string' ? raw.role : undefined,
+    jobKind: notificationType === 'job' ? kind : undefined,
     status,
     progress,
     message: typeof raw.message === 'string' ? raw.message : undefined,

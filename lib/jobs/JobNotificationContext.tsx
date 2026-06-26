@@ -49,8 +49,11 @@ interface JobNotificationContextValue {
 const JobNotificationContext = createContext<JobNotificationContextValue | undefined>(undefined)
 
 function mergeJob(existing: TrackedJob | undefined, incoming: Partial<TrackedJob>): TrackedJob {
+  const notificationId = incoming.notificationId || incoming.jobId || existing?.notificationId || ''
   const base = existing || {
-    jobId: incoming.jobId || '',
+    notificationId,
+    notificationType: incoming.notificationType || 'job',
+    jobId: incoming.jobId,
     studyId: incoming.studyId || '',
     jobKind: incoming.jobKind || 'task_generation',
     status: incoming.status || 'pending',
@@ -105,7 +108,8 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
   }, [jobsMap])
 
   const notifyWatchers = useCallback((job: TrackedJob) => {
-    const watchers = watchersRef.current.get(job.jobId)
+    const watcherKey = job.jobId ?? job.notificationId
+    const watchers = watchersRef.current.get(watcherKey)
     if (!watchers) return
     watchers.forEach((cb) => {
       try {
@@ -130,28 +134,35 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
   )
 
   const upsertJob = useCallback(
-    (incoming: Partial<TrackedJob> & { jobId: string }, options?: { markUnread?: boolean }) => {
-      if (dismissedSetRef.current.has(incoming.jobId)) {
+    (incoming: Partial<TrackedJob> & { notificationId?: string; jobId?: string }, options?: { markUnread?: boolean }) => {
+      const notificationId = incoming.notificationId || incoming.jobId
+      if (!notificationId || dismissedSetRef.current.has(notificationId)) {
         return
       }
 
       let mergedJob: TrackedJob | null = null
 
       setJobsMap((prev) => {
-        const existing = prev[incoming.jobId]
+        const existing = prev[notificationId]
         const isTerminal = incoming.status === 'completed' || incoming.status === 'failed' || incoming.status === 'cancelled'
-        const wasRead = readSetRef.current.has(incoming.jobId)
+        const wasRead = readSetRef.current.has(notificationId)
         const unread =
           options?.markUnread === false
             ? false
-            : isTerminal && !wasRead
+            : options?.markUnread === true
               ? true
-              : isActiveJobStatus(incoming.status || existing?.status || 'pending')
-                ? false
-                : existing?.unread ?? false
+              : incoming.unread === true
+                ? true
+                : incoming.unread === false
+                  ? false
+                  : isTerminal && !wasRead
+                    ? true
+                    : isActiveJobStatus(incoming.status || existing?.status || 'pending')
+                      ? false
+                      : existing?.unread ?? false
 
-        mergedJob = mergeJob(existing, { ...incoming, unread })
-        const next = { ...prev, [incoming.jobId]: mergedJob }
+        mergedJob = mergeJob(existing, { ...incoming, notificationId, unread })
+        const next = { ...prev, [notificationId]: mergedJob }
         jobsMapRef.current = next
         return next
       })
@@ -164,7 +175,7 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
   )
 
   const syncStep7JobState = useCallback((jobId: string, studyId: string) => {
-    const job = jobsMapRef.current[jobId]
+    const job = Object.values(jobsMapRef.current).find((item) => item.jobId === jobId)
     if (!job || job.jobKind !== 'task_generation') return
     try {
       localStorage.setItem(
@@ -195,7 +206,9 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
         return
       }
       upsertJob({
+        notificationId: input.jobId,
         jobId: input.jobId,
+        notificationType: 'job',
         studyId: input.studyId,
         studyTitle: input.studyTitle,
         jobKind: input.jobKind,
@@ -218,7 +231,9 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
     }
     watchersRef.current.get(jobId)!.add(callbacks)
 
-    const existing = jobsMapRef.current[jobId]
+    const existing = Object.values(jobsMapRef.current).find(
+      (item) => item.jobId === jobId || item.notificationId === jobId
+    )
     if (existing) {
       queueMicrotask(() => {
         if (isActiveJobStatus(existing.status)) {
@@ -239,14 +254,14 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
     }
   }, [])
 
-  const markJobRead = useCallback((jobId: string) => {
-    readSetRef.current.add(jobId)
+  const markJobRead = useCallback((notificationId: string) => {
+    readSetRef.current.add(notificationId)
     setJobsMap((prev) => {
-      const job = prev[jobId]
+      const job = prev[notificationId]
       if (!job) return prev
-      return { ...prev, [jobId]: { ...job, unread: false } }
+      return { ...prev, [notificationId]: { ...job, unread: false } }
     })
-    void markNotificationRead(jobId).catch((err) => {
+    void markNotificationRead(notificationId).catch((err) => {
       console.warn('[JobNotifications] Failed to persist read state:', err)
     })
   }, [])
@@ -265,40 +280,46 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
     })
   }, [])
 
-  const dismissJob = useCallback((jobId: string) => {
-    dismissedSetRef.current.add(jobId)
-    markJobRead(jobId)
+  const dismissJob = useCallback((notificationId: string) => {
+    dismissedSetRef.current.add(notificationId)
+    markJobRead(notificationId)
     setJobsMap((prev) => {
       const next = { ...prev }
-      delete next[jobId]
+      delete next[notificationId]
       return next
     })
-    void dismissJobNotificationApi(jobId).catch((err) => {
+    void dismissJobNotificationApi(notificationId).catch((err) => {
       console.warn('[JobNotifications] Failed to persist dismiss:', err)
-      dismissedSetRef.current.delete(jobId)
+      dismissedSetRef.current.delete(notificationId)
     })
   }, [markJobRead])
 
-  const getJob = useCallback((jobId: string) => jobsMapRef.current[jobId], [])
+  const getJob = useCallback(
+    (jobId: string) =>
+      Object.values(jobsMapRef.current).find(
+        (job) => job.jobId === jobId || job.notificationId === jobId
+      ),
+    []
+  )
 
   const isJobActive = useCallback(
     (jobId: string) => {
-      const job = jobsMapRef.current[jobId]
+      const job = getJob(jobId)
       return job ? isActiveJobStatus(job.status) : false
     },
-    []
+    [getJob]
   )
 
   const applySnapshot = useCallback(
     (jobs: TrackedJob[]) => {
       jobs.forEach((job) => {
-        if (dismissedSetRef.current.has(job.jobId)) {
+        if (dismissedSetRef.current.has(job.notificationId)) {
           return
         }
         if (!job.unread) {
-          readSetRef.current.add(job.jobId)
+          readSetRef.current.add(job.notificationId)
         } else {
-          readSetRef.current.delete(job.jobId)
+          readSetRef.current.delete(job.notificationId)
         }
         upsertJob({ ...job }, { markUnread: job.unread })
       })
@@ -327,10 +348,19 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
         return
       }
 
+      if (event === 'notification_update') {
+        const parsed = normalizeJobFromApi(raw)
+        if (parsed) {
+          upsertJob({ ...parsed, unread: true }, { markUnread: true })
+        }
+        return
+      }
+
       if (event === 'ping') return
 
       const jobId = String(raw.job_id || '')
-      if (!jobId || dismissedSetRef.current.has(jobId)) return
+      const notificationId = String(raw.notification_id || jobId || '')
+      if (!notificationId || dismissedSetRef.current.has(notificationId)) return
 
       const status = mapWsStatus(
         typeof raw.type === 'string' ? raw.type : undefined,
@@ -338,16 +368,18 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
       )
 
       upsertJob({
-        jobId,
-        studyId: String(raw.study_id || jobsMapRef.current[jobId]?.studyId || ''),
+        notificationId,
+        jobId: jobId || undefined,
+        notificationType: 'job',
+        studyId: String(raw.study_id || jobsMapRef.current[notificationId]?.studyId || ''),
         studyTitle:
           typeof raw.study_title === 'string'
             ? raw.study_title
-            : jobsMapRef.current[jobId]?.studyTitle,
+            : jobsMapRef.current[notificationId]?.studyTitle,
         jobKind:
           raw.job_kind === 'simulate_ai'
             ? 'simulate_ai'
-            : jobsMapRef.current[jobId]?.jobKind || 'task_generation',
+            : jobsMapRef.current[notificationId]?.jobKind || 'task_generation',
         status,
         progress: typeof raw.progress === 'number' ? raw.progress : undefined,
         message: typeof raw.message === 'string' ? raw.message : undefined,
@@ -358,7 +390,7 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
           typeof raw.respondents_completed === 'number' ? raw.respondents_completed : undefined,
       })
 
-      const job = jobsMapRef.current[jobId]
+      const job = getJob(jobId || notificationId)
       if (job?.jobKind === 'task_generation') {
         syncStep7JobState(jobId, job.studyId)
       }
@@ -371,7 +403,7 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
         }
       }
     },
-    [applySnapshot, syncStep7JobState, upsertJob]
+    [applySnapshot, getJob, syncStep7JobState, upsertJob]
   )
 
   const startPollingFallback = useCallback(() => {
@@ -535,12 +567,12 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
   }, [jobsMap])
 
   const activeJobs = useMemo(
-    () => jobs.filter((j) => isActiveJobStatus(j.status)),
+    () => jobs.filter((j) => j.notificationType === 'job' && isActiveJobStatus(j.status)),
     [jobs]
   )
 
   const unreadCount = useMemo(
-    () => jobs.filter((j) => j.unread || isActiveJobStatus(j.status)).length,
+    () => jobs.filter((j) => j.unread || (j.notificationType === 'job' && isActiveJobStatus(j.status))).length,
     [jobs]
   )
 

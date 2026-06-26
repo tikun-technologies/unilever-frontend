@@ -2,6 +2,7 @@
 "use client"
 
 import { useEffect, useState, useRef, useMemo, useCallback } from "react"
+import { Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, getTaskGenerationResult, validateDesignConstraints } from "@/lib/api/StudyAPI"
 import { useJobNotifications } from "@/lib/jobs/JobNotificationContext"
@@ -80,7 +81,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
   const isResuming = useRef<boolean>(false)
   const abortControllerRef = useRef<AbortController | null>(null)
   const isLoadingFromCache = useRef<boolean>(false)
-  const [showTimer, setShowTimer] = useState<boolean>(false)
   // Preview anchoring to background fit box
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const bgImgRef = useRef<HTMLImageElement>(null)
@@ -249,7 +249,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     setIsGenerating(false)
     setHighestProgress(0)
     setJobStartTime(null)
-    setShowTimer(false)
     isResuming.current = false
 
     if (abortControllerRef.current) {
@@ -264,7 +263,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     setPollingError(null)
     setJobStatus(null)
     setHighestProgress(0)
-    setShowTimer(false)
     await generateNow()
   }
 
@@ -647,7 +645,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
           watchJob(jobId, {
             onProgress: (job) =>
               callbacks.onProgress?.({
-                jobId: job.jobId,
+                jobId,
                 progress: job.progress,
                 message: job.message,
                 status: job.status,
@@ -1075,100 +1073,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     }
   }, [active, isPolling])
 
-  // Show timer after 1 second delay to prevent flickering
-  useEffect(() => {
-    if (!active) {
-      setShowTimer(false)
-      return
-    }
-
-    // Don't show timer if loading from cache or matrix already exists
-    if (isLoadingFromCache.current || matrix) {
-      setShowTimer(false)
-      return
-    }
-
-    const timer = setTimeout(() => {
-      setShowTimer(true)
-    }, 1000)
-
-    return () => clearTimeout(timer)
-  }, [active, matrix])
-
-  // Countdown timer logic: calculates remaining time based on job start time
-  useEffect(() => {
-    if (!active) return
-
-    // Don't start timer if we're loading from cache (completed tasks, no active job)
-    if (isLoadingFromCache.current) {
-      console.log('[Step7] Loading from cache, skipping timer initialization')
-      return
-    }
-
-    // If there's an active job, always run the timer — cached matrix may be stale (e.g. after Regenerate)
-    const hasActiveJob = !!loadJobState()
-    const cachedMatrix = localStorage.getItem('cs_step7_matrix')
-    if (cachedMatrix && !hasActiveJob) {
-      // Only skip when we have completed tasks (matrix) and no job in progress
-      console.log('[Step7] Cached matrix found, no active job, skipping timer initialization')
-      return
-    }
-
-    // Don't start timer if matrix is already loaded (tasks completed)
-    if (matrix) {
-      console.log('[Step7] Matrix already loaded, skipping timer initialization')
-      return
-    }
-
-    // Reset timer initialization flag when returning to active step (allows timer to restart on revisit)
-    if (active && !timerInitialized.current) {
-      // Check if we have a saved timer state first (for resumed jobs)
-      const savedTimerState = loadTimerState()
-      let initialCountdown: number
-
-      if (savedTimerState && savedTimerState.seconds !== undefined) {
-        // Use saved timer value for resumed jobs
-        initialCountdown = savedTimerState.seconds
-      } else {
-        // Calculate initial countdown based on job start time for new jobs
-        const calculateInitialCountdown = () => {
-          if (jobStartTime && !matrix) {
-            const elapsedSeconds = Math.floor((Date.now() - jobStartTime) / 1000)
-            const remainingSeconds = Math.max(0, 600 - elapsedSeconds) // 600 = 10 minutes
-            return remainingSeconds
-          }
-          return 600 // Default 10 minutes
-        }
-        initialCountdown = calculateInitialCountdown()
-      }
-
-      setCountdownSeconds(initialCountdown)
-      countdownRef.current = initialCountdown
-      timerInitialized.current = true
-    }
-
-    // Start 5-second timer saving
-    startTimerSaving()
-
-    const id = window.setInterval(() => {
-      setCountdownSeconds((prev) => {
-        const newValue = prev > 0 ? prev - 1 : (!matrix ? 600 : 600)
-        countdownRef.current = newValue
-        return newValue
-      })
-    }, 1000)
-
-    return () => {
-      window.clearInterval(id)
-      stopTimerSaving()
-      // Reset timer flag when leaving the step so it can reinitialize on next visit
-      if (!active) {
-        timerInitialized.current = false
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [active, !!matrix])
-
   function getFromLS<T>(key: string, fallback: T): T {
     if (typeof window === 'undefined') return fallback
     try { const v = localStorage.getItem(key); return v ? JSON.parse(v) as T : fallback } catch { return fallback }
@@ -1217,7 +1121,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
   }
 
   const elementsPerTask = meta.K ?? meta.elements_per_task ?? '-'
-  const formattedCountdown = `${Math.floor(countdownSeconds / 60)}:${String(countdownSeconds % 60).padStart(2, '0')}`
 
   // Map layer name -> transform from cached matrix preview (preferred) or result.layers
   const layerTransformsByName = useMemo(() => {
@@ -2144,9 +2047,17 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
                   </div>
                 ) : (
                   <>
-                    {showTimer && (
-                      <div className="text-4xl sm:text-5xl md:text-6xl font-mono font-bold tracking-widest text-gray-900">
-                        {formattedCountdown}
+                    {(isGenerating || (isPolling && jobStatus && jobStatus.status !== 'completed' && jobStatus.status !== 'failed')) && (
+                      <div className="mx-auto max-w-md rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-4 text-left">
+                        <div className="flex items-start gap-3">
+                          <Mail className="mt-0.5 h-5 w-5 shrink-0 text-[#2674BA]" aria-hidden />
+                          <div className="space-y-1">
+                            <p className="text-sm font-semibold text-gray-900">Generating in the background</p>
+                            <p className="text-sm text-gray-600">
+                              You&apos;ll receive an email when your tasks are ready. You can leave this page safely.
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     )}
 

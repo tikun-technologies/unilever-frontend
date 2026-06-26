@@ -123,6 +123,29 @@ const notifyStepDataChanged = () => {
   }
 }
 
+function getStudyIdFromUrl(): string | null {
+  if (typeof window === 'undefined') return null
+  try {
+    const id = new URLSearchParams(window.location.search).get('study_id')?.trim()
+    return id || null
+  } catch {
+    return null
+  }
+}
+
+/** Same localStorage setup as "Continue Editing" on the home study grid. */
+function prepareDraftResumeFromStudyId(studyId: string, lastStep?: number | null) {
+  if (typeof window === 'undefined' || !studyId) return
+  localStorage.setItem('cs_study_id', studyId)
+  localStorage.setItem('cs_resuming_draft', 'true')
+  localStorage.removeItem('cs_is_fresh_start')
+  localStorage.removeItem('cs_step8')
+  if (typeof lastStep === 'number' && lastStep >= 1) {
+    localStorage.setItem('cs_current_step', String(lastStep))
+    localStorage.setItem('cs_study_last_step', String(lastStep))
+  }
+}
+
 // Utility function to load draft study data from backend
 const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = true, isSpecialCreator: boolean = false) => {
   try {
@@ -834,6 +857,7 @@ export default function CreateStudyPage() {
   const [isLoadingDraft, setIsLoadingDraft] = useState(() => {
     if (typeof window === 'undefined') return false
     try {
+      if (getStudyIdFromUrl()) return true
       if (localStorage.getItem('cs_is_fresh_start') === 'true') return false
       return Boolean(localStorage.getItem('cs_study_id'))
     } catch {
@@ -871,8 +895,14 @@ export default function CreateStudyPage() {
   const didRestoreBackupRef = useRef(false)
   if (typeof window !== 'undefined' && !didRestoreBackupRef.current) {
     try {
+      const urlStudyId = getStudyIdFromUrl()
       // Check if this is a fresh start (user clicked "Create New Study")
-      const isFreshStart = localStorage.getItem('cs_is_fresh_start') === 'true'
+      const isFreshStart =
+        localStorage.getItem('cs_is_fresh_start') === 'true' && !urlStudyId
+
+      if (urlStudyId) {
+        prepareDraftResumeFromStudyId(urlStudyId)
+      }
 
       if (!isFreshStart) {
         // Only restore backup if NOT a fresh start
@@ -940,11 +970,19 @@ export default function CreateStudyPage() {
 
     const initializePage = async () => {
       try {
+        const urlStudyId = getStudyIdFromUrl()
+        if (urlStudyId) {
+          prepareDraftResumeFromStudyId(urlStudyId)
+          setIsLoadingDraft(true)
+          setDraftLoadError(null)
+        }
+
         // Check if this is a fresh start (user clicked "Create New Study")
-        const isFreshStart = localStorage.getItem('cs_is_fresh_start') === 'true'
+        const isFreshStart =
+          localStorage.getItem('cs_is_fresh_start') === 'true' && !urlStudyId
 
         // Check if we're resuming a draft study
-        const studyId = localStorage.getItem('cs_study_id')
+        const studyId = urlStudyId || localStorage.getItem('cs_study_id')
         const isResumingDraft = localStorage.getItem('cs_resuming_draft') === 'true'
 
         if (studyId && !isFreshStart) {

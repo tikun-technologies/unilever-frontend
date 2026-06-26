@@ -91,11 +91,14 @@ export async function listDismissedJobIds(): Promise<string[]> {
   return Array.isArray(data.job_ids) ? data.job_ids.map(String) : []
 }
 
-export async function dismissJobNotification(jobId: string): Promise<void> {
-  const res = await fetchWithAuth(`${API_BASE_URL}/auth/me/dismissed-jobs/${encodeURIComponent(jobId)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-  })
+export async function dismissJobNotification(notificationId: string): Promise<void> {
+  const res = await fetchWithAuth(
+    `${API_BASE_URL}/auth/me/notifications/${encodeURIComponent(notificationId)}/dismiss`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }
+  )
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
     const msg = (data && (data.detail || data.message)) || `Failed to dismiss notification (${res.status})`
