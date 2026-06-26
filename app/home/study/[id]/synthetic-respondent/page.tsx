@@ -8,7 +8,8 @@ import { AuthGuard } from "@/components/auth/AuthGuard"
 import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { DashboardHeader } from "@/app/home/components/dashboard-header"
-import { getStudyBasicDetails, getStudyBasicDetails2, simulateAIRespondents, getSimulateAIStatus, subscribeSimulateAIWebSocket, type StudyDetails, type StudyBasicDetails2 } from "@/lib/api/StudyAPI"
+import { getStudyBasicDetails, getStudyBasicDetails2, simulateAIRespondents, getSimulateAIStatus, type StudyDetails, type StudyBasicDetails2 } from "@/lib/api/StudyAPI"
+import { useJobNotifications } from "@/lib/jobs/JobNotificationContext"
 import {
   ArrowLeft,
   Bot,
@@ -89,6 +90,7 @@ export default function SyntheticRespondentPage() {
   const studyHref = `/home/study/${studyId}${projectQuery}`
   const { user } = useAuth()
   const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
+  const { registerJob, watchJob } = useJobNotifications()
 
   const [study, setStudy] = useState<StudyDetails | null>(null)
   const [studyBasic2, setStudyBasic2] = useState<StudyBasicDetails2 | null>(null)
@@ -199,32 +201,46 @@ export default function SyntheticRespondentPage() {
     }, 80)
   }, [])
 
-  // WebSocket subscription with fallback and reconnection
+  // Job progress via global notifications
   const startWebSocketSubscription = useCallback((jobId: string, totalRespondents: number) => {
     if (jobCompletedRef.current) return
 
-    // Create abort controller for cleanup
-    const ac = new AbortController()
-    abortControllerRef.current = ac
+    if (wsCleanupRef.current) {
+      wsCleanupRef.current()
+      wsCleanupRef.current = null
+    }
 
-    const cleanup = subscribeSimulateAIWebSocket(
+    registerJob({
       jobId,
-      totalRespondents,
-      // onProgress
-      (completed, progress, message) => {
-        console.log(`[Synthetic] Progress: ${completed}/${totalRespondents} (${progress.toFixed(1)}%) - ${message}`)
+      studyId,
+      studyTitle: study?.title,
+      jobKind: 'simulate_ai',
+      status: 'processing',
+      progress: 0,
+      message: 'Simulating AI respondents...',
+    })
+
+    wsCleanupRef.current = watchJob(jobId, {
+      onProgress: (job) => {
+        const requested = job.respondentsRequested ?? totalRespondents
+        const completed =
+          job.respondentsCompleted ??
+          (requested > 0 ? Math.round((job.progress / 100) * requested) : 0)
+        console.log(`[Synthetic] Progress: ${completed}/${requested} (${job.progress.toFixed(1)}%)`)
         targetCompletedRef.current = completed
         const displayed = displayedCountRef.current
         if (completed > displayed) startAnimation()
       },
-      // onComplete
-      (totalCompleted) => {
+      onComplete: (job) => {
+        const totalCompleted =
+          job.respondentsCompleted ??
+          job.respondentsRequested ??
+          totalRespondents
         console.log(`[Synthetic] Completed: ${totalCompleted} respondents`)
         jobCompletedRef.current = true
         lastStatusRef.current = "completed"
         targetCompletedRef.current = totalCompleted
-        
-        // Animate to final count then show success
+
         const displayed = displayedCountRef.current
         if (totalCompleted > displayed) {
           startAnimation()
@@ -232,30 +248,23 @@ export default function SyntheticRespondentPage() {
           setIsRunning(false)
           setShowSuccess(true)
         }
-        
-        // Clear localStorage
+
         try {
           localStorage.removeItem(STORAGE_KEY(studyId))
         } catch { /* ignore */ }
       },
-      // onError
-      (error) => {
+      onError: (_job, error) => {
         console.error(`[Synthetic] Error:`, error)
         jobCompletedRef.current = true
         lastStatusRef.current = "failed"
         setSimulateError(error)
         setIsRunning(false)
-        
-        // Clear localStorage
         try {
           localStorage.removeItem(STORAGE_KEY(studyId))
         } catch { /* ignore */ }
       },
-      ac.signal
-    )
-
-    wsCleanupRef.current = cleanup
-  }, [studyId, startAnimation])
+    })
+  }, [studyId, study?.title, startAnimation, registerJob, watchJob])
 
   // Check job status and resume WebSocket if needed (for page refresh/return scenarios)
   const checkAndResumeJob = useCallback(async (jobId: string, totalRespondents: number) => {
@@ -378,6 +387,15 @@ export default function SyntheticRespondentPage() {
       setShowSuccess(false)
       setSimulateJobId(jobId)
       setIsRunning(true)
+      registerJob({
+        jobId,
+        studyId,
+        studyTitle: study?.title,
+        jobKind: 'simulate_ai',
+        status: 'processing',
+        progress: 0,
+        message: 'Simulating AI respondents...',
+      })
       try {
         localStorage.setItem(
           STORAGE_KEY(studyId),

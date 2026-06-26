@@ -1743,12 +1743,32 @@ export function subscribeTaskGenerationStatus(
 }
 
 // Enhanced task generation with background job support
-// Uses WebSocket for real-time progress updates with automatic fallback to polling
-// Optional signal allows cancellation when component unmounts
+// Uses global job notifications when handlers provided, otherwise per-job WebSocket
+export interface TaskGenerationJobHandlers {
+  registerJob: (input: {
+    jobId: string
+    studyId: string
+    studyTitle?: string
+    jobKind: 'task_generation'
+    status?: 'pending' | 'started' | 'processing' | 'completed' | 'failed' | 'cancelled'
+    progress?: number
+    message?: string
+  }) => void
+  watchJob: (
+    jobId: string,
+    callbacks: {
+      onProgress?: (job: { jobId: string; progress: number; message?: string; status: string }) => void
+      onComplete?: () => void
+      onError?: (error: string) => void
+    }
+  ) => () => void
+}
+
 export async function generateTasksWithPolling(
   payload: TaskGenerationPayload,
   onProgress?: (status: JobStatus) => void,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  jobHandlers?: TaskGenerationJobHandlers
 ): Promise<any> {
   console.log('=== TASK GENERATION WITH BACKGROUND JOB SUPPORT ===')
 
@@ -1783,57 +1803,104 @@ export async function generateTasksWithPolling(
       }
 
       console.log('🔄 Background job started, using WebSocket for progress updates...')
-      
-      // Use WebSocket subscription (with automatic fallback to polling)
+
+      const studyIdForJob =
+        String(
+          immediateStudyId ||
+            payload.study_id ||
+            (immediateResult as any)?.study_id ||
+            ''
+        ) || 'unknown'
+
+      if (jobHandlers) {
+        jobHandlers.registerJob({
+          jobId: effectiveJobId,
+          studyId: studyIdForJob,
+          jobKind: 'task_generation',
+          status: 'processing',
+          progress: 0,
+          message: 'Task generation started',
+        })
+      }
+
       return new Promise((resolve, reject) => {
-        const unsubscribe = subscribeTaskGenerationStatus(
-          effectiveJobId,
-          (status) => {
-            // Forward progress updates to the caller
-            if (onProgress) onProgress(status)
-          },
-          async () => {
-            // Job completed - fetch the final result
-            try {
-              console.log('🔄 Job completed, fetching final result...')
-              const result = await getTaskGenerationResult(effectiveJobId)
-              console.log('✅ Final result received:', {
-                hasTasks: !!(result?.tasks),
-                hasMetadata: !!(result?.metadata),
-                taskCount: result?.tasks ? Object.keys(result.tasks).length : 0,
-                respondents: result?.metadata?.number_of_respondents,
-                study_id: result?.study_id || result?.metadata?.study_id
-              })
-
-              // Store study_id from result if available
-              const studyId = result?.study_id || result?.metadata?.study_id
-              if (studyId) {
-                console.log('[API] Storing study_id from task generation result:', studyId)
-                try {
-                  localStorage.setItem('cs_study_id', JSON.stringify(studyId))
-                } catch (storageError) {
-                  console.warn('Failed to store study_id:', storageError)
-                }
+        const runWithGlobalProvider = () => {
+          if (!jobHandlers) return null
+          return jobHandlers.watchJob(effectiveJobId, {
+            onProgress: (job) => {
+              if (onProgress) {
+                onProgress({
+                  job_id: effectiveJobId,
+                  status: 'processing',
+                  progress: job.progress,
+                  message: job.message,
+                })
               }
+            },
+            onComplete: async () => {
+              try {
+                console.log('🔄 Job completed, fetching final result...')
+                const result = await getTaskGenerationResult(effectiveJobId)
+                const studyId = result?.study_id || result?.metadata?.study_id
+                if (studyId) {
+                  try {
+                    localStorage.setItem('cs_study_id', JSON.stringify(studyId))
+                  } catch {
+                    /* ignore */
+                  }
+                }
+                resolve(result)
+              } catch (e) {
+                reject(e)
+              }
+            },
+            onError: (error) => {
+              reject(new Error(error))
+            },
+          })
+        }
 
-              resolve(result)
-            } catch (e) {
-              reject(e)
-            }
-          },
-          (error) => {
-            // Job failed
-            reject(new Error(error))
-          },
-          signal
-        )
+        const unsubscribeGlobal = runWithGlobalProvider()
+        const unsubscribeLegacy = !jobHandlers
+          ? subscribeTaskGenerationStatus(
+              effectiveJobId,
+              (status) => {
+                if (onProgress) onProgress(status)
+              },
+              async () => {
+                try {
+                  console.log('🔄 Job completed, fetching final result...')
+                  const result = await getTaskGenerationResult(effectiveJobId)
+                  const studyId = result?.study_id || result?.metadata?.study_id
+                  if (studyId) {
+                    try {
+                      localStorage.setItem('cs_study_id', JSON.stringify(studyId))
+                    } catch {
+                      /* ignore */
+                    }
+                  }
+                  resolve(result)
+                } catch (e) {
+                  reject(e)
+                }
+              },
+              (error) => {
+                reject(new Error(error))
+              },
+              signal
+            )
+          : null
 
-        // Handle abort signal
         if (signal) {
-          signal.addEventListener('abort', () => {
-            unsubscribe()
-            reject(new DOMException('Aborted', 'AbortError'))
-          }, { once: true })
+          signal.addEventListener(
+            'abort',
+            () => {
+              unsubscribeGlobal?.()
+              unsubscribeLegacy?.()
+              reject(new DOMException('Aborted', 'AbortError'))
+            },
+            { once: true }
+          )
         }
       })
     }

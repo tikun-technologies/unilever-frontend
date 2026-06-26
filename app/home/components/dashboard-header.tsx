@@ -13,6 +13,7 @@ import { ShareProjectModal } from "@/components/home/ShareProjectModal"
 import { deleteStudy } from "@/lib/api/StudyAPI"
 import { requestRestartWalkthrough } from "@/components/onboarding/MindSurveOnboarding"
 import { prepareFreshCreateStudy } from "@/lib/utils/createStudyStorage"
+import { JobNotificationBell } from "@/components/notifications/JobNotificationBell"
 
 export function DashboardHeader() {
   const { user, logout } = useAuth()
@@ -124,29 +125,27 @@ export function DashboardHeader() {
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.3 }}
-        className="bg-white border-b border-[rgba(209,223,235,1)] px-4 sm:px-6 lg:px-8"
+        className="bg-white border-b border-[rgba(209,223,235,1)] px-3 sm:px-6 lg:px-8"
       >
-        <div className="max-w-7xl mx-auto flex items-center justify-between h-16">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4 h-14 sm:h-16 min-w-0">
 
-          <Link href={homeHref}>
+          <Link href={homeHref} className="shrink-0">
             <div className="flex items-center">
-              <motion.div whileHover={{ scale: 1.05 }} className="text-2xl font-bold">
+              <motion.div whileHover={{ scale: 1.05 }} className="text-lg sm:text-2xl font-bold whitespace-nowrap">
                 <span className="text-[rgba(38,116,186,1)]">Mind</span>
                 <span className="text-gray-800">Surve</span>
               </motion.div>
             </div>
-
           </Link>
 
-
           {/* Right side */}
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {/* Share + Dispose Study (Create Study Route Only) */}
             {isCreateStudyRoute && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="mr-2 flex items-center gap-2"
+                className="flex items-center"
               >
                 <Button
                   onClick={() => setIsShareModalOpen(true)}
@@ -155,10 +154,10 @@ export function DashboardHeader() {
                   className={`${studyId
                     ? "border-blue-200 text-blue-600 hover:bg-blue-50"
                     : "opacity-50 cursor-not-allowed text-gray-400 border-gray-200"
-                    } px-4 py-2 rounded-lg flex items-center space-x-2 transition-all`}
+                    } h-9 w-9 sm:h-auto sm:w-auto p-0 sm:px-4 sm:py-2 rounded-lg flex items-center justify-center sm:space-x-2 transition-all`}
                   title={!studyId ? "Create a study first to share" : "Share study"}
                 >
-                  <Share2 className="w-4 h-4" />
+                  <Share2 className="w-4 h-4 shrink-0" />
                   <span className="hidden sm:inline">Share</span>
                 </Button>
                 {/* <Button
@@ -178,41 +177,39 @@ export function DashboardHeader() {
             )}
 
             {!isCreateStudyRoute && (
-              <div className="flex items-center space-x-2">
-
-
-                <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-                  <Button
-                    onClick={handleCreateNewStudy}
-                    disabled={!!projId && userRole === 'viewer'}
-                    data-tour="create-study-header"
-                    className={`bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-4 py-2 rounded-lg flex items-center space-x-2 ${!!projId && userRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : ''}`}
-                    title={!!projId && userRole === 'viewer' ? "Viewers cannot create studies" : "Create new study"}
-                  >
-                    <Plus className="w-4 h-4" />
-                    <span className="hidden sm:inline cursor-pointer">Create New Study</span>
-                    <span className="sm:hidden cursor-pointer">Create</span>
-                  </Button>
-                </motion.div>
-              </div>
+              <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+                <Button
+                  onClick={handleCreateNewStudy}
+                  disabled={!!projId && userRole === 'viewer'}
+                  data-tour="create-study-header"
+                  className={`bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white h-9 px-2.5 sm:px-4 py-2 rounded-lg flex items-center gap-1 sm:gap-2 text-xs sm:text-sm whitespace-nowrap ${!!projId && userRole === 'viewer' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={!!projId && userRole === 'viewer' ? "Viewers cannot create studies" : "Create new study"}
+                >
+                  <Plus className="w-4 h-4 shrink-0" />
+                  <span className="sm:hidden">Create study</span>
+                  <span className="hidden sm:inline">Create New Study</span>
+                </Button>
+              </motion.div>
             )}
+
+            <JobNotificationBell />
 
             <div className="relative" ref={dropdownRef}>
               <motion.div
                 whileHover={{ scale: 1.02 }}
-                className="flex items-center space-x-2 cursor-pointer"
+                className="flex items-center gap-1 sm:gap-2 cursor-pointer"
                 onClick={() => setShowDropdown(!showDropdown)}
               >
-                <Avatar className="w-8 h-8">
+                <Avatar className="w-8 h-8 shrink-0">
                   <AvatarImage src="/professional-headshot.png" />
                   <AvatarFallback>
                     {user?.name ? user.name.split(' ').map(n => n[0]).join('').toUpperCase() : 'U'}
                   </AvatarFallback>
                 </Avatar>
-                <span className="hidden sm:inline text-sm font-medium text-gray-700">
+                <span className="hidden md:inline text-sm font-medium text-gray-700 max-w-[8rem] truncate">
                   {user?.name || 'User'}
                 </span>
-                <ChevronDown className="w-4 h-4 text-gray-500" />
+                <ChevronDown className="hidden sm:block w-4 h-4 text-gray-500 shrink-0" />
               </motion.div>
 
               {/* Dropdown Menu */}

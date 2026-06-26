@@ -3,7 +3,8 @@
 
 import { useEffect, useState, useRef, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, subscribeTaskGenerationStatus, getTaskGenerationResult, validateDesignConstraints } from "@/lib/api/StudyAPI"
+import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, getTaskGenerationResult, validateDesignConstraints } from "@/lib/api/StudyAPI"
+import { useJobNotifications } from "@/lib/jobs/JobNotificationContext"
 import JSZip from "jszip"
 
 const GENERATION_ERROR_KEY = 'cs_step7_generation_error'
@@ -59,6 +60,7 @@ interface Step7TaskGenerationProps {
 }
 
 export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChange, isReadOnly = false, lastStepNumber = 7 }: Step7TaskGenerationProps) {
+  const { registerJob, watchJob } = useJobNotifications()
   const [isGenerating, setIsGenerating] = useState(false)
   const [matrix, setMatrix] = useState<any | null>(null)
   const [isStatsOpen, setIsStatsOpen] = useState(false)
@@ -400,7 +402,49 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       handleTaskGenerationFailure(error || 'Task generation failed.')
     }
 
-    subscribeTaskGenerationStatus(jobId, onProgress, onComplete, onError, signal ?? undefined)
+    const studyId = (() => {
+      const currentJobState = loadJobState()
+      if (currentJobState?.studyId) return currentJobState.studyId
+      try {
+        const stored = localStorage.getItem('cs_study_id')
+        return stored ? JSON.parse(stored) : null
+      } catch {
+        return null
+      }
+    })()
+
+    if (studyId) {
+      registerJob({
+        jobId,
+        studyId: String(studyId),
+        jobKind: 'task_generation',
+        status: 'processing',
+      })
+    }
+
+    const unsubscribe = watchJob(jobId, {
+      onProgress: (job) => {
+        onProgress({
+          job_id: jobId,
+          status: 'processing',
+          progress: job.progress,
+          message: job.message,
+        })
+      },
+      onComplete: () => {
+        void onComplete()
+      },
+      onError: (_job, error) => {
+        onError(error)
+      },
+    })
+
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        unsubscribe()
+        isResuming.current = false
+      }, { once: true })
+    }
   }
 
   // Persist preview and mark step completed when full result is ready
@@ -597,7 +641,21 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
           // The result will be fetched separately via getTaskGenerationResult
           // This callback is just for status updates during polling
         }
-      }, ac.signal)
+      }, ac.signal, {
+        registerJob: (input) => registerJob({ ...input, jobKind: 'task_generation' }),
+        watchJob: (jobId, callbacks) =>
+          watchJob(jobId, {
+            onProgress: (job) =>
+              callbacks.onProgress?.({
+                jobId: job.jobId,
+                progress: job.progress,
+                message: job.message,
+                status: job.status,
+              }),
+            onComplete: () => callbacks.onComplete?.(),
+            onError: (_job, error) => callbacks.onError?.(error),
+          }),
+      })
 
       console.log('[Step7] generateTasksWithPolling returned:', {
         hasData: !!data,
