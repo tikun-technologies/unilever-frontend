@@ -2,23 +2,28 @@
 
 import Image from "next/image"
 import Link from "next/link"
-import { useState } from "react"
-import {
-  ArrowRight,
-  BookOpen,
-  Heart,
-  Menu,
-  ShieldCheck,
-  ShoppingCart,
-  Target,
-  TrendingDown,
-  Users,
-  X,
-  Zap,
-} from "lucide-react"
+import { useRef, useState } from "react"
+import { ArrowRight, Menu, X } from "lucide-react"
+import gsap from "gsap"
+import { ScrollTrigger } from "gsap/ScrollTrigger"
+import { useGSAP } from "@gsap/react"
 
-/** App theme blue (matches dashboard / participate headers) */
+if (typeof window !== "undefined") {
+  gsap.registerPlugin(ScrollTrigger, useGSAP)
+}
+
 const LOGIN_HREF = "/login"
+const BRAND_BLUE = "#1a5f96"
+const BRAND_BLUE_HOVER = "#155a8a"
+const BRAND_BLUE_RGB = "26, 89, 150"
+
+const shardData = [
+  { label: "Pricing", img: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=400&q=80" },
+  { label: "Trust", img: "https://images.unsplash.com/photo-1618044733300-9472054094ee?auto=format&fit=crop&w=400&q=80" },
+  { label: "Quality", img: "https://images.unsplash.com/photo-1507413245164-6160d8298b31?auto=format&fit=crop&w=400&q=80" },
+  { label: "Speed", img: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&w=400&q=80" },
+  { label: "Design", img: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=400&q=80" }
+]
 
 function Logo() {
   return (
@@ -27,88 +32,185 @@ function Logo() {
       onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
       className="flex shrink-0 cursor-pointer items-center gap-3 text-left"
     >
-    
-      <span className="text-xl font-bold tracking-tight sm:text-2xl">
-        <span className="text-[rgba(38,116,186,1)]">Mind</span>
+      <span className="text-xl font-semibold tracking-tight sm:text-2xl">
+        <span style={{ color: BRAND_BLUE }}>Mind</span>
         <span className="text-gray-800">Surve</span>
       </span>
     </button>
   )
 }
 
-const outcomeCards = [
-  {
-    icon: Target,
-    title: "Hyper-Targeted Messaging",
-    body: "Discover the exact combinations of words, ideas, and benefits that resonate with distinct consumer segments. Stop wasting ad spend on trial and error and start using the exact content that converts.",
-  },
-  {
-    icon: Users,
-    title: "Horizontal Segmentation",
-    body: 'Divide your market into like-minded audiences not demographic groups... shared "mindsets." Speak directly to how different groups feel and respond to specific content, creating.',
-  },
-  {
-    icon: ShieldCheck,
-    title: "De-Risked Product Development",
-    body: "Test thousands of combinations before you launch. Know what the market wants before a campaign starts.",
-  },
-  {
-    icon: Zap,
-    title: "Rapid Speed to Market",
-    body: "Our iterative, rapid-testing methodology means you move from hypothesis to actionable strategy in a fraction of the time of traditional market research. Outpace competitors by acting on superior data, faster.",
-  },
-] as const
-
-const impactRows = [
-  {
-    icon: ShoppingCart,
-    label: "Optimizing Messaging for Consumer Packaged Goods",
-    title: "Example: Skin Cosmetics",
-    detail:
-      "We rapidly tested thousands of combinations for a new skin cosmetic product, identifying the exact consumer mindset triggers that drive purchase intent before a physical prototype was ever finalized.",
-  },
-  {
-    icon: BookOpen,
-    label: "Mapping User Requirements for EdTech Platforms",
-    title: 'Example: "Learning to Remember" App',
-    detail:
-      "Instead of asking users what they wanted, we uncovered the specific features and techniques that drive engagement for an educational app, seamlessly mapping the true cognitive requirements of the end-user.",
-  },
-  {
-    icon: Heart,
-    label: "Driving Patient Compliance and Engagement in Healthcare",
-    title: "Example: Primary Care Communications",
-    detail:
-      "By modeling patient mindsets for general practitioner visits, we discovered how specific relational cues, tone, and structured messaging dramatically shift patient trust, satisfaction, and adherence to care plans.",
-  },
-] as const
-
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  
+  // Text refs
+  const text1Ref = useRef<HTMLHeadingElement>(null)
+  const text2Ref = useRef<HTMLHeadingElement>(null)
+  const text3Ref = useRef<HTMLHeadingElement>(null)
+  const text4Ref = useRef<HTMLHeadingElement>(null)
+  
+  // Background Words refs
+  const heroRef = useRef<HTMLElement>(null)
+  const word1ScrollRef = useRef<HTMLDivElement>(null)
+  const word2ScrollRef = useRef<HTMLDivElement>(null)
+  const word3ScrollRef = useRef<HTMLDivElement>(null)
+  const word4ScrollRef = useRef<HTMLDivElement>(null)
+  const word1MouseRef = useRef<HTMLDivElement>(null)
+  const word2MouseRef = useRef<HTMLDivElement>(null)
+  const word3MouseRef = useRef<HTMLDivElement>(null)
+  const word4MouseRef = useRef<HTMLDivElement>(null)
+  
+  // Object refs
+  const shardsRef = useRef<HTMLDivElement[]>([])
+  const tagsRef = useRef<HTMLDivElement[]>([])
+  const scannerRef = useRef<HTMLDivElement>(null)
+
+  useGSAP(() => {
+    if (!wrapperRef.current) return
+
+    const tl = gsap.timeline({
+      scrollTrigger: {
+        trigger: wrapperRef.current,
+        start: "top top",
+        end: "+=400%",
+        scrub: 1,
+        pin: true,
+      },
+    })
+
+    // Initial setup for shards (Stacked crystal)
+    gsap.set(shardsRef.current, {
+      xPercent: -50,
+      yPercent: -50,
+      rotationX: 60,
+      rotationZ: -45,
+      z: (i) => i * 20 - 40,
+      opacity: 0.8,
+    })
+    
+    gsap.set(tagsRef.current, { opacity: 0, y: 10 })
+    gsap.set(scannerRef.current, { opacity: 0, scaleY: 0 })
+
+    // PHASE 1 -> PHASE 2: Shatter
+    tl.to(text1Ref.current, { opacity: 0, y: -20, duration: 1 })
+      .to(text2Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
+      .to(
+        shardsRef.current,
+        {
+          x: "random(-200, 200)",
+          y: "random(-200, 200)",
+          z: "random(-100, 100)",
+          rotationX: "random(-180, 180)",
+          rotationY: "random(-180, 180)",
+          rotationZ: "random(-180, 180)",
+          opacity: 0.6,
+          duration: 2,
+          ease: "power2.inOut",
+        },
+        "<"
+      )
+
+    // PHASE 2 -> PHASE 3: Organize & Scan
+    tl.to(text2Ref.current, { opacity: 0, y: -20, duration: 1 }, "+=0.5")
+      .to(text3Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
+      .to(
+        shardsRef.current,
+        {
+          x: (i) => {
+            const spacing = typeof window !== "undefined" && window.innerWidth < 768 ? 80 : 160;
+            return (i - 2) * spacing;
+          },
+          y: 0,
+          z: 0,
+          rotationX: 0,
+          rotationY: 0,
+          rotationZ: 0,
+          opacity: 1,
+          scale: () => (typeof window !== "undefined" && window.innerWidth < 768 ? 0.5 : 0.8),
+          duration: 2,
+          ease: "power3.inOut",
+        },
+        "<"
+      )
+      // Scanner effect
+      .to(scannerRef.current, { opacity: 1, scaleY: 1, duration: 0.5 }, "-=1")
+      .to(scannerRef.current, { x: 800, duration: 1.5, ease: "none" })
+      .to(scannerRef.current, { opacity: 0, duration: 0.2 })
+      // Tags pop up
+      .to(tagsRef.current, { opacity: 1, y: 0, stagger: 0.2, duration: 0.5 }, "-=1")
+
+    // PHASE 3 -> PHASE 4: Merge winning shards
+    tl.to(text3Ref.current, { opacity: 0, y: -20, duration: 1 }, "+=0.5")
+      .to(text4Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
+      .to(tagsRef.current, { opacity: 0, y: -10, duration: 0.5 }, "<")
+      .to(
+        shardsRef.current,
+        {
+          x: 0,
+          y: 0,
+          z: (i) => (i === 1 || i === 3 ? i * 10 : -1000), // Only winning shards stay, others disappear
+          opacity: (i) => (i === 1 || i === 3 ? 1 : 0),
+          rotationX: 60,
+          rotationZ: -45,
+          scale: 1.2,
+          duration: 2,
+          ease: "power3.inOut",
+        },
+        "<"
+      )
+      // Add a glow to the final crystal
+      .to(shardsRef.current[1], { boxShadow: `0 0 40px rgba(${BRAND_BLUE_RGB}, 0.5)`, duration: 1 }, "-=0.5")
+
+  }, { scope: wrapperRef })
+
+  useGSAP(() => {
+    if (!heroRef.current) return
+
+    // Scroll Parallax
+    gsap.to(word1ScrollRef.current, { y: -250, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
+    gsap.to(word2ScrollRef.current, { y: -400, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
+    gsap.to(word3ScrollRef.current, { y: -150, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
+    gsap.to(word4ScrollRef.current, { y: -350, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
+
+    // Mouse Parallax
+    const handleMouseMove = (e: MouseEvent) => {
+      const { clientX, clientY } = e
+      const centerX = window.innerWidth / 2
+      const centerY = window.innerHeight / 2
+      const moveX = (clientX - centerX) / 40
+      const moveY = (clientY - centerY) / 40
+
+      gsap.to(word1MouseRef.current, { x: moveX * 1.5, y: moveY * 1.5, duration: 1, ease: "power2.out" })
+      gsap.to(word2MouseRef.current, { x: moveX * -2, y: moveY * -2, duration: 1, ease: "power2.out" })
+      gsap.to(word3MouseRef.current, { x: moveX * 2.5, y: moveY * 2.5, duration: 1, ease: "power2.out" })
+      gsap.to(word4MouseRef.current, { x: moveX * -1.5, y: moveY * -1.5, duration: 1, ease: "power2.out" })
+    }
+
+    window.addEventListener("mousemove", handleMouseMove)
+    return () => window.removeEventListener("mousemove", handleMouseMove)
+  }, { scope: heroRef })
 
   return (
-    <div className="min-h-screen bg-white font-[family-name:var(--font-inter),ui-sans-serif,system-ui,sans-serif] text-gray-800 antialiased selection:bg-blue-600 selection:text-white">
-      {/* Navigation — fixed h-20, max-w-7xl (reference HTML) */}
-      <nav className="fixed z-50 w-full border-b border-gray-100 bg-white/90 backdrop-blur-md transition-all duration-300">
+    <div
+      className="min-h-screen bg-white font-[family-name:var(--font-inter),ui-sans-serif,system-ui,sans-serif] text-gray-800 antialiased selection:bg-[#1a5f96] selection:text-white"
+    >
+      {/* Navigation */}
+      <nav className="fixed z-50 w-full bg-white/80 backdrop-blur-md transition-all duration-300">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex h-20 items-center justify-between">
+          <div className="flex h-16 items-center justify-between">
             <Logo />
             <div className="hidden items-center space-x-8 md:flex">
-              <a
-                href="#challenge"
-                className="font-medium text-gray-600 transition-colors hover:text-[rgba(38,116,186,1)]"
-              >
-                The Challenge
+              <a href="#story" className="font-medium text-gray-600 transition-colors hover:text-[#1a5f96]">
+                How it works
               </a>
-              <a href="#outcomes" className="font-medium text-gray-600 transition-colors hover:text-[rgba(38,116,186,1)]">
-                Outcomes
-              </a>
-              <a href="#impact" className="font-medium text-gray-600 transition-colors hover:text-[rgba(38,116,186,1)]">
-                Impact
+              <a href="#case-studies" className="font-medium text-gray-600 transition-colors hover:text-[#1a5f96]">
+                Case Studies
               </a>
               <Link
                 href={LOGIN_HREF}
-                className="rounded-full bg-[rgba(38,116,186,1)] px-5 py-2.5 font-semibold text-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#1a5f96] hover:shadow-lg"
+                className="rounded-full bg-[#1a5f96] px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#155a8a] hover:shadow-lg"
               >
                 Login / Create an account
               </Link>
@@ -116,14 +218,13 @@ export function LandingPage() {
             <div className="flex items-center gap-2 md:hidden">
               <Link
                 href={LOGIN_HREF}
-                className="rounded-full bg-[rgba(38,116,186,1)] px-3 py-2 text-xs font-semibold text-white"
+                className="rounded-full bg-[#1a5f96] px-3 py-2 text-xs font-semibold text-white"
               >
                 Login
               </Link>
               <button
                 type="button"
-                className="rounded-lg p-2 text-gray-700 hover:bg-gray-100"
-                aria-label={menuOpen ? "Close menu" : "Open menu"}
+                className="rounded-lg p-2 text-slate-700 hover:bg-slate-100"
                 onClick={() => setMenuOpen(!menuOpen)}
               >
                 {menuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
@@ -135,9 +236,8 @@ export function LandingPage() {
           <div className="border-t border-gray-100 px-4 py-4 md:hidden">
             <nav className="flex flex-col gap-3">
               {[
-                ["#challenge", "The Challenge"],
-                ["#outcomes", "Outcomes"],
-                ["#impact", "Impact"],
+                ["#story", "How it works"],
+                ["#case-studies", "Case Studies"],
               ].map(([href, label]) => (
                 <a
                   key={href}
@@ -150,7 +250,7 @@ export function LandingPage() {
               ))}
               <Link
                 href={LOGIN_HREF}
-                className="mt-2 rounded-full bg-[rgba(38,116,186,1)] py-3 text-center text-sm font-semibold text-white"
+                className="mt-2 rounded-full bg-[#1a5f96] py-3 text-center text-sm font-semibold text-white"
                 onClick={() => setMenuOpen(false)}
               >
                 Login / Create an account
@@ -160,106 +260,111 @@ export function LandingPage() {
         )}
       </nav>
 
-      {/* Hero — pt-32 / lg:pt-48, text-5xl md:text-7xl font-extrabold */}
-      <section id="hero" className="relative overflow-hidden pb-20 pt-32 lg:pb-32 lg:pt-48">
-        <div className="animate-landing-fade-in relative z-10 mx-auto max-w-7xl px-4 text-center sm:px-6 lg:px-8">
-          <h1 className="mb-8 text-5xl font-extrabold leading-tight tracking-tight text-[#1A1A1A] md:text-7xl">
-            Stop Guessing. <br className="hidden md:block" />
-            <span className="bg-gradient-to-r from-[rgba(38,116,186,1)] to-sky-400 bg-clip-text text-transparent">
-              Know Exactly What Drives
-            </span>
-            <br />
-            Your Customers&apos; Decisions.
+      {/* Hero Section */}
+      <section ref={heroRef} id="hero" className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 pt-20 text-center bg-white">
+        {/* Background Elements */}
+        <div className="absolute inset-0 z-0 h-full w-full pointer-events-none overflow-hidden text-slate-100 font-black uppercase leading-none select-none" style={{ fontSize: '13vw', color: '#F1F5F9' }}>
+          <div ref={word1ScrollRef} className="absolute top-[5%] left-[-2%]">
+            <div ref={word1MouseRef}>INSIGHT</div>
+          </div>
+          <div ref={word2ScrollRef} className="absolute top-[30%] right-[-5%]">
+            <div ref={word2MouseRef}>PATTERN</div>
+          </div>
+          <div ref={word3ScrollRef} className="absolute top-[55%] left-[5%]">
+            <div ref={word3MouseRef}>CHOICE</div>
+          </div>
+          <div ref={word4ScrollRef} className="absolute top-[80%] right-[2%]">
+            <div ref={word4MouseRef}>DECISION</div>
+          </div>
+        </div>
+
+        <div className="relative z-10 mx-auto max-w-4xl bg-white/40 backdrop-blur-sm p-8 rounded-3xl">
+          <h1 className="mb-6 text-5xl font-semibold tracking-tighter text-slate-900 md:text-7xl lg:text-8xl" style={{ letterSpacing: '-0.04em' }}>
+            Understand Why <br /> People Choose.
           </h1>
-          <p className="mx-auto mb-10 max-w-3xl text-xl font-light leading-relaxed text-gray-600 md:text-2xl">
-            Traditional surveys tell you what people <em className="italic">think</em> they want. Mind Genomics
-            experiments uncover the response patterns and mindsets that actually trigger them to buy, engage, and act.
+          <p className="mx-auto mb-10 max-w-2xl text-lg font-normal tracking-tight text-slate-500 md:text-xl">
+            Reveal the hidden drivers behind customer decisions using Mind Genomics.
+            Stop guessing. Start knowing.
           </p>
-          <div className="flex justify-center gap-4">
+          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               href={LOGIN_HREF}
-              className="inline-flex items-center justify-center rounded-full bg-[rgba(38,116,186,1)] px-8 py-4 text-lg font-semibold text-white shadow-lg shadow-[rgba(38,116,186,0.35)] transition-all duration-300 hover:-translate-y-1 hover:bg-[#1a5f96] hover:shadow-xl"
+              className="inline-flex h-12 items-center justify-center rounded-full bg-[#1a5f96] px-8 text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-1 hover:bg-[#155a8a] hover:shadow-xl"
+              style={{ boxShadow: `0 10px 25px rgba(${BRAND_BLUE_RGB}, 0.35)` }}
             >
               Login / Create an account
             </Link>
-          </div>
-        </div>
-        <div
-          className="pointer-events-none absolute left-1/2 top-1/2 -z-10 h-[800px] w-[800px] max-w-[min(100vw,800px)] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[rgba(38,116,186,0.08)] blur-3xl"
-          aria-hidden
-        />
-      </section>
-
-      {/* The Challenge */}
-      <section id="challenge" className="scroll-mt-24 bg-[#1A1A1A] py-24 text-white">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="grid grid-cols-1 items-center gap-16 md:grid-cols-2">
-            <div>
-              <h2 className="mb-6 text-3xl font-bold md:text-5xl">The Problem with Asking &quot;Why?&quot;</h2>
-              <div className="mb-8 h-1 w-20 bg-[rgba(38,116,186,1)]" />
-              <p className="mb-6 text-lg leading-relaxed text-gray-300">
-                Focus groups and traditional surveys are fundamentally flawed. When asked direct questions, consumers
-                provide answers they believe are socially acceptable or logical. They over-intellectualize.
-              </p>
-              <p className="text-lg leading-relaxed text-gray-300">
-                This &quot;intellectualization bias&quot; leaves you with generic, sanitized data that doesn&apos;t
-                translate into real-world sales or engagement. To drive action, you need to bypass cognitive filters
-                and map the subconscious mind.
-              </p>
-            </div>
-            <div className="relative">
-              <div
-                className="absolute inset-0 rotate-3 rounded-2xl bg-gradient-to-tr from-[rgba(38,116,186,1)] to-sky-400 opacity-20"
-                aria-hidden
-              />
-              <div className="relative rounded-2xl border border-gray-700 bg-gray-800 p-8 shadow-2xl">
-                <TrendingDown className="mb-6 h-12 w-12 text-red-400" strokeWidth={2} aria-hidden />
-                <h3 className="mb-4 text-2xl font-semibold text-white">The Cost of Asking Why</h3>
-                <ul className="space-y-4 text-gray-400">
-                  {[
-                    "Wasted ad spend on the wrong hooks",
-                    "Products built for demographics, not desires",
-                    "Months lost in iterative guessing games",
-                  ].map((line) => (
-                    <li key={line} className="flex items-start gap-3">
-                      <span className="mt-1 text-red-400" aria-hidden>
-                        ✕
-                      </span>
-                      {line}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
+            <a
+              href="#story"
+              className="inline-flex h-12 items-center justify-center rounded-full border border-gray-200 bg-white px-8 text-sm font-medium text-gray-800 transition-all hover:bg-gray-50"
+            >
+              See how it works
+            </a>
           </div>
         </div>
       </section>
 
-      {/* Outcomes — hover lift + reveal body (reference) */}
-      <section id="outcomes" className="scroll-mt-24 bg-gray-50 py-24">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="mb-16 text-center">
-            <h2 className="mb-6 text-3xl font-bold text-[#1A1A1A] md:text-5xl">
-              Transform Data into Actionable Innovation
+      {/* Pinned Scroll Story */}
+      <section id="story" ref={wrapperRef} className="relative w-full bg-white">
+        <div ref={containerRef} className="flex h-screen w-full flex-col items-center justify-center overflow-hidden">
+          
+          {/* Text Container */}
+          <div className="absolute top-1/4 z-20 w-full px-4 text-center">
+            <h2 ref={text1Ref} className="text-3xl font-medium tracking-tight text-slate-900 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
+              Why did they choose Option A?
             </h2>
-            <p className="mx-auto max-w-2xl text-xl text-gray-600">
-              This is what happens when you apply the cartography of cognition to your business.
-            </p>
+            <h2 ref={text2Ref} className="absolute left-0 top-0 w-full text-3xl font-medium tracking-tight text-slate-900 opacity-0 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
+              Every choice is driven by hidden variables.
+            </h2>
+            <h2 ref={text3Ref} className="absolute left-0 top-0 w-full text-3xl font-medium tracking-tight text-slate-900 opacity-0 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
+              We isolate the exact elements that drive preference.
+            </h2>
+            <h2 ref={text4Ref} className="absolute left-0 top-0 w-full text-3xl font-medium tracking-tight text-slate-900 opacity-0 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
+              Build the perfect combination for every segment.
+            </h2>
           </div>
-          <div className="grid grid-cols-1 items-start gap-8 md:grid-cols-2">
-            {outcomeCards.map(({ icon: Icon, title, body }) => (
-              <div
-                key={title}
-                className="group cursor-pointer rounded-2xl border border-gray-100 bg-white p-8 shadow-sm transition-all duration-300 hover:-translate-y-2 hover:shadow-xl"
+
+          {/* 3D Abstract Object Container */}
+          <div className="relative z-10 mt-32 h-64 w-full max-w-3xl perspective-[1000px]">
+            {/* Scanner Line */}
+            <div 
+              ref={scannerRef} 
+              className="absolute -left-32 top-0 z-30 h-full w-1"
+              style={{
+                backgroundColor: BRAND_BLUE,
+                boxShadow: `0 0 20px rgba(${BRAND_BLUE_RGB}, 0.8)`,
+              }}
+            />
+
+            {/* Shards */}
+            {shardData.map((shard, i) => (
+              <div 
+                key={i} 
+                ref={(el) => {
+                  if (el) shardsRef.current[i] = el
+                }}
+                className="absolute left-1/2 top-1/2 preserve-3d"
               >
-                <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-xl bg-[rgba(38,116,186,0.12)] transition-colors duration-300 group-hover:bg-[rgba(38,116,186,1)]">
-                  <Icon className="h-7 w-7 text-[rgba(38,116,186,1)] transition-colors duration-300 group-hover:text-white" strokeWidth={2} />
+                <div className="group relative flex h-56 w-48 items-center justify-center overflow-hidden rounded-2xl border border-white/40 bg-white/30 shadow-lg backdrop-blur-md">
+                  <Image src={shard.img} alt={shard.label} fill className="object-cover opacity-90 transition-transform duration-700 group-hover:scale-110" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent" />
+                  <span className="absolute bottom-4 left-4 font-medium text-white">{shard.label}</span>
                 </div>
-                <h3 className="text-2xl font-bold text-[#1A1A1A] transition-colors duration-300 group-hover:text-[rgba(38,116,186,1)]">
-                  {title}
-                </h3>
-                <div className="max-h-0 overflow-hidden opacity-0 transition-all duration-500 ease-in-out group-hover:max-h-96 group-hover:opacity-100">
-                  <p className="mt-4 leading-relaxed text-gray-600">{body}</p>
+                
+                {/* Data Tags */}
+                <div 
+                  ref={(el) => {
+                    if (el) tagsRef.current[i] = el
+                  }}
+                  className="absolute -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm"
+                >
+                  {shard.label}
+                  <span
+                    className={`ml-2 font-semibold ${i === 1 || i === 3 ? "" : "text-gray-400"}`}
+                    style={i === 1 || i === 3 ? { color: BRAND_BLUE } : undefined}
+                  >
+                    {i === 1 || i === 3 ? '+24%' : '-2%'}
+                  </span>
                 </div>
               </div>
             ))}
@@ -267,53 +372,54 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Impact */}
-      <section id="impact" className="scroll-mt-24 border-t border-gray-100 bg-white py-24">
+      {/* Case Studies / Proof */}
+      <section id="case-studies" className="bg-[#F8FAFC] py-32 border-t border-slate-100">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col items-center gap-16 md:flex-row">
-            <div className="w-full md:w-1/2">
-              <div className="overflow-hidden rounded-2xl shadow-2xl">
-                <Image
-                  src="https://images.unsplash.com/photo-1551288049-bebda4e38f71?ixlib=rb-4.0.3&auto=format&fit=crop&w=1000&q=80"
-                  alt="Data Analytics Visualization"
-                  width={1000}
-                  height={750}
-                  className="h-auto w-full object-cover"
-                />
+          <div className="mb-16 text-center">
+            <h2 className="text-3xl font-semibold tracking-tight text-slate-900 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
+              Proven Outcomes
+            </h2>
+            <p className="mt-4 text-lg text-slate-500">
+              See how decision intelligence transforms guesswork into growth.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
+            {[
+              {
+                title: "Skin Cosmetics",
+                metric: "+34%",
+                metricLabel: "Purchase Intent",
+                desc: "Identified the exact mindset triggers that drive purchase intent before a physical prototype was finalized.",
+              },
+              {
+                title: "EdTech Platform",
+                metric: "2.5x",
+                metricLabel: "Engagement Rate",
+                desc: "Uncovered specific features that drive engagement, mapping the true cognitive requirements of the end-user.",
+              },
+              {
+                title: "Healthcare Communications",
+                metric: "+41%",
+                metricLabel: "Patient Adherence",
+                desc: "Discovered how specific relational cues and structured messaging dramatically shift patient trust.",
+              },
+            ].map((study, i) => (
+              <div key={i} className="group rounded-2xl border border-slate-200 bg-white p-8 transition-all hover:shadow-xl hover:shadow-slate-200/50">
+                <div className="mb-6">
+                  <div className="text-4xl font-semibold tracking-tight" style={{ color: BRAND_BLUE }}>{study.metric}</div>
+                  <div className="text-sm font-medium text-slate-500">{study.metricLabel}</div>
+                </div>
+                <h3 className="mb-3 text-xl font-medium text-slate-900">{study.title}</h3>
+                <p className="text-sm leading-relaxed text-slate-600">{study.desc}</p>
               </div>
-            </div>
-            <div className="w-full md:w-1/2">
-              <h2 className="mb-6 text-3xl font-bold text-[#1A1A1A] md:text-5xl">Proven Across Industries</h2>
-              <div className="mb-8 h-1 w-20 bg-[rgba(38,116,186,1)]" />
-              <p className="mb-8 text-lg leading-relaxed text-gray-600">
-                Mind Genomics isn&apos;t just theory; it&apos;s a versatile innovation engine. Our data-driven cartography
-                of the mind delivers clear direction regardless of your sector.
-              </p>
-              <ul className="space-y-4">
-                {impactRows.map(({ icon: Icon, label, title: exTitle, detail }) => (
-                  <li
-                    key={label}
-                    className="group relative flex cursor-pointer items-center gap-4 rounded-lg bg-gray-50 p-4 font-medium text-gray-700 transition-colors hover:bg-gray-100"
-                  >
-                    <div className="rounded-full bg-white p-2 shadow-sm">
-                      <Icon className="h-5 w-5 text-[rgba(38,116,186,1)]" strokeWidth={2} />
-                    </div>
-                    <span>{label}</span>
-                    <div className="pointer-events-none invisible absolute bottom-full left-0 z-50 mb-3 w-72 translate-y-2 rounded-xl border border-gray-100 bg-white p-5 text-sm font-normal text-gray-600 opacity-0 shadow-2xl transition-all duration-300 group-hover:visible group-hover:translate-y-0 group-hover:opacity-100 md:left-1/2 md:w-80 md:-translate-x-1/2">
-                      <strong className="mb-1 block text-base text-[#1A1A1A]">{exTitle}</strong>
-                      {detail}
-                      <div className="absolute left-8 top-full -mt-px border-8 border-transparent border-t-white md:left-1/2 md:-translate-x-1/2" />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
+            ))}
           </div>
         </div>
       </section>
 
       {/* Final CTA */}
-      <section id="cta" className="relative overflow-hidden bg-[#1a5f96] py-24">
+      <section id="cta" className="relative overflow-hidden py-24" style={{ backgroundColor: BRAND_BLUE }}>
         <div className="absolute inset-0 opacity-10" aria-hidden>
           <svg className="h-full w-full" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -325,14 +431,14 @@ export function LandingPage() {
           </svg>
         </div>
         <div className="relative z-10 mx-auto max-w-4xl px-4 text-center sm:px-6 lg:px-8">
-          <h2 className="mb-6 text-4xl font-extrabold text-white md:text-6xl">Ready to map your market&apos;s mind?</h2>
-          <p className="mb-6 text-lg leading-relaxed text-white">
+          <p className="mb-6 text-lg leading-relaxed text-white md:text-xl">
             Stop relying on guesswork and surface-level data. Let&apos;s design an experiment that gives you the
             precise answers you need to scale confidently.
           </p>
           <Link
             href={LOGIN_HREF}
-            className="inline-flex items-center justify-center rounded-full bg-white px-8 py-4 text-xl font-bold text-[rgba(38,116,186,1)] shadow-xl transition-all duration-300 hover:-translate-y-1 hover:bg-gray-50 hover:shadow-2xl"
+            className="inline-flex items-center justify-center rounded-full bg-white px-8 py-4 text-xl font-bold shadow-xl transition-all duration-300 hover:-translate-y-1 hover:bg-gray-50 hover:shadow-2xl"
+            style={{ color: BRAND_BLUE }}
           >
             Login / Create an account
             <ArrowRight className="ml-2 h-5 w-5" strokeWidth={2} />
@@ -340,9 +446,20 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* Footer */}
       <footer className="border-t border-gray-800 bg-[#1A1A1A] py-8 text-center">
         <p className="text-sm text-gray-500">&copy; 2026 TikunTech. All Rights Reserved.</p>
       </footer>
+
+      {/* Persistent Floating CTA */}
+      <div className="fixed bottom-8 right-8 z-50">
+        <Link
+          href={LOGIN_HREF}
+          className="flex h-12 items-center justify-center rounded-full bg-[#1a5f96] px-6 text-sm font-semibold text-white shadow-xl transition-all duration-300 hover:-translate-y-1 hover:bg-[#155a8a] hover:shadow-2xl"
+        >
+          Contact Us
+        </Link>
+      </div>
     </div>
   )
 }
