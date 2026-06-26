@@ -71,6 +71,6 @@ export function normalizeJobFromApi(raw: Record<string, unknown>): TrackedJob | 
     respondentsCompleted:
       typeof raw.respondents_completed === 'number' ? raw.respondents_completed : undefined,
     updatedAt: Date.now(),
-    unread: false,
+    unread: raw.unread === true || raw.is_read === false,
   }
 }

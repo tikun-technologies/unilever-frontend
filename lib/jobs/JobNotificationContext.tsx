@@ -14,8 +14,9 @@ import {
   dismissJobNotification as dismissJobNotificationApi,
   getAccessTokenForWebSocket,
   getWebSocketBaseUrl,
-  listActiveJobs,
-  listDismissedJobIds,
+  listNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
 } from '@/lib/jobs/jobsApi'
 import {
   isActiveJobStatus,
@@ -245,6 +246,9 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
       if (!job) return prev
       return { ...prev, [jobId]: { ...job, unread: false } }
     })
+    void markNotificationRead(jobId).catch((err) => {
+      console.warn('[JobNotifications] Failed to persist read state:', err)
+    })
   }, [])
 
   const markAllRead = useCallback(() => {
@@ -255,6 +259,9 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
         next[id] = { ...job, unread: false }
       }
       return next
+    })
+    void markAllNotificationsRead().catch((err) => {
+      console.warn('[JobNotifications] Failed to persist mark-all-read:', err)
     })
   }, [])
 
@@ -288,18 +295,25 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
         if (dismissedSetRef.current.has(job.jobId)) {
           return
         }
-        const wasRead = readSetRef.current.has(job.jobId)
-        upsertJob(
-          {
-            ...job,
-            unread: !wasRead && (job.status === 'completed' || job.status === 'failed'),
-          },
-          { markUnread: !wasRead && (job.status === 'completed' || job.status === 'failed') }
-        )
+        if (!job.unread) {
+          readSetRef.current.add(job.jobId)
+        } else {
+          readSetRef.current.delete(job.jobId)
+        }
+        upsertJob({ ...job }, { markUnread: job.unread })
       })
     },
     [upsertJob]
   )
+
+  const pollActiveJobs = useCallback(async () => {
+    try {
+      const { jobs } = await listNotifications(true)
+      applySnapshot(jobs)
+    } catch {
+      /* silent fallback */
+    }
+  }, [applySnapshot])
 
   const handleWsMessage = useCallback(
     (raw: Record<string, unknown>) => {
@@ -359,15 +373,6 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
     },
     [applySnapshot, syncStep7JobState, upsertJob]
   )
-
-  const pollActiveJobs = useCallback(async () => {
-    try {
-      const jobs = await listActiveJobs(true)
-      applySnapshot(jobs)
-    } catch {
-      /* silent fallback */
-    }
-  }, [applySnapshot])
 
   const startPollingFallback = useCallback(() => {
     if (pollTimerRef.current) return
@@ -484,11 +489,7 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
 
     void (async () => {
       try {
-        const [jobs, dismissedIds] = await Promise.all([
-          listActiveJobs(true),
-          listDismissedJobIds(),
-        ])
-        dismissedSetRef.current = new Set(dismissedIds)
+        const { jobs } = await listNotifications(true)
         applySnapshot(jobs)
       } catch {
         /* ignore hydrate errors */
@@ -498,8 +499,8 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
-        void pollActiveJobs()
         if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          void pollActiveJobs()
           void connectWebSocket()
         }
       }
