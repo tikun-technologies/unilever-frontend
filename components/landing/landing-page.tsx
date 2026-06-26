@@ -7,6 +7,7 @@ import { ArrowRight, Menu, X } from "lucide-react"
 import gsap from "gsap"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
 import { useGSAP } from "@gsap/react"
+import { CaseStudies } from "./case-studies"
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, useGSAP)
@@ -44,13 +45,13 @@ export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
   const wrapperRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  
+
   // Text refs
   const text1Ref = useRef<HTMLHeadingElement>(null)
   const text2Ref = useRef<HTMLHeadingElement>(null)
   const text3Ref = useRef<HTMLHeadingElement>(null)
   const text4Ref = useRef<HTMLHeadingElement>(null)
-  
+
   // Background Words refs
   const heroRef = useRef<HTMLElement>(null)
   const word1ScrollRef = useRef<HTMLDivElement>(null)
@@ -61,7 +62,7 @@ export function LandingPage() {
   const word2MouseRef = useRef<HTMLDivElement>(null)
   const word3MouseRef = useRef<HTMLDivElement>(null)
   const word4MouseRef = useRef<HTMLDivElement>(null)
-  
+
   // Object refs
   const shardsRef = useRef<HTMLDivElement[]>([])
   const tagsRef = useRef<HTMLDivElement[]>([])
@@ -89,7 +90,7 @@ export function LandingPage() {
       z: (i) => i * 20 - 40,
       opacity: 0.8,
     })
-    
+
     gsap.set(tagsRef.current, { opacity: 0, y: 10 })
     gsap.set(scannerRef.current, { opacity: 0, scaleY: 0 })
 
@@ -307,7 +308,7 @@ export function LandingPage() {
       {/* Pinned Scroll Story */}
       <section id="story" ref={wrapperRef} className="relative w-full bg-white">
         <div ref={containerRef} className="flex h-screen w-full flex-col items-center justify-center overflow-hidden">
-          
+
           {/* Text Container */}
           <div className="absolute top-1/4 z-20 w-full px-4 text-center">
             <h2 ref={text1Ref} className="text-3xl font-medium tracking-tight text-slate-900 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
@@ -327,8 +328,8 @@ export function LandingPage() {
           {/* 3D Abstract Object Container */}
           <div className="relative z-10 mt-32 h-64 w-full max-w-3xl perspective-[1000px]">
             {/* Scanner Line */}
-            <div 
-              ref={scannerRef} 
+            <div
+              ref={scannerRef}
               className="absolute -left-32 top-0 z-30 h-full w-1"
               style={{
                 backgroundColor: BRAND_BLUE,
@@ -338,8 +339,8 @@ export function LandingPage() {
 
             {/* Shards */}
             {shardData.map((shard, i) => (
-              <div 
-                key={i} 
+              <div
+                key={i}
                 ref={(el) => {
                   if (el) shardsRef.current[i] = el
                 }}
@@ -350,9 +351,9 @@ export function LandingPage() {
                   <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent" />
                   <span className="absolute bottom-4 left-4 font-medium text-white">{shard.label}</span>
                 </div>
-                
+
                 {/* Data Tags */}
-                <div 
+                <div
                   ref={(el) => {
                     if (el) tagsRef.current[i] = el
                   }}
@@ -372,51 +373,11 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* Case Studies / Proof */}
-      <section id="case-studies" className="bg-[#F8FAFC] py-32 border-t border-slate-100">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-          <div className="mb-16 text-center">
-            <h2 className="text-3xl font-semibold tracking-tight text-slate-900 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
-              Proven Outcomes
-            </h2>
-            <p className="mt-4 text-lg text-slate-500">
-              See how decision intelligence transforms guesswork into growth.
-            </p>
-          </div>
+      {/* Spacer to prevent abrupt transition from pinned story */}
+      <div className="h-32 w-full bg-white md:h-48"></div>
 
-          <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
-            {[
-              {
-                title: "Skin Cosmetics",
-                metric: "+34%",
-                metricLabel: "Purchase Intent",
-                desc: "Identified the exact mindset triggers that drive purchase intent before a physical prototype was finalized.",
-              },
-              {
-                title: "EdTech Platform",
-                metric: "2.5x",
-                metricLabel: "Engagement Rate",
-                desc: "Uncovered specific features that drive engagement, mapping the true cognitive requirements of the end-user.",
-              },
-              {
-                title: "Healthcare Communications",
-                metric: "+41%",
-                metricLabel: "Patient Adherence",
-                desc: "Discovered how specific relational cues and structured messaging dramatically shift patient trust.",
-              },
-            ].map((study, i) => (
-              <div key={i} className="group rounded-2xl border border-slate-200 bg-white p-8 transition-all hover:shadow-xl hover:shadow-slate-200/50">
-                <div className="mb-6">
-                  <div className="text-4xl font-semibold tracking-tight" style={{ color: BRAND_BLUE }}>{study.metric}</div>
-                  <div className="text-sm font-medium text-slate-500">{study.metricLabel}</div>
-                </div>
-                <h3 className="mb-3 text-xl font-medium text-slate-900">{study.title}</h3>
-                <p className="text-sm leading-relaxed text-slate-600">{study.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* Case Studies / Proof */}
+      <CaseStudies />
 
       {/* Final CTA */}
       <section id="cta" className="relative overflow-hidden py-24" style={{ backgroundColor: BRAND_BLUE }}>
