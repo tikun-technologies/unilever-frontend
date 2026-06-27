@@ -556,7 +556,7 @@ export default function StudyManagementPage() {
                 </div>
               </Link>
             )}
-            }
+            
           </div>
 
           {/* Response Statistics */}
