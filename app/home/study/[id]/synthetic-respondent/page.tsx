@@ -8,7 +8,7 @@ import { AuthGuard } from "@/components/auth/AuthGuard"
 import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { DashboardHeader } from "@/app/home/components/dashboard-header"
-import { getStudyBasicDetails, getStudyBasicDetails2, simulateAIRespondents, getSimulateAIStatus, type StudyDetails, type StudyBasicDetails2 } from "@/lib/api/StudyAPI"
+import { getStudyBasicDetails, getStudyBasicDetails2, simulateAIRespondents, getSimulateAIStatus, subscribeSimulateAIWebSocket, type StudyDetails, type StudyBasicDetails2 } from "@/lib/api/StudyAPI"
 import { useJobNotifications } from "@/lib/jobs/JobNotificationContext"
 import {
   ArrowLeft,
@@ -90,7 +90,7 @@ export default function SyntheticRespondentPage() {
   const studyHref = `/home/study/${studyId}${projectQuery}`
   const { user } = useAuth()
   const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
-  const { registerJob, watchJob } = useJobNotifications()
+  const { registerJob } = useJobNotifications()
 
   const [study, setStudy] = useState<StudyDetails | null>(null)
   const [studyBasic2, setStudyBasic2] = useState<StudyBasicDetails2 | null>(null)
@@ -201,7 +201,7 @@ export default function SyntheticRespondentPage() {
     }, 80)
   }, [])
 
-  // Job progress via global notifications
+  // Job progress via the dedicated simulate-AI WebSocket
   const startWebSocketSubscription = useCallback((jobId: string, totalRespondents: number) => {
     if (jobCompletedRef.current) return
 
@@ -220,22 +220,19 @@ export default function SyntheticRespondentPage() {
       message: 'Simulating AI respondents...',
     })
 
-    wsCleanupRef.current = watchJob(jobId, {
-      onProgress: (job) => {
-        const requested = job.respondentsRequested ?? totalRespondents
-        const completed =
-          job.respondentsCompleted ??
-          (requested > 0 ? Math.round((job.progress / 100) * requested) : 0)
-        console.log(`[Synthetic] Progress: ${completed}/${requested} (${job.progress.toFixed(1)}%)`)
+    const ac = new AbortController()
+    abortControllerRef.current = ac
+
+    wsCleanupRef.current = subscribeSimulateAIWebSocket(
+      jobId,
+      totalRespondents,
+      (completed, progress, message) => {
+        console.log(`[Synthetic] Progress: ${completed}/${totalRespondents} (${progress.toFixed(1)}%)`, message)
         targetCompletedRef.current = completed
         const displayed = displayedCountRef.current
         if (completed > displayed) startAnimation()
       },
-      onComplete: (job) => {
-        const totalCompleted =
-          job.respondentsCompleted ??
-          job.respondentsRequested ??
-          totalRespondents
+      (totalCompleted) => {
         console.log(`[Synthetic] Completed: ${totalCompleted} respondents`)
         jobCompletedRef.current = true
         lastStatusRef.current = "completed"
@@ -253,7 +250,7 @@ export default function SyntheticRespondentPage() {
           localStorage.removeItem(STORAGE_KEY(studyId))
         } catch { /* ignore */ }
       },
-      onError: (_job, error) => {
+      (error) => {
         console.error(`[Synthetic] Error:`, error)
         jobCompletedRef.current = true
         lastStatusRef.current = "failed"
@@ -263,8 +260,9 @@ export default function SyntheticRespondentPage() {
           localStorage.removeItem(STORAGE_KEY(studyId))
         } catch { /* ignore */ }
       },
-    })
-  }, [studyId, study?.title, startAnimation, registerJob, watchJob])
+      ac.signal
+    )
+  }, [studyId, study?.title, startAnimation, registerJob])
 
   // Check job status and resume WebSocket if needed (for page refresh/return scenarios)
   const checkAndResumeJob = useCallback(async (jobId: string, totalRespondents: number) => {

@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
-import { createStudyFromLocalStorage, fetchWithAuth, buildStudyPayloadFromLocalStorage, putUpdateStudyAsync } from "@/lib/api/StudyAPI"
+import { createStudyFromLocalStorage, fetchWithAuth, buildStudyPayloadFromLocalStorage, putUpdateStudyAsync, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
 
 function get<T>(key: string, fallback: T): T {
@@ -63,6 +63,9 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const [launchError, setLaunchError] = useState<string | null>(null)
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [isGeneratingTasks, setIsGeneratingTasks] = useState(false)
+  const [taskProgress, setTaskProgress] = useState(0)
+  const taskWsCleanupRef = useRef<(() => void) | null>(null)
+  const taskWsJobIdRef = useRef<string | null>(null)
 
   const step1 = get('cs_step1', { title: '', description: '', language: '' })
   const step2 = get('cs_step2', { type: 'grid', mainQuestion: '', orientationText: '' })
@@ -106,9 +109,84 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const hasLayer = step2.type === 'layer'
   const hasText = step2.type === 'text'
 
-  // Sync isGeneratingTasks from cs_step7_job_state (on mount, poll, and stepDataChanged)
+  // Sync task generation state and attach the dedicated task-generation WebSocket when needed.
   useEffect(() => {
-    const update = () => setIsGeneratingTasks(isJobStateActive())
+    const stopTaskSocket = () => {
+      taskWsCleanupRef.current?.()
+      taskWsCleanupRef.current = null
+      taskWsJobIdRef.current = null
+    }
+
+    const update = () => {
+      const active = isJobStateActive()
+      setIsGeneratingTasks(active)
+
+      if (!active) {
+        stopTaskSocket()
+        return
+      }
+
+      try {
+        const raw = localStorage.getItem('cs_step7_job_state')
+        if (!raw) return
+        const jobState = JSON.parse(raw) as {
+          jobId?: string
+          progress?: number
+          status?: { progress?: number; message?: string }
+          startTime?: number
+          studyId?: string | null
+        }
+        const jobId = jobState.jobId
+        if (!jobId) return
+
+        const progress = jobState.progress ?? jobState.status?.progress ?? 0
+        setTaskProgress(Math.round(progress))
+
+        if (taskWsJobIdRef.current === jobId && taskWsCleanupRef.current) return
+
+        stopTaskSocket()
+        taskWsJobIdRef.current = jobId
+        taskWsCleanupRef.current = subscribeTaskGenerationStatus(
+          jobId,
+          (status) => {
+            const nextProgress = typeof status.progress === 'number' ? status.progress : 0
+            setTaskProgress((prev) => Math.max(prev, Math.round(nextProgress)))
+            setIsGeneratingTasks(status.status === 'processing' || status.status === 'pending')
+            try {
+              localStorage.setItem(
+                'cs_step7_job_state',
+                JSON.stringify({
+                  ...jobState,
+                  status,
+                  progress: nextProgress,
+                  timestamp: Date.now(),
+                })
+              )
+              window.dispatchEvent(new CustomEvent('stepDataChanged'))
+            } catch { /* ignore */ }
+          },
+          () => {
+            setTaskProgress(100)
+            setIsGeneratingTasks(false)
+            stopTaskSocket()
+            try {
+              localStorage.removeItem('cs_step7_job_state')
+              localStorage.setItem('cs_step7_tasks', JSON.stringify({ completed: true, timestamp: Date.now() }))
+              localStorage.setItem('cs_step8', JSON.stringify({ completed: true, timestamp: Date.now() }))
+              window.dispatchEvent(new CustomEvent('stepDataChanged'))
+              onDataChange?.()
+            } catch { /* ignore */ }
+          },
+          () => {
+            setIsGeneratingTasks(false)
+            stopTaskSocket()
+          }
+        )
+      } catch {
+        /* ignore */
+      }
+    }
+
     update()
     const poll = setInterval(update, 2000)
     const handler = () => update()
@@ -116,8 +194,9 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
     return () => {
       clearInterval(poll)
       window.removeEventListener('stepDataChanged', handler)
+      stopTaskSocket()
     }
-  }, [])
+  }, [onDataChange])
 
   // Update last_step on mount so resuming brings user here
   useEffect(() => {
@@ -823,9 +902,17 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
               </Button>
             </div>
             {isGeneratingTasks && (
-              <p className="text-xs text-center text-amber-600 font-medium">
-                Tasks are being generated. Please wait for generation to complete before launching.
-              </p>
+              <div className="space-y-2">
+                <p className="text-xs text-center text-amber-600 font-medium">
+                  Tasks are being generated ({taskProgress}%). Please wait for generation to complete before launching.
+                </p>
+                <div className="mx-auto w-full max-w-xs rounded-full bg-amber-100 h-2">
+                  <div
+                    className="h-2 rounded-full bg-[rgba(38,116,186,1)] transition-all duration-300"
+                    style={{ width: `${Math.min(100, Math.max(0, taskProgress))}%` }}
+                  />
+                </div>
+              </div>
             )}
             {!canLaunch && !isGeneratingTasks && (
               <p className="text-xs text-center text-amber-600 font-medium">

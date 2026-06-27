@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef, useMemo, useCallback } from "react"
 import { Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, getTaskGenerationResult, validateDesignConstraints } from "@/lib/api/StudyAPI"
+import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, getTaskGenerationResult, validateDesignConstraints, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
 import { useJobNotifications } from "@/lib/jobs/JobNotificationContext"
 import JSZip from "jszip"
 
@@ -420,22 +420,15 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       })
     }
 
-    const unsubscribe = watchJob(jobId, {
-      onProgress: (job) => {
-        onProgress({
-          job_id: jobId,
-          status: 'processing',
-          progress: job.progress,
-          message: job.message,
-        })
-      },
-      onComplete: () => {
+    const unsubscribe = subscribeTaskGenerationStatus(
+      jobId,
+      onProgress,
+      () => {
         void onComplete()
       },
-      onError: (_job, error) => {
-        onError(error)
-      },
-    })
+      onError,
+      signal
+    )
 
     if (signal) {
       signal.addEventListener('abort', () => {
