@@ -2,12 +2,13 @@
 
 import Image from "next/image"
 import Link from "next/link"
-import { useRef, useState } from "react"
+import { useRef, useState, useEffect } from "react"
 import { ArrowRight, Menu, X } from "lucide-react"
 import gsap from "gsap"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
 import { useGSAP } from "@gsap/react"
 import { CaseStudies } from "./case-studies"
+import { LandingDesignConfigurator } from "./landing-design-configurator"
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, useGSAP)
@@ -18,13 +19,52 @@ const BRAND_BLUE = "#1a5f96"
 const BRAND_BLUE_HOVER = "#155a8a"
 const BRAND_BLUE_RGB = "26, 89, 150"
 
+const ACTION_WORDS = ["Choose.", "Decide.", "Act.", "Buy.", "Engage."]
+
 const shardData = [
-  { label: "Pricing", img: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=400&q=80" },
-  { label: "Trust", img: "https://images.unsplash.com/photo-1618044733300-9472054094ee?auto=format&fit=crop&w=400&q=80" },
-  { label: "Quality", img: "https://images.unsplash.com/photo-1507413245164-6160d8298b31?auto=format&fit=crop&w=400&q=80" },
-  { label: "Speed", img: "https://images.unsplash.com/photo-1620641788421-7a1c342ea42e?auto=format&fit=crop&w=400&q=80" },
-  { label: "Design", img: "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?auto=format&fit=crop&w=400&q=80" }
+  { label: "Unclear direction", segment: "Low fit", score: "-8%", img: "/worstdesign.webp", isBest: false },
+  { label: "Design route 1", segment: "Best for Gen Z", score: "+18%", img: "/desgn1.webp", isBest: false },
+  { label: "Best Design", segment: "Best overall", score: "+34%", img: "/Best Design.webp", isBest: true },
+  { label: "Design route 2", segment: "Best for Millennials", score: "+21%", img: "/design2.webp", isBest: false },
+  { label: "Design route 3", segment: "Best for Families", score: "+16%", img: "/design3.webp", isBest: false },
 ]
+
+/** 3 on top row, 2 on bottom row — keeps all 5 visible on phones */
+function getMobileGridPosition(index: number, phase: "shatter" | "scan") {
+  const isSmallPhone = typeof window !== "undefined" && window.innerWidth < 480
+  const spread = isSmallPhone ? 0.9 : 1
+
+  const topRow = [
+    { x: -66 * spread, y: -58 * spread },
+    { x: 0, y: -68 * spread },
+    { x: 66 * spread, y: -58 * spread },
+  ]
+  const bottomRow = [
+    { x: -34 * spread, y: 74 * spread },
+    { x: 34 * spread, y: 74 * spread },
+  ]
+
+  const pos = [...topRow, ...bottomRow][index] ?? { x: 0, y: 0 }
+
+  if (phase === "scan") {
+    return { x: pos.x * 1.06, y: pos.y * 1.04 }
+  }
+  return pos
+}
+
+/** Scanner is positioned at `-left-32`; travel must cover the full mobile grid width. */
+function getMobileScannerX(isStart: boolean): number {
+  if (typeof window === "undefined") return isStart ? 0 : 420
+
+  const containerW = Math.min(window.innerWidth - 32, 1024)
+  const positions = [0, 1, 2, 3, 4].map((i) => getMobileGridPosition(i, "scan").x)
+  const halfBottle = window.innerWidth < 480 ? 44 : 50
+  const edge = isStart ? Math.min(...positions) : Math.max(...positions)
+  const sign = isStart ? -1 : 1
+
+  // -128px base offset (-left-32) + x transform = container center + shard offset ± half bottle
+  return containerW / 2 + sign * halfBottle + edge + 128
+}
 
 function Logo() {
   return (
@@ -43,6 +83,37 @@ function Logo() {
 
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [text, setText] = useState("")
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [loopNum, setLoopNum] = useState(0)
+  const [typingSpeed, setTypingSpeed] = useState(150)
+
+  useEffect(() => {
+    const handleType = () => {
+      const i = loopNum % ACTION_WORDS.length
+      const fullText = ACTION_WORDS[i]
+
+      setText(
+        isDeleting
+          ? fullText.substring(0, text.length - 1)
+          : fullText.substring(0, text.length + 1)
+      )
+
+      setTypingSpeed(isDeleting ? 50 : 150)
+
+      if (!isDeleting && text === fullText) {
+        setTimeout(() => setIsDeleting(true), 1500)
+      } else if (isDeleting && text === "") {
+        setIsDeleting(false)
+        setLoopNum(loopNum + 1)
+        setTypingSpeed(500)
+      }
+    }
+
+    const timer = setTimeout(handleType, typingSpeed)
+    return () => clearTimeout(timer)
+  }, [text, isDeleting, loopNum, typingSpeed])
+
   const wrapperRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -65,128 +136,253 @@ export function LandingPage() {
 
   // Object refs
   const shardsRef = useRef<HTMLDivElement[]>([])
+  const shardVisualRefs = useRef<HTMLDivElement[]>([])
   const tagsRef = useRef<HTMLDivElement[]>([])
+  const tagsDesktopRef = useRef<HTMLDivElement[]>([])
   const scannerRef = useRef<HTMLDivElement>(null)
 
   useGSAP(() => {
     if (!wrapperRef.current) return
 
-    const tl = gsap.timeline({
-      scrollTrigger: {
-        trigger: wrapperRef.current,
-        start: "top top",
-        end: "+=400%",
-        scrub: 1,
-        pin: true,
-      },
-    })
+    const scrollConfig = {
+      trigger: wrapperRef.current,
+      start: "top top",
+      end: "+=500%",
+      scrub: 1,
+      pin: true,
+      anticipatePin: 1,
+      refreshPriority: 2,
+      invalidateOnRefresh: true,
+    }
 
-    // Initial setup for shards (Stacked crystal)
-    gsap.set(shardsRef.current, {
-      xPercent: -50,
-      yPercent: -50,
-      rotationX: 60,
-      rotationZ: -45,
-      z: (i) => i * 20 - 40,
-      opacity: 0.8,
-    })
+    const buildStoryTimeline = (isDesktop: boolean) => {
+      const scaleTargets = isDesktop ? shardVisualRefs.current : shardsRef.current
+      const tagTargets = isDesktop ? tagsDesktopRef.current : tagsRef.current
 
-    gsap.set(tagsRef.current, { opacity: 0, y: 10 })
-    gsap.set(scannerRef.current, { opacity: 0, scaleY: 0 })
+      const tl = gsap.timeline({ scrollTrigger: scrollConfig })
 
-    // PHASE 1 -> PHASE 2: Shatter
-    tl.to(text1Ref.current, { opacity: 0, y: -20, duration: 1 })
-      .to(text2Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
-      .to(
-        shardsRef.current,
-        {
-          x: "random(-200, 200)",
-          y: "random(-200, 200)",
-          z: "random(-100, 100)",
-          rotationX: "random(-180, 180)",
-          rotationY: "random(-180, 180)",
-          rotationZ: "random(-180, 180)",
-          opacity: 0.6,
-          duration: 2,
-          ease: "power2.inOut",
-        },
-        "<"
-      )
+      gsap.set(shardsRef.current, {
+        xPercent: -50,
+        yPercent: -50,
+        x: 0,
+        y: 0,
+        z: 0,
+        opacity: (i) => (i === 0 ? 1 : 0),
+        ...(isDesktop
+          ? { rotationX: 0, rotationY: 0, rotationZ: 0, scale: 1 }
+          : {
+              rotationX: 0,
+              rotationY: 0,
+              rotationZ: 0,
+              scale: (i) => (i === 0 ? 1.15 : 0.7),
+            }),
+      })
 
-    // PHASE 2 -> PHASE 3: Organize & Scan
-    tl.to(text2Ref.current, { opacity: 0, y: -20, duration: 1 }, "+=0.5")
-      .to(text3Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
-      .to(
-        shardsRef.current,
-        {
-          x: (i) => {
-            const spacing = typeof window !== "undefined" && window.innerWidth < 768 ? 80 : 160;
-            return (i - 2) * spacing;
-          },
-          y: 0,
-          z: 0,
+      if (isDesktop) {
+        gsap.set(shardVisualRefs.current, {
           rotationX: 0,
           rotationY: 0,
           rotationZ: 0,
-          opacity: 1,
-          scale: () => (typeof window !== "undefined" && window.innerWidth < 768 ? 0.5 : 0.8),
-          duration: 2,
-          ease: "power3.inOut",
-        },
-        "<"
-      )
-      // Scanner effect
-      .to(scannerRef.current, { opacity: 1, scaleY: 1, duration: 0.5 }, "-=1")
-      .to(scannerRef.current, { x: 800, duration: 1.5, ease: "none" })
-      .to(scannerRef.current, { opacity: 0, duration: 0.2 })
-      // Tags pop up
-      .to(tagsRef.current, { opacity: 1, y: 0, stagger: 0.2, duration: 0.5 }, "-=1")
+          scale: (i) => (i === 0 ? 1 : 0.7),
+        })
+      }
 
-    // PHASE 3 -> PHASE 4: Merge winning shards
-    tl.to(text3Ref.current, { opacity: 0, y: -20, duration: 1 }, "+=0.5")
-      .to(text4Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
-      .to(tagsRef.current, { opacity: 0, y: -10, duration: 0.5 }, "<")
-      .to(
+      gsap.set(tagTargets, { opacity: 0, y: 10 })
+      gsap.set(scannerRef.current, { opacity: 0, scaleY: 0 })
+
+      tl.to(text1Ref.current, { opacity: 0, y: -20, duration: 1 })
+        .to(text2Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
+
+      if (isDesktop) {
+        tl.to(scaleTargets[0], {
+          scale: 0.78,
+          rotationZ: -8,
+          duration: 1.2,
+          ease: "power2.inOut",
+        }, "<")
+          .to(shardsRef.current[0], { opacity: 0.35, duration: 1.2, ease: "power2.inOut" }, "<")
+      } else {
+        tl.to(shardsRef.current[0], {
+          scale: 0.9,
+          opacity: 0.35,
+          rotationZ: -8,
+          duration: 1.2,
+          ease: "power2.inOut",
+        }, "<")
+      }
+
+      tl.to(
         shardsRef.current,
         {
-          x: 0,
-          y: 0,
-          z: (i) => (i === 1 || i === 3 ? i * 10 : -1000), // Only winning shards stay, others disappear
-          opacity: (i) => (i === 1 || i === 3 ? 1 : 0),
-          rotationX: 60,
-          rotationZ: -45,
-          scale: 1.2,
+          x: (i) => {
+            if (!isDesktop) return getMobileGridPosition(i, "shatter").x
+            return (i - 2) * 135
+          },
+          y: (i) => {
+            if (!isDesktop) return getMobileGridPosition(i, "shatter").y
+            const offsets = [32, -20, 0, -18, 28]
+            return offsets[i] ?? 0
+          },
+          z: 0,
+          opacity: 0.72,
           duration: 2,
-          ease: "power3.inOut",
+          ease: "power2.inOut",
         },
-        "<"
+        "-=0.4"
       )
-      // Add a glow to the final crystal
-      .to(shardsRef.current[1], { boxShadow: `0 0 40px rgba(${BRAND_BLUE_RGB}, 0.5)`, duration: 1 }, "-=0.5")
+        .to(
+          scaleTargets,
+          {
+            rotationX: 0,
+            rotationY: (i) => (isDesktop ? (i - 2) * -5 : 0),
+            rotationZ: (i) => {
+              const rotations = [-7, 4, 0, -4, 7]
+              return rotations[i] ?? 0
+            },
+            scale: isDesktop ? 0.64 : 0.5,
+            duration: 2,
+            ease: "power2.inOut",
+          },
+          "-=2"
+        )
 
+      tl.to(text2Ref.current, { opacity: 0, y: -20, duration: 1 }, "+=0.5")
+        .to(text3Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
+        .to(
+          shardsRef.current,
+          {
+            x: (i) => {
+              if (!isDesktop) return getMobileGridPosition(i, "scan").x
+              return (i - 2) * 170
+            },
+            y: (i) => {
+              if (!isDesktop) return getMobileGridPosition(i, "scan").y
+              return 0
+            },
+            z: 0,
+            opacity: 0.76,
+            duration: 2,
+            ease: "power3.inOut",
+          },
+          "<"
+        )
+        .to(
+          scaleTargets,
+          {
+            rotationX: 0,
+            rotationY: 0,
+            rotationZ: 0,
+            scale: isDesktop ? 0.72 : 0.56,
+            duration: 2,
+            ease: "power3.inOut",
+          },
+          "<"
+        )
+        .to(scannerRef.current, { opacity: 1, scaleY: 1, duration: 0.5 }, "-=0.5")
+
+      if (isDesktop) {
+        tl.to(scannerRef.current, {
+          x: 980,
+          duration: 1.5,
+          ease: "none",
+        }, "scan")
+      } else {
+        tl.fromTo(
+          scannerRef.current,
+          { x: () => getMobileScannerX(true) },
+          { x: () => getMobileScannerX(false), duration: 1.5, ease: "none" },
+          "scan"
+        )
+      }
+
+      tl.to(scannerRef.current, { opacity: 0, duration: 0.2 }, "scan+=1.5")
+
+      tagTargets.forEach((tag, i) => {
+        if (!tag) return
+        tl.fromTo(
+          tag,
+          isDesktop ? { opacity: 0, y: 12 } : { opacity: 0, y: 14, scale: 0.92 },
+          isDesktop
+            ? { opacity: 1, y: 0, duration: 0.22, ease: "power2.out" }
+            : { opacity: 1, y: 0, scale: 1, duration: 0.22, ease: "back.out(1.7)" },
+          `scan+=${0.1 + i * 0.28}`
+        )
+      })
+
+      tl.to(text3Ref.current, { opacity: 0, y: -20, duration: 1 }, "+=0.5")
+        .to(text4Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
+        .to({}, { duration: 1 })
+        .to(tagTargets, { opacity: (i) => (i === 2 ? 1 : 0.18), y: (i) => (i === 2 ? 0 : 10), duration: 0.7 }, "+=0.2")
+        .to(
+          shardsRef.current,
+          {
+            x: 0,
+            y: isDesktop ? 20 : 10,
+            z: (i) => (i === 2 ? 160 : -200),
+            opacity: (i) => (i === 2 ? 1 : 0),
+            duration: 2,
+            ease: "power3.inOut",
+          },
+          "<"
+        )
+        .to(
+          scaleTargets,
+          {
+            rotationX: 0,
+            rotationY: 0,
+            rotationZ: 0,
+            scale: (i) => {
+              if (i !== 2) return isDesktop ? 0.5 : 0.45
+              return isDesktop ? 1 : 0.95
+            },
+            duration: 2,
+            ease: "power3.inOut",
+          },
+          "<"
+        )
+
+      if (isDesktop) {
+        tl.to(scaleTargets[2], { filter: `drop-shadow(0 24px 40px rgba(${BRAND_BLUE_RGB}, 0.22))`, duration: 1 }, "-=0.6")
+          .to(shardsRef.current[2], { y: 20, duration: 1.2, ease: "none" }, "+=0.4")
+          .to(scaleTargets[2], { scale: 1.1, duration: 1.2, ease: "none" }, "<")
+      } else {
+        tl.to(shardsRef.current[2], { filter: `drop-shadow(0 24px 40px rgba(${BRAND_BLUE_RGB}, 0.22))`, duration: 1 }, "-=0.6")
+          .to(shardsRef.current[2], { scale: 1.05, y: 10, duration: 1.2, ease: "none" }, "+=0.4")
+      }
+
+      return tl
+    }
+
+    const mm = gsap.matchMedia()
+    mm.add("(min-width: 768px)", () => buildStoryTimeline(true))
+    mm.add("(max-width: 767px)", () => buildStoryTimeline(false))
+
+    return () => mm.revert()
   }, { scope: wrapperRef })
 
   useGSAP(() => {
     if (!heroRef.current) return
 
     // Scroll Parallax
-    gsap.to(word1ScrollRef.current, { y: -250, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
-    gsap.to(word2ScrollRef.current, { y: -400, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
-    gsap.to(word3ScrollRef.current, { y: -150, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
-    gsap.to(word4ScrollRef.current, { y: -350, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
+    gsap.to(word1ScrollRef.current, { y: -200, rotation: -2, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
+    gsap.to(word2ScrollRef.current, { y: -350, rotation: 2, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
+    gsap.to(word3ScrollRef.current, { y: -150, rotation: -1, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
+    gsap.to(word4ScrollRef.current, { y: -300, rotation: 3, scrollTrigger: { trigger: heroRef.current, start: "top top", end: "bottom top", scrub: true } })
 
     // Mouse Parallax
     const handleMouseMove = (e: MouseEvent) => {
       const { clientX, clientY } = e
       const centerX = window.innerWidth / 2
       const centerY = window.innerHeight / 2
-      const moveX = (clientX - centerX) / 40
-      const moveY = (clientY - centerY) / 40
+      const moveX = (clientX - centerX) / 30
+      const moveY = (clientY - centerY) / 30
+      
+      const rotate = (clientX - centerX) / 100
 
-      gsap.to(word1MouseRef.current, { x: moveX * 1.5, y: moveY * 1.5, duration: 1, ease: "power2.out" })
-      gsap.to(word2MouseRef.current, { x: moveX * -2, y: moveY * -2, duration: 1, ease: "power2.out" })
-      gsap.to(word3MouseRef.current, { x: moveX * 2.5, y: moveY * 2.5, duration: 1, ease: "power2.out" })
-      gsap.to(word4MouseRef.current, { x: moveX * -1.5, y: moveY * -1.5, duration: 1, ease: "power2.out" })
+      gsap.to(word1MouseRef.current, { x: moveX * 2, y: moveY * 2, rotation: rotate * 0.5, duration: 1, ease: "power2.out" })
+      gsap.to(word2MouseRef.current, { x: moveX * -2.5, y: moveY * -2.5, rotation: rotate * -0.5, duration: 1, ease: "power2.out" })
+      gsap.to(word3MouseRef.current, { x: moveX * 3, y: moveY * 3, rotation: rotate * 0.8, duration: 1, ease: "power2.out" })
+      gsap.to(word4MouseRef.current, { x: moveX * -2, y: moveY * -2, rotation: rotate * -0.8, duration: 1, ease: "power2.out" })
     }
 
     window.addEventListener("mousemove", handleMouseMove)
@@ -264,24 +460,31 @@ export function LandingPage() {
       {/* Hero Section */}
       <section ref={heroRef} id="hero" className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 pt-20 text-center bg-white">
         {/* Background Elements */}
-        <div className="absolute inset-0 z-0 h-full w-full pointer-events-none overflow-hidden text-slate-100 font-black uppercase leading-none select-none" style={{ fontSize: '13vw', color: '#F1F5F9' }}>
-          <div ref={word1ScrollRef} className="absolute top-[5%] left-[-2%]">
-            <div ref={word1MouseRef}>INSIGHT</div>
+        <div className="absolute inset-0 z-0 h-full w-full pointer-events-none overflow-hidden text-slate-100 font-black uppercase leading-none select-none flex flex-col justify-around py-20" style={{ color: '#F1F5F9' }}>
+          <div ref={word1ScrollRef} className="w-full text-left pl-[5%] md:pl-[10%]" style={{ fontSize: 'clamp(3.5rem, 11vw, 12rem)' }}>
+            <div ref={word1MouseRef} className="inline-block">INSIGHT</div>
           </div>
-          <div ref={word2ScrollRef} className="absolute top-[30%] right-[-5%]">
-            <div ref={word2MouseRef}>PATTERN</div>
+          <div ref={word2ScrollRef} className="w-full text-right pr-[5%] md:pr-[15%]" style={{ fontSize: 'clamp(3.5rem, 11vw, 12rem)' }}>
+            <div ref={word2MouseRef} className="inline-block">PATTERN</div>
           </div>
-          <div ref={word3ScrollRef} className="absolute top-[55%] left-[5%]">
-            <div ref={word3MouseRef}>CHOICE</div>
+          <div ref={word3ScrollRef} className="w-full text-left pl-[10%] md:pl-[20%]" style={{ fontSize: 'clamp(3.5rem, 11vw, 12rem)' }}>
+            <div ref={word3MouseRef} className="inline-block">CHOICE</div>
           </div>
-          <div ref={word4ScrollRef} className="absolute top-[80%] right-[2%]">
-            <div ref={word4MouseRef}>DECISION</div>
+          <div ref={word4ScrollRef} className="w-full text-right pr-[5%] md:pr-[10%]" style={{ fontSize: 'clamp(3.5rem, 11vw, 12rem)' }}>
+            <div ref={word4MouseRef} className="inline-block">DECISION</div>
           </div>
         </div>
 
-        <div className="relative z-10 mx-auto max-w-4xl bg-white/40 backdrop-blur-sm p-8 rounded-3xl">
+        <div className="relative z-10 mx-auto max-w-4xl px-4 sm:px-6">
           <h1 className="mb-6 text-5xl font-semibold tracking-tighter text-slate-900 md:text-7xl lg:text-8xl" style={{ letterSpacing: '-0.04em' }}>
-            Understand Why <br /> People Choose.
+            Understand Why <br className="hidden md:block" /> People{" "}
+            <br className="md:hidden" />
+            <span className="block min-h-[1.15em] text-[#1a5f96] md:inline md:min-h-0">
+              <span className="inline-block min-w-[9ch] md:min-w-0">
+                {text}
+                <span className="animate-pulse font-light">|</span>
+              </span>
+            </span>
           </h1>
           <p className="mx-auto mb-10 max-w-2xl text-lg font-normal tracking-tight text-slate-500 md:text-xl">
             Reveal the hidden drivers behind customer decisions using Mind Genomics.
@@ -306,31 +509,31 @@ export function LandingPage() {
       </section>
 
       {/* Pinned Scroll Story */}
-      <section id="story" ref={wrapperRef} className="relative w-full bg-white">
+      <section id="story" ref={wrapperRef} className="relative z-30 w-full bg-white">
         <div ref={containerRef} className="flex h-screen w-full flex-col items-center justify-center overflow-hidden">
 
           {/* Text Container */}
           <div className="absolute top-1/4 z-20 w-full px-4 text-center">
             <h2 ref={text1Ref} className="text-3xl font-medium tracking-tight text-slate-900 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
-              Why did they choose Option A?
+              Why does one design win?
             </h2>
             <h2 ref={text2Ref} className="absolute left-0 top-0 w-full text-3xl font-medium tracking-tight text-slate-900 opacity-0 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
-              Every choice is driven by hidden variables.
+              Break the weak concept into testable alternatives.
             </h2>
             <h2 ref={text3Ref} className="absolute left-0 top-0 w-full text-3xl font-medium tracking-tight text-slate-900 opacity-0 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
-              We isolate the exact elements that drive preference.
+              Scan what people actually respond to.
             </h2>
             <h2 ref={text4Ref} className="absolute left-0 top-0 w-full text-3xl font-medium tracking-tight text-slate-900 opacity-0 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
-              Build the perfect combination for every segment.
+              Choose the strongest design for each segment.
             </h2>
           </div>
 
-          {/* 3D Abstract Object Container */}
-          <div className="relative z-10 mt-32 h-64 w-full max-w-3xl perspective-[1000px]">
+          {/* 3D Abstract Object Container — taller on mobile for 3+2 grid */}
+          <div className="relative z-10 mt-16 h-[440px] w-full max-w-5xl perspective-[1000px] sm:mt-20 sm:h-[480px] md:mt-32 md:h-64">
             {/* Scanner Line */}
             <div
               ref={scannerRef}
-              className="absolute -left-32 top-0 z-30 h-full w-1"
+              className="absolute -left-32 top-1/2 z-30 h-[72%] w-1 -translate-y-1/2 rounded-full"
               style={{
                 backgroundColor: BRAND_BLUE,
                 boxShadow: `0 0 20px rgba(${BRAND_BLUE_RGB}, 0.8)`,
@@ -346,26 +549,53 @@ export function LandingPage() {
                 }}
                 className="absolute left-1/2 top-1/2 preserve-3d"
               >
-                <div className="group relative flex h-56 w-48 items-center justify-center overflow-hidden rounded-2xl border border-white/40 bg-white/30 shadow-lg backdrop-blur-md">
-                  <Image src={shard.img} alt={shard.label} fill className="object-cover opacity-90 transition-transform duration-700 group-hover:scale-110" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-slate-900/90 via-slate-900/20 to-transparent" />
-                  <span className="absolute bottom-4 left-4 font-medium text-white">{shard.label}</span>
-                </div>
-
-                {/* Data Tags */}
                 <div
                   ref={(el) => {
-                    if (el) tagsRef.current[i] = el
+                    if (el) shardVisualRefs.current[i] = el
                   }}
-                  className="absolute -top-12 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-600 shadow-sm"
+                  className="md:origin-center md:preserve-3d"
                 >
-                  {shard.label}
-                  <span
-                    className={`ml-2 font-semibold ${i === 1 || i === 3 ? "" : "text-gray-400"}`}
-                    style={i === 1 || i === 3 ? { color: BRAND_BLUE } : undefined}
+                  <div className="relative flex h-48 w-36 items-center justify-center sm:h-52 sm:w-40 md:h-72 md:w-56">
+                    <Image
+                      src={shard.img}
+                      alt={shard.label}
+                      fill
+                      sizes="(max-width: 768px) 48vw, 288px"
+                      className="object-contain"
+                      priority={i === 0 || shard.isBest}
+                    />
+                  </div>
+                  {/* Mobile tags — unchanged styling & inside scaled parent */}
+                  <div
+                    ref={(el) => {
+                      if (el) tagsRef.current[i] = el
+                    }}
+                    className={[
+                      "absolute left-1/2 top-full mt-2 w-max max-w-[9rem] -translate-x-1/2 rounded-xl border border-slate-200 bg-white/90 px-2 py-1 text-center text-[10px] leading-tight shadow-lg shadow-slate-200/70 backdrop-blur-md md:hidden",
+                      "sm:mt-4 sm:max-w-[13rem] sm:rounded-2xl sm:px-4 sm:py-2 sm:text-xs sm:leading-normal",
+                      i === 0 && "!-translate-x-[calc(50%+20px)]",
+                      i === 2 && "!-translate-x-[calc(50%-20px)]",
+                      i === 3 && "!-translate-x-[calc(50%+16px)] mt-3",
+                      i === 4 && "!-translate-x-[calc(50%-16px)] mt-3",
+                    ].filter(Boolean).join(" ")}
                   >
-                    {i === 1 || i === 3 ? '+24%' : '-2%'}
-                  </span>
+                    <div className="font-semibold text-slate-900">{shard.segment}</div>
+                    <div className={`mt-0.5 font-semibold ${shard.isBest ? "text-[#1a5f96]" : "text-slate-500"}`}>
+                      {shard.score} preference lift
+                    </div>
+                  </div>
+                </div>
+                {/* Desktop tags — solid background, outside scaled bottle wrapper */}
+                <div
+                  ref={(el) => {
+                    if (el) tagsDesktopRef.current[i] = el
+                  }}
+                  className="pointer-events-none absolute left-1/2 top-full mt-4 hidden w-max max-w-[11rem] -translate-x-1/2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-center text-xs leading-normal antialiased shadow-md md:block"
+                >
+                  <div className="font-semibold text-slate-900">{shard.segment}</div>
+                  <div className={`mt-0.5 font-semibold ${shard.isBest ? "text-[#1a5f96]" : "text-slate-500"}`}>
+                    {shard.score} preference lift
+                  </div>
                 </div>
               </div>
             ))}
@@ -374,7 +604,12 @@ export function LandingPage() {
       </section>
 
       {/* Spacer to prevent abrupt transition from pinned story */}
-      <div className="h-32 w-full bg-white md:h-48"></div>
+      <div className="relative z-0 h-56 w-full bg-white md:h-[35vh]"></div>
+
+      {/* Design Configurator */}
+      <div className="bg-slate-50/50 border-t border-slate-100">
+        <LandingDesignConfigurator />
+      </div>
 
       {/* Case Studies / Proof */}
       <CaseStudies />
