@@ -530,6 +530,71 @@ export async function getStudyAnalysisJson(studyId: string): Promise<any> {
 	return response.json()
 }
 
+// ---------------- Analysis Settings ----------------
+
+export interface RatingScoringGroup {
+	hundred: number[]
+	zero: number[]
+}
+
+export interface AnalysisRegressionSettings {
+	include_intercept: boolean
+}
+
+export interface StudyAnalysisSettings {
+	top: RatingScoringGroup
+	bottom: RatingScoringGroup
+	regression: AnalysisRegressionSettings
+}
+
+export interface StudyAnalysisSettingsResponse {
+	study_id: string
+	settings: StudyAnalysisSettings
+	max_rating: number
+	is_default: boolean
+	updated_at?: string | null
+	defaults?: StudyAnalysisSettings
+}
+
+export async function getStudyAnalysisSettings(studyId: string): Promise<StudyAnalysisSettingsResponse> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/analysis-settings`,
+		{ method: 'GET', headers: { 'Content-Type': 'application/json' } }
+	)
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(
+			`Failed to load analysis settings: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
+		)
+	}
+	return response.json()
+}
+
+export async function saveStudyAnalysisSettings(
+	studyId: string,
+	settings: StudyAnalysisSettings
+): Promise<StudyAnalysisSettingsResponse> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/analysis-settings`,
+		{
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(settings),
+		}
+	)
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(
+			`Failed to save analysis settings: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
+		)
+	}
+	return response.json()
+}
+
 // ---------------- Filter Analysis ----------------
 export interface StudyFilterPayload {
 	filters?: {

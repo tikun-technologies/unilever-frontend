@@ -7,7 +7,7 @@ import { AuthGuard } from "@/components/auth/AuthGuard"
 import { getStudyBasicDetails, StudyDetails } from "@/lib/api/StudyAPI"
 import { downloadStudyResponsesCsv, getStudyAnalysisJson } from "@/lib/api/ResponseAPI"
 import { AnimatePresence, motion } from "framer-motion"
-import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard, Sparkles } from "lucide-react"
+import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard, Settings2, Sparkles } from "lucide-react"
 import { exportDesignConfiguratorHtml, ExportHtmlStage } from "@/lib/export/designConfiguratorHtmlExport"
 import Link from "next/link"
 import { AnalyticsToolbar } from "./components/AnalyticsToolbar"
@@ -22,6 +22,7 @@ import { AnalyticsFatiguePredictor } from "./components/AnalyticsFatiguePredicto
 import { AnalyticsPersonaBlueprints } from "./components/AnalyticsPersonaBlueprints"
 import { AnalyticsFilterAnalysis } from "./components/AnalyticsFilterAnalysis"
 import { AnalyticsDesignConfigurator } from "./components/AnalyticsDesignConfigurator"
+import { AnalyticsSettingsModal } from "./components/AnalyticsSettingsModal"
 
 export default function StudyAnalyticsPage() {
     const params = useParams()
@@ -43,6 +44,22 @@ export default function StudyAnalyticsPage() {
     const [analysisData, setAnalysisData] = useState<any>(null)
     const [analysisLoading, setAnalysisLoading] = useState(true)
     const [analysisError, setAnalysisError] = useState<string | null>(null)
+    const [settingsOpen, setSettingsOpen] = useState(false)
+
+    const loadAnalysis = async () => {
+        if (!studyId) return
+        setAnalysisLoading(true)
+        setAnalysisError(null)
+        try {
+            const data = await getStudyAnalysisJson(studyId)
+            setAnalysisData(data)
+        } catch (e) {
+            console.warn("Failed to load analysis:", e)
+            setAnalysisError((e as Error)?.message ?? "Failed to load analysis")
+        } finally {
+            setAnalysisLoading(false)
+        }
+    }
 
     useEffect(() => {
         if (!studyId) return
@@ -51,15 +68,7 @@ export default function StudyAnalyticsPage() {
 
     useEffect(() => {
         if (!studyId) return
-        setAnalysisLoading(true)
-        setAnalysisError(null)
-        getStudyAnalysisJson(studyId)
-            .then(setAnalysisData)
-            .catch((e) => {
-                console.warn("Failed to load analysis:", e)
-                setAnalysisError((e as Error)?.message ?? "Failed to load analysis")
-            })
-            .finally(() => setAnalysisLoading(false))
+        void loadAnalysis()
     }, [studyId])
 
     const loadStudyDetails = async () => {
@@ -162,12 +171,12 @@ export default function StudyAnalyticsPage() {
     )
     const [loadingMessageIndex, setLoadingMessageIndex] = useState(0)
     useEffect(() => {
-        if (!analysisLoading || analysisData) return
+        if (!analysisLoading) return
         const id = setInterval(() => {
             setLoadingMessageIndex((i) => (i + 1) % loadingMessages.length)
         }, 2200)
         return () => clearInterval(id)
-    }, [analysisLoading, analysisData, loadingMessages.length])
+    }, [analysisLoading, loadingMessages.length])
 
     if (loading) {
         return (
@@ -234,8 +243,18 @@ export default function StudyAnalyticsPage() {
                             <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">{pageTitle}</h1>
                             <div className="flex items-center gap-3 w-full lg:w-auto">
                                 <button
+                                    type="button"
+                                    onClick={() => setSettingsOpen(true)}
+                                    className="cursor-pointer flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold"
+                                    style={{ borderColor: 'rgba(255, 255, 255, 0.3)', color: '#FFFFFF' }}
+                                >
+                                    <Settings2 className="w-4 h-4" />
+                                    <span className="whitespace-nowrap">Analysis Settings</span>
+                                </button>
+
+                                <button
                                     onClick={() => router.push(studyHref)}
-                                    className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold"
+                                    className="cursor-pointer flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold"
                                     style={{ borderColor: 'rgba(255, 255, 255, 0.3)', color: '#FFFFFF' }}
                                 >
                                     <ArrowLeft className="w-4 h-4" />
@@ -245,7 +264,7 @@ export default function StudyAnalyticsPage() {
                                 <button
                                     onClick={buildCsvAndDownload}
                                     disabled={exporting || !study}
-                                    className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white rounded-lg transition-all duration-200 hover:shadow-lg active:scale-95 font-bold text-xs sm:text-sm whitespace-nowrap"
+                                    className="cursor-pointer flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white rounded-lg transition-all duration-200 hover:shadow-lg active:scale-95 font-bold text-xs sm:text-sm whitespace-nowrap disabled:cursor-not-allowed"
                                     style={{ color: '#2674BA' }}
                                 >
                                     {exporting ? (
@@ -278,7 +297,7 @@ export default function StudyAnalyticsPage() {
                         </div>
                     )}
 
-                    {analysisLoading && !analysisData ? (
+                    {analysisLoading ? (
                         <div className="flex flex-col items-center justify-center min-h-[60vh] bg-gray-50/80 rounded-xl border border-gray-100">
                             <div className="animate-spin rounded-full h-14 w-14 border-2 border-[#2674BA] border-t-transparent" />
                             <p className="mt-5 text-lg font-medium text-gray-700 transition-opacity duration-300">
@@ -444,6 +463,15 @@ export default function StudyAnalyticsPage() {
                     )}
                 </div>
             </div>
+
+            <AnalyticsSettingsModal
+                studyId={studyId}
+                isOpen={settingsOpen}
+                onClose={() => setSettingsOpen(false)}
+                onSaved={() => {
+                    void loadAnalysis()
+                }}
+            />
         </AuthGuard>
     )
 }
