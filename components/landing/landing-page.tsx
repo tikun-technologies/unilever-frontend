@@ -498,12 +498,12 @@ export function LandingPage() {
             >
               Login / Create an account
             </Link>
-            <a
-              href="#story"
+            <Link
+              href={LOGIN_HREF}
               className="inline-flex h-12 items-center justify-center rounded-full border border-gray-200 bg-white px-8 text-sm font-medium text-gray-800 transition-all hover:bg-gray-50"
             >
-              See how it works
-            </a>
+              Contact Us
+            </Link>
           </div>
         </div>
       </section>
@@ -647,15 +647,6 @@ export function LandingPage() {
         <p className="text-sm text-gray-500">&copy; 2026 TikunTech. All Rights Reserved.</p>
       </footer>
 
-      {/* Persistent Floating CTA */}
-      <div className="fixed bottom-8 right-8 z-50">
-        <Link
-          href={LOGIN_HREF}
-          className="flex h-12 items-center justify-center rounded-full bg-[#1a5f96] px-6 text-sm font-semibold text-white shadow-xl transition-all duration-300 hover:-translate-y-1 hover:bg-[#155a8a] hover:shadow-2xl"
-        >
-          Contact Us
-        </Link>
-      </div>
     </div>
   )
 }
