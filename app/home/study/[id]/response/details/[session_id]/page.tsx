@@ -395,7 +395,7 @@ export default function ResponseDetailsPage() {
                                     {textElements.map((el, idx) => (
                                       <div
                                         key={`${el.name}-${idx}`}
-                                        className="px-4 py-3 bg-white border border-gray-200 rounded-lg text-sm text-gray-800 break-words shadow-sm"
+                                        className="px-4 py-3 text-sm text-gray-800 break-words"
                                         style={{
                                           minHeight: '40px',
                                           display: 'flex',

@@ -832,14 +832,14 @@ export default function TasksPage() {
                           </div>
                         </div>
                       ) : task?.type === "text" ? (
-                        <div className="w-full h-full flex flex-col items-center justify-center overflow-hidden relative gap-2 sm:gap-4 p-4">
+                        <div className="w-full h-full flex flex-col items-stretch justify-start overflow-hidden relative gap-4 p-4 pt-14 sm:gap-5">
                           {task?.gridUrls?.map((statement, idx) => (
                             <div
                               key={idx}
-                              className="w-full flex-1 flex items-center justify-center text-center p-4 rounded-lg shadow-sm"
+                              className="w-full flex items-center justify-start text-left px-2 py-1 rounded-lg"
                               style={{
-                                minHeight: '60px',
-                                fontSize: 'clamp(16px, 2vw, 18px)',
+                                minHeight: '32px',
+                                fontSize: 'clamp(18px, 4vw, 22px)',
                                 overflowWrap: 'break-word',
                                 wordBreak: 'break-word'
                               }}
@@ -1182,7 +1182,7 @@ export default function TasksPage() {
                         {task?.gridUrls?.map((statement, idx) => (
                           <div
                             key={idx}
-                            className="w-full flex items-center justify-center text-center px-4 py-3 rounded-xl shadow-sm transition-colors bg-gray-50"
+                            className="w-full flex items-center justify-center text-center px-4 py-3 rounded-xl transition-colors"
                             style={{
                               height: `${100 / (task?.gridUrls?.length || 1)}%`,
                               maxHeight: '120px',
