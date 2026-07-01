@@ -10,8 +10,10 @@ import { updateStudyStatus, putUpdateStudy, StudyDetails, getStudyBasicDetails }
 import { StudyAnalytics, downloadStudyResponsesCsv, subscribeStudyAnalytics } from "@/lib/api/ResponseAPI"
 import { Pause, Play, CheckCircle, Share, Download, BarChart3, ArrowLeft, ChevronDown, LineChart, Bot } from "lucide-react"
 import Link from "next/link"
+import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import { StudyLaunchCongrats } from "@/components/onboarding/StudyLaunchCongrats"
+import { getConfiguratorThumbnailUrl } from "@/lib/utils/configuratorImageUrls"
 
 interface AccordionSectionProps {
   title: string
@@ -60,6 +62,147 @@ const AccordionSection = ({ title, children, defaultOpen = false }: AccordionSec
   )
 }
 
+const getQuestionKey = (question: any, index: number) =>
+  String(question?.id || question?.question_id || index)
+
+const getQuestionOptions = (question: any) =>
+  Array.isArray(question?.answer_options) ? question.answer_options : []
+
+const QuestionList = ({ questions }: { questions: any[] }) => (
+  <div className="space-y-4">
+    {questions.map((question: any, index: number) => (
+      <div key={getQuestionKey(question, index)} className="border rounded-lg p-4 bg-white">
+        <div className="flex items-start justify-between mb-2 gap-3">
+          <div className="text-sm font-medium text-gray-800">{question.question_text}</div>
+          <div className="text-xs text-gray-500 shrink-0">Q{index + 1}</div>
+        </div>
+        <div className="text-sm text-gray-600 mb-2">
+          <div className="mb-1">Type: {String(question.question_type || "multiple_choice").replace('_', ' ').toUpperCase()}</div>
+          <div className="mb-1">Required: {question.is_required ? 'Yes' : 'No'}</div>
+        </div>
+        {getQuestionOptions(question).length > 0 && (
+          <div>
+            <div className="text-sm text-gray-500 mb-2">Answer Options:</div>
+            <div className="flex flex-wrap gap-2">
+              {getQuestionOptions(question).map((option: any, optIndex: number) => (
+                <span key={option.id || optIndex} className="px-3 py-1 bg-white border rounded text-sm">
+                  {option.text}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    ))}
+  </div>
+)
+
+const getElementImageUrl = (element: any) => {
+  if (!element) return ""
+  if (String(element.element_type || "").toLowerCase() === "text") return ""
+  return String(element.url || element.content || "")
+}
+
+const getElementText = (element: any) => {
+  const isText = String(element?.element_type || "").toLowerCase() === "text"
+  return String(
+    element?.text_content ||
+    element?.textContent ||
+    (isText ? element?.content : "") ||
+    (isText ? element?.name : "") ||
+    ""
+  )
+}
+
+const isTextElement = (element: any) => {
+  if (String(element?.element_type || "").toLowerCase() === "text") return true
+  if (getElementImageUrl(element)) return false
+  return Boolean(getElementText(element) || element?.name)
+}
+
+const getStatementText = (element: any) => {
+  const text = getElementText(element)
+  if (text) return text
+  return String(element?.name || element?.alt_text || "Untitled statement")
+}
+
+const TextStatementList = ({ elements }: { elements: any[] }) => (
+  <div className="space-y-3 w-full">
+    {elements.map((element, index) => (
+      <div
+        key={element.element_id || element.id || index}
+        className="px-4 py-3 text-sm text-gray-800 break-words whitespace-pre-wrap"
+        style={{ minHeight: "40px", display: "flex", alignItems: "center" }}
+      >
+        {getStatementText(element)}
+      </div>
+    ))}
+  </div>
+)
+
+const ElementCard = ({ element }: { element: any }) => {
+  const imageUrl = getElementImageUrl(element)
+  const name = String(element?.name || element?.alt_text || "Untitled element")
+
+  return (
+    <div className="border rounded-lg bg-white overflow-hidden">
+      <div className="relative h-28 bg-gray-50 border-b">
+        <Image
+          src={getConfiguratorThumbnailUrl(imageUrl)}
+          alt={String(element?.alt_text || name)}
+          fill
+          sizes="(max-width: 640px) 45vw, (max-width: 1024px) 25vw, 160px"
+          className="object-contain p-2"
+          loading="lazy"
+        />
+      </div>
+      <div className="p-3">
+        <div className="text-sm font-medium text-gray-800 break-words">{name}</div>
+        <div className="text-xs text-gray-500 mt-1 truncate" title={imageUrl}>
+          Image thumbnail
+        </div>
+      </div>
+    </div>
+  )
+}
+
+const CategoryElementsDisplay = ({ elements, imageFirst = false }: { elements: any[]; imageFirst?: boolean }) => {
+  const textElements = elements.filter(isTextElement)
+  const imageElements = elements.filter((element) => !isTextElement(element))
+
+  if (textElements.length === 0 && imageElements.length === 0) {
+    return <div className="text-sm text-gray-500">No elements to display</div>
+  }
+
+  const imageGrid = imageElements.length > 0 && (
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+      {imageElements.map((element: any, elementIndex: number) => (
+        <ElementCard key={element.element_id || element.id || elementIndex} element={element} />
+      ))}
+    </div>
+  )
+
+  const textList = textElements.length > 0 && <TextStatementList elements={textElements} />
+
+  if (imageFirst) {
+    return (
+      <>
+        {imageGrid}
+        {imageElements.length > 0 && textElements.length > 0 && textList && <div className="mt-4">{textList}</div>}
+        {imageElements.length === 0 && textList}
+      </>
+    )
+  }
+
+  return (
+    <>
+      {textList}
+      {textElements.length > 0 && imageElements.length > 0 && imageGrid && <div className="mt-4">{imageGrid}</div>}
+      {textElements.length === 0 && imageGrid}
+    </>
+  )
+}
+
 export default function StudyManagementPage() {
   const params = useParams()
   const router = useRouter()
@@ -91,7 +234,7 @@ export default function StudyManagementPage() {
   const [showLaunchCongrats, setShowLaunchCongrats] = useState(false)
 
   // Cache keys
-  const STUDY_CACHE_KEY = `study_details_cache_${studyId}`
+  const STUDY_CACHE_KEY = `study_details_cache_v2_${studyId}`
   const ANALYTICS_CACHE_KEY = `study_analytics_cache_${studyId}`
 
   // Hydrate from cache immediately, then fetch fresh in background
@@ -388,6 +531,33 @@ export default function StudyManagementPage() {
   // Display helpers
   const createdDisplay = study.created_at ? new Date(study.created_at)
     .toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }) : 'N/A'
+  const allClassificationQuestions = Array.isArray((study as any).classification_questions)
+    ? (study as any).classification_questions
+    : []
+  const postClassificationQuestions = [
+    ...(Array.isArray((study as any).post_classification_questions) ? (study as any).post_classification_questions : []),
+    ...allClassificationQuestions.filter((question: any) => question?.optional_classification_question),
+  ]
+  const classificationQuestions = allClassificationQuestions.filter(
+    (question: any) => !question?.optional_classification_question
+  )
+  const studyLayers = Array.isArray((study as any).layers) ? (study as any).layers : []
+  const rawStudyCategories = Array.isArray((study as any).categories) ? (study as any).categories : []
+  const isHybridStudy = study.study_type === "hybrid"
+  const hybridPhaseOrder = Array.isArray((study as any).phase_order) ? (study as any).phase_order : ["grid", "text"]
+  const getCategoryPhaseRank = (category: any) => {
+    const phase = String(category?.phase_type || "grid").toLowerCase()
+    const rank = hybridPhaseOrder.indexOf(phase)
+    return rank === -1 ? hybridPhaseOrder.length : rank
+  }
+  const studyCategories = isHybridStudy
+    ? [...rawStudyCategories].sort((a, b) => {
+        const phaseDiff = getCategoryPhaseRank(a) - getCategoryPhaseRank(b)
+        if (phaseDiff !== 0) return phaseDiff
+        return Number(a?.order ?? 0) - Number(b?.order ?? 0)
+      })
+    : rawStudyCategories
+  const hasElementDetails = studyLayers.length > 0 || studyCategories.length > 0
 
   return (
     <AuthGuard requireAuth={true}>
@@ -517,9 +687,19 @@ export default function StudyManagementPage() {
                 <span className="text-gray-700">Type :</span>
                 <span className="text-gray-700">{study.study_type === 'layer' ? 'Layer - Based' : study.study_type === 'hybrid' ? 'Hybrid - Based' : study.study_type === 'text' ? 'Text - Based' : 'Grid - Based'}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-gray-700">Created :</span>
-                <span className="text-gray-700">{createdDisplay}</span>
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-700">Created :</span>
+                  <span className="text-gray-700">{createdDisplay}</span>
+                </div>
+                <a
+                  href={`/home/create-study/preview?studyId=${encodeURIComponent(studyId)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-sm font-medium text-[rgba(38,116,186,1)] hover:underline whitespace-nowrap shrink-0"
+                >
+                  Preview as Participant ↗
+                </a>
               </div>
             </div>
              {/* AI agentic respondents CTA - commented out */}
@@ -675,40 +855,81 @@ export default function StudyManagementPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Classification Questions</label>
                 <div className="w-full py-2 bg-white text-gray-700 whitespace-pre-wrap break-words">
-                  {`${(study as any).classification_questions?.length || 0} Question${((study as any).classification_questions?.length || 0) !== 1 ? 's' : ''}`}
+                  {`${classificationQuestions.length} Question${classificationQuestions.length !== 1 ? 's' : ''}`}
                 </div>
               </div>
             </div>
           </AccordionSection>
 
           {/* Classification Questions */}
-          {(study as any).classification_questions && (study as any).classification_questions.length > 0 && (
+          {classificationQuestions.length > 0 && (
             <AccordionSection title="Classification Questions">
-              <div className="space-y-4">
-                {(study as any).classification_questions.map((question: any, index: number) => (
-                  <div key={question.id || index} className="border rounded-lg p-4 bg-white">
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="text-sm font-medium text-gray-800">{question.question_text}</div>
-                      <div className="text-xs text-gray-500 ml-2">Q{index + 1}</div>
-                    </div>
-                    <div className="text-sm text-gray-600 mb-2">
-                      <div className="mb-1">Type: {question.question_type.replace('_', ' ').toUpperCase()}</div>
-                      <div className="mb-1">Required: {question.is_required ? 'Yes' : 'No'}</div>
-                    </div>
-                    {question.answer_options && question.answer_options.length > 0 && (
-                      <div>
-                        <div className="text-sm text-gray-500 mb-2">Answer Options:</div>
-                        <div className="flex flex-wrap gap-2">
-                          {question.answer_options.map((option: any, optIndex: number) => (
-                            <span key={option.id || optIndex} className="px-3 py-1 bg-white border rounded text-sm">
-                              {option.text}
-                            </span>
-                          ))}
+              <QuestionList questions={classificationQuestions} />
+            </AccordionSection>
+          )}
+
+          {/* Post Classification Questions */}
+          {postClassificationQuestions.length > 0 && (
+            <AccordionSection title="Post Classification Questions">
+              <QuestionList questions={postClassificationQuestions} />
+            </AccordionSection>
+          )}
+
+          {/* Study Elements */}
+          {hasElementDetails && (
+            <AccordionSection title="Study Elements">
+              <div className="space-y-6">
+                {studyLayers.map((layer: any, layerIndex: number) => {
+                  const elements = Array.isArray(layer.elements)
+                    ? layer.elements
+                    : Array.isArray(layer.images)
+                      ? layer.images
+                      : []
+                  return (
+                    <div key={layer.layer_id || layer.id || layerIndex} className="border rounded-xl p-4 bg-white">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                        <div>
+                          <h4 className="font-semibold text-gray-800 break-words">{layer.name || `Layer ${layerIndex + 1}`}</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {elements.length} element{elements.length !== 1 ? 's' : ''}
+                          </p>
                         </div>
+                        {layer.layer_type && (
+                          <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-[#2674BA] w-fit">
+                            {String(layer.layer_type).toUpperCase()}
+                          </span>
+                        )}
                       </div>
-                    )}
-                  </div>
-                ))}
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+                        {elements.map((element: any, elementIndex: number) => (
+                          <ElementCard key={element.image_id || element.element_id || element.id || elementIndex} element={element} />
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {studyCategories.map((category: any, categoryIndex: number) => {
+                  const elements = Array.isArray(category.elements) ? category.elements : []
+                  return (
+                    <div key={category.category_id || category.id || categoryIndex} className="border rounded-xl p-4 bg-white">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
+                        <div>
+                          <h4 className="font-semibold text-gray-800 break-words">{category.name || `Category ${categoryIndex + 1}`}</h4>
+                          <p className="text-xs text-gray-500 mt-0.5">
+                            {elements.length} element{elements.length !== 1 ? 's' : ''}
+                          </p>
+                        </div>
+                        {category.phase_type && (
+                          <span className="text-xs px-2 py-1 rounded-full bg-blue-50 text-[#2674BA] w-fit">
+                            {String(category.phase_type).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <CategoryElementsDisplay elements={elements} imageFirst={isHybridStudy} />
+                    </div>
+                  )
+                })}
               </div>
             </AccordionSection>
           )}

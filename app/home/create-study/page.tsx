@@ -1261,8 +1261,8 @@ export default function CreateStudyPage() {
                   isReadOnly={userRole === 'viewer'}
                   storageKey="cs_step6_optional_classification"
                   completionKey="cs_step6_optional_classification_completed"
-                  title="Optional Classification Question"
-                  description="Add an optional classification question that will be asked after all study tasks and before the thank-you page."
+                  title="Post Classification Questions"
+                  description="Add post-study classification questions that will be asked after all study tasks and before the thank-you page."
                   secondaryDescription="You can leave this blank and continue; the step will be saved as skipped."
                   currentStepNumber={6}
                   isOptionalStep

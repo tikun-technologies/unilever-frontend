@@ -8,7 +8,7 @@ import { AuthGuard } from "@/components/auth/AuthGuard"
 import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { DashboardHeader } from "@/app/home/components/dashboard-header"
-import { getStudyBasicDetails, getStudyBasicDetails2, simulateAIRespondents, getSimulateAIStatus, subscribeSimulateAIWebSocket, type StudyDetails, type StudyBasicDetails2 } from "@/lib/api/StudyAPI"
+import { getStudyBasicDetails, getStudyBasicDetails2, simulateAIRespondents, getSimulateAIStatus, type StudyDetails, type StudyBasicDetails2 } from "@/lib/api/StudyAPI"
 import { useJobNotifications } from "@/lib/jobs/JobNotificationContext"
 import {
   ArrowLeft,
@@ -90,7 +90,7 @@ export default function SyntheticRespondentPage() {
   const studyHref = `/home/study/${studyId}${projectQuery}`
   const { user } = useAuth()
   const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
-  const { registerJob } = useJobNotifications()
+  const { registerJob, watchJob } = useJobNotifications()
 
   const [study, setStudy] = useState<StudyDetails | null>(null)
   const [studyBasic2, setStudyBasic2] = useState<StudyBasicDetails2 | null>(null)
@@ -201,7 +201,8 @@ export default function SyntheticRespondentPage() {
     }, 80)
   }, [])
 
-  // Job progress via the dedicated simulate-AI WebSocket
+  // Job progress via the shared user jobs WebSocket. The notification provider
+  // owns the single socket and falls back to polling if it cannot stay connected.
   const startWebSocketSubscription = useCallback((jobId: string, totalRespondents: number) => {
     if (jobCompletedRef.current) return
 
@@ -223,46 +224,61 @@ export default function SyntheticRespondentPage() {
     const ac = new AbortController()
     abortControllerRef.current = ac
 
-    wsCleanupRef.current = subscribeSimulateAIWebSocket(
-      jobId,
-      totalRespondents,
-      (completed, progress, message) => {
-        console.log(`[Synthetic] Progress: ${completed}/${totalRespondents} (${progress.toFixed(1)}%)`, message)
-        targetCompletedRef.current = completed
-        const displayed = displayedCountRef.current
-        if (completed > displayed) startAnimation()
-      },
-      (totalCompleted) => {
-        console.log(`[Synthetic] Completed: ${totalCompleted} respondents`)
-        jobCompletedRef.current = true
-        lastStatusRef.current = "completed"
-        targetCompletedRef.current = totalCompleted
+    const handleProgress = (completed: number, progress: number, message?: string) => {
+      console.log(`[Synthetic] Progress: ${completed}/${totalRespondents} (${progress.toFixed(1)}%)`, message)
+      targetCompletedRef.current = completed
+      const displayed = displayedCountRef.current
+      if (completed > displayed) startAnimation()
+    }
 
-        const displayed = displayedCountRef.current
-        if (totalCompleted > displayed) {
-          startAnimation()
-        } else {
-          setIsRunning(false)
-          setShowSuccess(true)
-        }
+    const handleComplete = (totalCompleted: number) => {
+      console.log(`[Synthetic] Completed: ${totalCompleted} respondents`)
+      jobCompletedRef.current = true
+      lastStatusRef.current = "completed"
+      targetCompletedRef.current = totalCompleted
 
-        try {
-          localStorage.removeItem(STORAGE_KEY(studyId))
-        } catch { /* ignore */ }
-      },
-      (error) => {
-        console.error(`[Synthetic] Error:`, error)
-        jobCompletedRef.current = true
-        lastStatusRef.current = "failed"
-        setSimulateError(error)
+      const displayed = displayedCountRef.current
+      if (totalCompleted > displayed) {
+        startAnimation()
+      } else {
         setIsRunning(false)
-        try {
-          localStorage.removeItem(STORAGE_KEY(studyId))
-        } catch { /* ignore */ }
+        setShowSuccess(true)
+      }
+
+      try {
+        localStorage.removeItem(STORAGE_KEY(studyId))
+      } catch { /* ignore */ }
+    }
+
+    const handleError = (error: string) => {
+      console.error(`[Synthetic] Error:`, error)
+      jobCompletedRef.current = true
+      lastStatusRef.current = "failed"
+      setSimulateError(error)
+      setIsRunning(false)
+      try {
+        localStorage.removeItem(STORAGE_KEY(studyId))
+      } catch { /* ignore */ }
+    }
+
+    const unsubscribeSharedJob = watchJob(jobId, {
+      onProgress: (job) => {
+        const completed = job.respondentsCompleted ??
+          (totalRespondents > 0 ? Math.round((job.progress / 100) * totalRespondents) : 0)
+        handleProgress(completed, job.progress, job.message)
       },
-      ac.signal
-    )
-  }, [studyId, study?.title, startAnimation, registerJob])
+      onComplete: (job) => {
+        handleProgress(job.respondentsCompleted ?? totalRespondents, 100, job.message)
+        handleComplete(job.respondentsCompleted ?? totalRespondents)
+      },
+      onError: (_job, error) => {
+        handleError(error)
+      },
+    })
+
+    wsCleanupRef.current = unsubscribeSharedJob
+    ac.signal.addEventListener('abort', unsubscribeSharedJob, { once: true })
+  }, [studyId, study?.title, startAnimation, registerJob, watchJob])
 
   // Check job status and resume WebSocket if needed (for page refresh/return scenarios)
   const checkAndResumeJob = useCallback(async (jobId: string, totalRespondents: number) => {

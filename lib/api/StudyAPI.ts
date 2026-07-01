@@ -1743,7 +1743,8 @@ export function subscribeTaskGenerationStatus(
 }
 
 // Enhanced task generation with background job support.
-// Progress comes from the dedicated task-generation WebSocket while the job runs.
+// Progress should use the shared user jobs WebSocket when available, with the
+// dedicated task-generation WebSocket kept as a fallback for standalone callers.
 export interface TaskGenerationJobHandlers {
   registerJob: (input: {
     jobId: string
@@ -1825,44 +1826,75 @@ export async function generateTasksWithPolling(
 
       return new Promise((resolve, reject) => {
         let settled = false
+        let unsubscribeProgress: (() => void) | null = null
 
-        const unsubscribeTaskSocket = subscribeTaskGenerationStatus(
-          effectiveJobId,
-          (status) => {
-            if (onProgress) onProgress(status)
-          },
-          async () => {
-            if (settled) return
-            settled = true
-            try {
-              console.log('🔄 Job completed, fetching final result...')
-              const result = await getTaskGenerationResult(effectiveJobId)
-              const studyId = result?.study_id || result?.metadata?.study_id
-              if (studyId) {
-                try {
-                  localStorage.setItem('cs_study_id', JSON.stringify(studyId))
-                } catch {
-                  /* ignore */
-                }
+        const completeJob = async () => {
+          if (settled) return
+          settled = true
+          unsubscribeProgress?.()
+          try {
+            console.log('🔄 Job completed, fetching final result...')
+            const result = await getTaskGenerationResult(effectiveJobId)
+            const studyId = result?.study_id || result?.metadata?.study_id
+            if (studyId) {
+              try {
+                localStorage.setItem('cs_study_id', JSON.stringify(studyId))
+              } catch {
+                /* ignore */
               }
-              resolve(result)
-            } catch (e) {
-              reject(e)
             }
-          },
-          (error) => {
-            if (settled) return
-            settled = true
-            reject(new Error(error))
-          },
-          signal
-        )
+            resolve(result)
+          } catch (e) {
+            reject(e)
+          }
+        }
+
+        const failJob = (error: string) => {
+          if (settled) return
+          settled = true
+          unsubscribeProgress?.()
+          reject(new Error(error))
+        }
+
+        if (jobHandlers) {
+          console.log('🔄 Using shared jobs WebSocket for task-generation progress...')
+          unsubscribeProgress = jobHandlers.watchJob(effectiveJobId, {
+            onProgress: (job) => {
+              if (onProgress) {
+                onProgress({
+                  job_id: effectiveJobId,
+                  status: job.status as JobStatus['status'],
+                  progress: job.progress,
+                  message: job.message,
+                })
+              }
+            },
+            onComplete: () => {
+              void completeJob()
+            },
+            onError: (error) => {
+              failJob(error)
+            },
+          })
+        } else {
+          unsubscribeProgress = subscribeTaskGenerationStatus(
+            effectiveJobId,
+            (status) => {
+              if (onProgress) onProgress(status)
+            },
+            () => {
+              void completeJob()
+            },
+            failJob,
+            signal
+          )
+        }
 
         if (signal) {
           signal.addEventListener(
             'abort',
             () => {
-              unsubscribeTaskSocket()
+              unsubscribeProgress?.()
               if (!settled) {
                 settled = true
                 reject(new DOMException('Aborted', 'AbortError'))

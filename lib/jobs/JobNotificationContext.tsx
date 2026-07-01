@@ -423,6 +423,11 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
   const connectWebSocket = useCallback(async () => {
     if (stoppedRef.current || !isAuthenticated) return
 
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+
     const wsBase = getWebSocketBaseUrl()
     const token = getAccessTokenForWebSocket()
 
@@ -432,6 +437,13 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
     }
 
     if (wsRef.current) {
+      if (
+        wsRef.current.readyState === WebSocket.OPEN ||
+        wsRef.current.readyState === WebSocket.CONNECTING
+      ) {
+        return
+      }
+
       try {
         wsRef.current.close()
       } catch {

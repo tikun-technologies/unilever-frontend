@@ -10,6 +10,41 @@ function get<T>(key: string, fallback: T): T {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) as T : fallback } catch { return fallback }
 }
 
+const normalizeClassificationTitle = (value: unknown) =>
+  String(value ?? "").toLowerCase().replace(/\s+/g, " ").trim()
+
+const getClassificationQuestionTitle = (question: any) =>
+  String(question?.title || question?.question_text || "").trim()
+
+const getClassificationQuestionOptions = (question: any) => {
+  if (Array.isArray(question?.options)) return question.options
+  if (Array.isArray(question?.answer_options)) return question.answer_options
+  return []
+}
+
+const getClassificationOptionText = (option: any) =>
+  String(option?.text || option?.option_text || "").trim()
+
+const isValidClassificationPreviewQuestion = (question: any) => {
+  const title = getClassificationQuestionTitle(question)
+  if (!title) return false
+  const validOptionCount = getClassificationQuestionOptions(question)
+    .filter((option: any) => getClassificationOptionText(option).length > 0).length
+  return validOptionCount >= 2
+}
+
+const getValidClassificationPreviewQuestions = (questions: unknown) =>
+  (Array.isArray(questions) ? questions : []).filter(isValidClassificationPreviewQuestion)
+
+const hasDuplicateClassificationTitles = (regular: any[], post: any[]) => {
+  const regularTitles = new Set(
+    getValidClassificationPreviewQuestions(regular).map((q) => normalizeClassificationTitle(getClassificationQuestionTitle(q)))
+  )
+  return getValidClassificationPreviewQuestions(post).some((q) =>
+    regularTitles.has(normalizeClassificationTitle(getClassificationQuestionTitle(q)))
+  )
+}
+
 /** Map language code (e.g. "en") to full display name (e.g. "ENGLISH") for everyone. */
 function getLanguageDisplayName(code: string): string {
   if (!code || !String(code).trim()) return '-'
@@ -66,6 +101,13 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const [taskProgress, setTaskProgress] = useState(0)
   const taskWsCleanupRef = useRef<(() => void) | null>(null)
   const taskWsJobIdRef = useRef<string | null>(null)
+  const [, setPreviewRevision] = useState(0)
+
+  useEffect(() => {
+    const refreshPreview = () => setPreviewRevision((value) => value + 1)
+    window.addEventListener('stepDataChanged', refreshPreview)
+    return () => window.removeEventListener('stepDataChanged', refreshPreview)
+  }, [])
 
   const step1 = get('cs_step1', { title: '', description: '', language: '' })
   const step2 = get('cs_step2', { type: 'grid', mainQuestion: '', orientationText: '' })
@@ -74,6 +116,9 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const step3 = get('cs_step3', { minValue: 1, maxValue: 5, minLabel: '', maxLabel: '', middleLabel: '' })
   const step4 = get('cs_step4', [])
   const optionalClassification = get('cs_step6_optional_classification', [])
+  const regularClassificationQuestions = getValidClassificationPreviewQuestions(step4)
+  const postClassificationQuestions = getValidClassificationPreviewQuestions(optionalClassification)
+  const hasCrossStepDuplicateQuestions = hasDuplicateClassificationTitles(step4, optionalClassification)
   const gridData = get<any>(isHybrid ? 'cs_step5_hybrid_grid' : 'cs_step5_grid', [])
   const textData = get<any>(isHybrid ? 'cs_step5_hybrid_text' : 'cs_step5_text', [])
   const layerData = get<any>('cs_step5_layer', [])
@@ -234,6 +279,10 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
     if (isGeneratingTasks) return
     if (!isConfirmed) {
       setLaunchError('Please confirm you are ready to launch this study')
+      return
+    }
+    if (hasCrossStepDuplicateQuestions) {
+      setLaunchError('Classification and post-classification questions cannot use the same question title. Please update them before launching.')
       return
     }
 
@@ -526,62 +575,76 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
           </div>
         </section>
 
-        {step4 && step4.length > 0 && (
+        {regularClassificationQuestions.length > 0 && (
           <section className="rounded-lg border bg-white p-4">
             <div className="text-sm font-semibold mb-2">Classification Questions</div>
             <div className="space-y-3">
-              {step4.map((question: any, index: number) => (
-                <div key={question.id || index} className="border rounded-lg p-3 bg-gray-50">
-                  <div className="text-sm font-medium mb-2">{question.title}</div>
-                  <div className="text-sm text-gray-600">
-                    <div className="mb-1">Required: {question.required ? 'Yes' : 'No'}</div>
-                    {question.options && question.options.length > 0 && (
-                      <div>
-                        <div className="text-gray-500 mb-1">Options:</div>
-                        <div className="flex flex-wrap gap-2">
-                          {question.options.map((option: any, optIndex: number) => (
-                            <span key={option.id || optIndex} className="px-2 py-1 bg-white border rounded text-xs">
-                              {option.text}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {optionalClassification && optionalClassification.some((question: any) => question?.title && String(question.title).trim().length > 0) && (
-          <section className="rounded-lg border bg-white p-4">
-            <div className="text-sm font-semibold mb-2">Optional Classification Question</div>
-            <div className="space-y-3">
-              {optionalClassification
-                .filter((question: any) => question?.title && String(question.title).trim().length > 0)
-                .map((question: any, index: number) => (
-                  <div key={question.id || index} className="border rounded-lg p-3 bg-gray-50">
-                    <div className="text-sm font-medium mb-2">{question.title}</div>
+              {regularClassificationQuestions.map((question: any, index: number) => {
+                const options = getClassificationQuestionOptions(question)
+                return (
+                  <div key={question.id || question.question_id || index} className="border rounded-lg p-3 bg-gray-50">
+                    <div className="text-sm font-medium mb-2">{getClassificationQuestionTitle(question)}</div>
                     <div className="text-sm text-gray-600">
-                      <div className="mb-1">Required: {question.required ? 'Yes' : 'No'}</div>
-                      {question.options && question.options.length > 0 && (
+                      <div className="mb-1">Required: {question.required !== false && question.is_required !== false ? 'Yes' : 'No'}</div>
+                      {options.length > 0 && (
                         <div>
                           <div className="text-gray-500 mb-1">Options:</div>
                           <div className="flex flex-wrap gap-2">
-                            {question.options.map((option: any, optIndex: number) => (
-                              <span key={option.id || optIndex} className="px-2 py-1 bg-white border rounded text-xs">
-                                {option.text}
-                              </span>
-                            ))}
+                            {options
+                              .filter((option: any) => getClassificationOptionText(option).length > 0)
+                              .map((option: any, optIndex: number) => (
+                                <span key={option.id || option.option_id || optIndex} className="px-2 py-1 bg-white border rounded text-xs">
+                                  {getClassificationOptionText(option)}
+                                </span>
+                              ))}
                           </div>
                         </div>
                       )}
                     </div>
                   </div>
-                ))}
+                )
+              })}
             </div>
           </section>
+        )}
+
+        {postClassificationQuestions.length > 0 && (
+          <section className="rounded-lg border bg-white p-4">
+            <div className="text-sm font-semibold mb-2">Post Classification Questions</div>
+            <div className="space-y-3">
+              {postClassificationQuestions.map((question: any, index: number) => {
+                const options = getClassificationQuestionOptions(question)
+                return (
+                  <div key={question.id || question.question_id || index} className="border rounded-lg p-3 bg-gray-50">
+                    <div className="text-sm font-medium mb-2">{getClassificationQuestionTitle(question)}</div>
+                    <div className="text-sm text-gray-600">
+                      <div className="mb-1">Required: {question.required !== false && question.is_required !== false ? 'Yes' : 'No'}</div>
+                      {options.length > 0 && (
+                        <div>
+                          <div className="text-gray-500 mb-1">Options:</div>
+                          <div className="flex flex-wrap gap-2">
+                            {options
+                              .filter((option: any) => getClassificationOptionText(option).length > 0)
+                              .map((option: any, optIndex: number) => (
+                                <span key={option.id || option.option_id || optIndex} className="px-2 py-1 bg-white border rounded text-xs">
+                                  {getClassificationOptionText(option)}
+                                </span>
+                              ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
+
+        {hasCrossStepDuplicateQuestions && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            Classification and post-classification questions cannot share the same question title. Go back to update them before launching.
+          </div>
         )}
 
         <section className="rounded-lg border bg-white p-4">
@@ -886,7 +949,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
               <Button
                 className="flex-1 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white rounded-full disabled:opacity-50 cursor-pointer"
                 onClick={handleLaunchStudy}
-                disabled={isLaunching || !isConfirmed || isReadOnly || !canLaunch || isGeneratingTasks}
+                disabled={isLaunching || !isConfirmed || isReadOnly || !canLaunch || isGeneratingTasks || hasCrossStepDuplicateQuestions}
               >
                 {isLaunching ? (
                   <span className="flex items-center justify-center gap-2">
