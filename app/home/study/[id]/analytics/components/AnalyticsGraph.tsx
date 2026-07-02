@@ -13,6 +13,7 @@ interface AnalyticsGraphProps {
     elementContentMap?: Record<string, string>
     onElementClick?: (contentUrl: string, elementName: string) => void
     appliedFilters?: StudyFilterPayload["filters"] | null
+    onPrelimColumnClick?: (selection: { questionText: string; answer: string; baseSize?: number }) => void
 }
 
 const COLORS = ["#2674BA", "#82E0AA", "#FCCD5B", "#F7945A", "#C04E35", "#BB8FCE"]
@@ -29,6 +30,7 @@ export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({
     elementContentMap,
     onElementClick,
     appliedFilters,
+    onPrelimColumnClick,
 }) => {
     const { categories, columns } = transformAnalysisForView(
         analysisData || {},
@@ -38,6 +40,12 @@ export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({
     )
     const isLayerStudy = (studyType || "").toLowerCase() === "layer"
     const isPrelim = activeTab === "Prelim"
+
+    const parseCount = (subLabel?: string) => {
+        if (!subLabel) return 0
+        const match = subLabel.match(/\d+/)
+        return match ? Number(match[0]) : 0
+    }
 
     if (!analysisData || categories.length === 0) {
         return (
@@ -164,11 +172,40 @@ export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({
                                                             </div>
                                                         </div>
                                                         <div className="mt-4 w-full px-1">
-                                                            <div
-                                                                className="text-[10px] font-bold text-gray-700 text-center break-words leading-tight w-full hover:bg-gray-50 rounded p-1 transition-colors"
-                                                                title={col.label}
-                                                            >
-                                                                {col.label}
+                                                            <div className="text-center w-full">
+                                                                {isPrelim && category.groupTitle && parseCount(col.subLabel) > 0 && onPrelimColumnClick ? (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() =>
+                                                                            onPrelimColumnClick({
+                                                                                questionText: category.groupTitle || "",
+                                                                                answer: col.optionFullText || col.label,
+                                                                                baseSize: parseCount(col.subLabel),
+                                                                            })
+                                                                        }
+                                                                        className="cursor-pointer text-[10px] font-bold text-[#2674BA] text-center break-words leading-tight w-full hover:bg-[#2674BA]/5 rounded p-1 transition-colors"
+                                                                        title="Compare respondents for this option"
+                                                                    >
+                                                                        {col.label}
+                                                                        {col.subLabel ? (
+                                                                            <span className="block text-[9px] font-medium text-[#2674BA]/80">
+                                                                                {col.subLabel}
+                                                                            </span>
+                                                                        ) : null}
+                                                                    </button>
+                                                                ) : (
+                                                                    <div
+                                                                        className="text-[10px] font-bold text-gray-700 text-center break-words leading-tight w-full hover:bg-gray-50 rounded p-1 transition-colors"
+                                                                        title={col.label}
+                                                                    >
+                                                                        {col.label}
+                                                                        {col.subLabel ? (
+                                                                            <span className="block text-[9px] font-medium text-gray-400">
+                                                                                {col.subLabel}
+                                                                            </span>
+                                                                        ) : null}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </div>

@@ -11,6 +11,7 @@ interface AnalyticsTableProps {
     activeTab: string
     studyType?: string
     appliedFilters?: StudyFilterPayload["filters"] | null
+    onPrelimColumnClick?: (selection: { questionText: string; answer: string; baseSize?: number }) => void
 }
 
 function formatCategoryLabel(title: string, isLayerStudy: boolean) {
@@ -23,6 +24,7 @@ export const AnalyticsTable: React.FC<AnalyticsTableProps> = ({
     activeTab,
     studyType,
     appliedFilters,
+    onPrelimColumnClick,
 }) => {
     const { categories, columns } = transformAnalysisForView(
         analysisData || {},
@@ -32,6 +34,12 @@ export const AnalyticsTable: React.FC<AnalyticsTableProps> = ({
     )
     const isLayerStudy = (studyType || "").toLowerCase() === "layer"
     const isPrelim = activeTab === "Prelim"
+
+    const parseCount = (subLabel?: string) => {
+        if (!subLabel) return 0
+        const match = subLabel.match(/\d+/)
+        return match ? Number(match[0]) : 0
+    }
 
     if (!analysisData || categories.length === 0) {
         return (
@@ -64,16 +72,56 @@ export const AnalyticsTable: React.FC<AnalyticsTableProps> = ({
                                     <th className="px-4 md:px-6 py-4 font-medium text-gray-500 min-w-[200px] md:w-[40%]">
                                         Response
                                     </th>
-                                    {sectionColumns.map((col) => (
+                                    {sectionColumns.map((col) => {
+                                        const count = parseCount(col.subLabel)
+                                        const canOpen = isPrelim && !!category.groupTitle && count > 0 && !!onPrelimColumnClick
+                                        return (
                                         <th key={col.key} className="px-6 py-4 font-medium text-gray-500">
                                             <div className="flex flex-col">
-                                                <span className="text-gray-900 font-semibold">{col.label}</span>
+                                                {canOpen ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            onPrelimColumnClick?.({
+                                                                questionText: category.groupTitle || "",
+                                                                answer: col.optionFullText || col.label,
+                                                                baseSize: count,
+                                                            })
+                                                        }
+                                                        className="cursor-pointer text-left text-gray-900 font-semibold hover:text-[#2674BA] transition-colors"
+                                                        title="Click to compare respondents for this option"
+                                                    >
+                                                        {col.label}
+                                                    </button>
+                                                ) : (
+                                                    <span className="text-gray-900 font-semibold">{col.label}</span>
+                                                )}
                                                 {col.subLabel && (
-                                                    <span className="text-xs text-gray-400 mt-0.5">{col.subLabel}</span>
+                                                    <span className={`text-xs mt-0.5 ${canOpen ? "text-[#2674BA] font-semibold" : "text-gray-400"}`}>
+                                                        {canOpen ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    onPrelimColumnClick?.({
+                                                                        questionText: category.groupTitle || "",
+                                                                        answer: col.optionFullText || col.label,
+                                                                        baseSize: count,
+                                                                    })
+                                                                }
+                                                                className="cursor-pointer hover:underline"
+                                                                title="Open cohort comparison"
+                                                            >
+                                                                {col.subLabel}
+                                                            </button>
+                                                        ) : (
+                                                            col.subLabel
+                                                        )}
+                                                    </span>
                                                 )}
                                             </div>
                                         </th>
-                                    ))}
+                                        )
+                                    })}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">

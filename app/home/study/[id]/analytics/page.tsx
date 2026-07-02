@@ -5,7 +5,15 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { DashboardHeader } from "@/app/home/components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
 import { getStudyBasicDetails, StudyDetails } from "@/lib/api/StudyAPI"
-import { downloadStudyResponsesCsv, getAnalyticsSession, saveActiveFilter, resetActiveFilter, type StudyFilterPayload } from "@/lib/api/ResponseAPI"
+import {
+    downloadStudyResponsesCsv,
+    getAnalyticsSession,
+    postClassificationCohort,
+    resetActiveFilter,
+    saveActiveFilter,
+    type ClassificationCohortResponse,
+    type StudyFilterPayload,
+} from "@/lib/api/ResponseAPI"
 import {
     describeAppliedFilters,
     hasAnyFilterSelection,
@@ -28,6 +36,7 @@ import { AnalyticsPersonaBlueprints } from "./components/AnalyticsPersonaBluepri
 import { AnalyticsDesignConfigurator } from "./components/AnalyticsDesignConfigurator"
 import { AnalyticsSettingsModal } from "./components/AnalyticsSettingsModal"
 import { AnalyticsAdvancedFilterModal } from "./components/AnalyticsAdvancedFilterModal"
+import { AnalyticsPrelimCohortModal } from "./components/AnalyticsPrelimCohortModal"
 
 export default function StudyAnalyticsPage() {
     const params = useParams()
@@ -56,6 +65,12 @@ export default function StudyAnalyticsPage() {
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [advancedFilterOpen, setAdvancedFilterOpen] = useState(false)
     const [filterRunning, setFilterRunning] = useState(false)
+    const [cohortOpen, setCohortOpen] = useState(false)
+    const [cohortSelection, setCohortSelection] = useState<{ questionText: string; answer: string; baseSize?: number } | null>(null)
+    const [cohortData, setCohortData] = useState<ClassificationCohortResponse | null>(null)
+    const [cohortLoading, setCohortLoading] = useState(false)
+    const [cohortLoadingMore, setCohortLoadingMore] = useState(false)
+    const [cohortError, setCohortError] = useState<string | null>(null)
 
     const loadAnalysis = async () => {
         if (!studyId) return
@@ -148,6 +163,57 @@ export default function StudyAnalyticsPage() {
         } finally {
             setAnalysisLoading(false)
         }
+    }
+
+    const loadClassificationCohort = async (
+        selection: { questionText: string; answer: string; baseSize?: number },
+        offset = 0,
+        append = false
+    ) => {
+        if (!studyId) return
+
+        if (append) {
+            setCohortLoadingMore(true)
+        } else {
+            setCohortLoading(true)
+            setCohortError(null)
+        }
+
+        try {
+            const response = await postClassificationCohort(studyId, {
+                filters: isFilterActive ? activeFilters ?? {} : {},
+                question_text: selection.questionText,
+                answer: selection.answer,
+                limit: 120,
+                offset,
+            })
+
+            setCohortData((prev) => {
+                if (!append || !prev) return response
+                return {
+                    ...response,
+                    respondents: [...(prev.respondents || []), ...(response.respondents || [])],
+                }
+            })
+        } catch (e) {
+            setCohortError((e as Error)?.message ?? "Failed to load cohort insights")
+        } finally {
+            setCohortLoading(false)
+            setCohortLoadingMore(false)
+        }
+    }
+
+    const handlePrelimColumnClick = (selection: { questionText: string; answer: string; baseSize?: number }) => {
+        setCohortSelection(selection)
+        setCohortData(null)
+        setCohortError(null)
+        setCohortOpen(true)
+        void loadClassificationCohort(selection, 0, false)
+    }
+
+    const loadMoreCohort = () => {
+        if (!cohortSelection || !cohortData || cohortLoadingMore || !cohortData.meta?.has_more) return
+        void loadClassificationCohort(cohortSelection, cohortData.respondents.length, true)
     }
 
     useEffect(() => {
@@ -545,11 +611,32 @@ export default function StudyAnalyticsPage() {
                                             setActiveTab={setActiveTab}
                                         />
                                         {activeView === "table" ? (
-                                            <AnalyticsTable analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} appliedFilters={isFilterActive ? activeFilters : null} />
+                                            <AnalyticsTable
+                                                analysisData={analysisData}
+                                                activeMetric={activeMetric}
+                                                activeTab={activeTab}
+                                                studyType={studyType}
+                                                appliedFilters={isFilterActive ? activeFilters : null}
+                                                onPrelimColumnClick={handlePrelimColumnClick}
+                                            />
                                         ) : activeView === "heatmap" ? (
-                                            <AnalyticsHeatmap analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} appliedFilters={isFilterActive ? activeFilters : null} />
+                                            <AnalyticsHeatmap
+                                                analysisData={analysisData}
+                                                activeMetric={activeMetric}
+                                                activeTab={activeTab}
+                                                studyType={studyType}
+                                                appliedFilters={isFilterActive ? activeFilters : null}
+                                                onPrelimColumnClick={handlePrelimColumnClick}
+                                            />
                                         ) : activeView === "graph" ? (
-                                            <AnalyticsGraph analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} appliedFilters={isFilterActive ? activeFilters : null} />
+                                            <AnalyticsGraph
+                                                analysisData={analysisData}
+                                                activeMetric={activeMetric}
+                                                activeTab={activeTab}
+                                                studyType={studyType}
+                                                appliedFilters={isFilterActive ? activeFilters : null}
+                                                onPrelimColumnClick={handlePrelimColumnClick}
+                                            />
                                         ) : (
                                             <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-12 text-center text-gray-500">
                                                 <BarChart3 className="w-16 h-16 mx-auto mb-4" style={{ color: "#2674BA" }} />
@@ -605,6 +692,27 @@ export default function StudyAnalyticsPage() {
                 onRunAnalysis={(filters) => void runFilteredAnalysis(filters)}
                 isRunning={filterRunning}
                 error={filterError}
+            />
+
+            <AnalyticsPrelimCohortModal
+                isOpen={cohortOpen}
+                onClose={() => {
+                    setCohortOpen(false)
+                    setCohortSelection(null)
+                    setCohortData(null)
+                    setCohortError(null)
+                }}
+                selection={cohortSelection}
+                data={cohortData}
+                isLoading={cohortLoading}
+                isLoadingMore={cohortLoadingMore}
+                error={cohortError}
+                onRetry={() => {
+                    if (cohortSelection) {
+                        void loadClassificationCohort(cohortSelection, 0, false)
+                    }
+                }}
+                onLoadMore={loadMoreCohort}
             />
         </AuthGuard>
     )

@@ -626,6 +626,79 @@ export async function resetActiveFilter(studyId: string): Promise<ActiveFilterSa
 	return response.json()
 }
 
+export interface ClassificationCohortPayload {
+	filters?: StudyFilterPayload['filters']
+	question_text: string
+	answer: string
+	limit?: number
+	offset?: number
+}
+
+export interface ClassificationCohortRespondent {
+	id: string
+	label: string
+	session_id: string
+	panelist_id?: string | null
+	gender?: string | null
+	age_group?: string | null
+	answers: Record<string, string | null>
+}
+
+export interface ClassificationCohortResponse {
+	meta: {
+		cohort_size: number
+		question_text: string
+		answer: string
+		limit: number
+		offset: number
+		has_more: boolean
+		filters_applied?: StudyFilterPayload['filters'] | null
+	}
+	questions: Array<{
+		question_text: string
+		options: string[]
+	}>
+	respondents: ClassificationCohortRespondent[]
+	cross_tabs: Record<string, Record<string, number>>
+	demographic_breakdown?: {
+		gender?: Record<string, number> | null
+		age_group?: Record<string, number> | null
+	} | null
+}
+
+/** Fetch respondent-level classification cohort for Prelim drill-down modal. */
+export async function postClassificationCohort(
+	studyId: string,
+	payload: ClassificationCohortPayload
+): Promise<ClassificationCohortResponse> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	if (!payload?.question_text?.trim()) throw new Error('Question text is required')
+	if (!payload?.answer?.trim()) throw new Error('Answer is required')
+
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/classification-cohort`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				filters: payload.filters ?? {},
+				question_text: payload.question_text,
+				answer: payload.answer,
+				limit: payload.limit ?? 120,
+				offset: payload.offset ?? 0,
+			}),
+		}
+	)
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(
+			`Failed to load classification cohort: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
+		)
+	}
+	return response.json()
+}
+
 export interface OptimizedAnalysisPayload {
 	filters?: {
 		age_groups?: string[]

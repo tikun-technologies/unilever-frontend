@@ -18,6 +18,12 @@ import {
   readDesignConstraintsFromLocalStorage,
 } from "@/lib/utils/designConstraintsStorage"
 import { renderLayersToCanvas } from "@/lib/canvas-export"
+import {
+  generateUniqueName as uniqueNameFromBase,
+  openFolderPicker,
+  parseFolderSelection,
+  stripFileExtension,
+} from "@/lib/utils/folderUploadUtils"
 
 interface ElementItem {
   id: string
@@ -450,6 +456,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
 
   // Track which categories are collapsed
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
+  const [folderImportNotice, setFolderImportNotice] = useState<string | null>(null)
 
   const toggleCategoryCollapse = (categoryId: string) => {
     setCollapsedCategories(prev => {
@@ -814,6 +821,83 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
     }, 1000)
   }
 
+  const handleFolderImportForCategories = async (rawFiles: File[], p?: "grid" | "text") => {
+    const currentMode = mode === 'hybrid' ? p : mode
+    if (currentMode === 'text') return
+
+    const { items: currentCategories, setter: setCurrentCategories } = getPhaseData(p)
+    const remainingSlots = CATEGORY_MAX - currentCategories.length
+
+    const parsed = parseFolderSelection(rawFiles, {
+      maxGroups: CATEGORY_MAX,
+      maxImagesPerGroup: ELEMENT_MAX,
+      remainingGroupSlots: remainingSlots,
+    })
+
+    if (parsed.errors.length > 0) {
+      setFolderImportNotice(parsed.errors.join(' '))
+      return
+    }
+
+    if (parsed.groups.length === 0) {
+      setFolderImportNotice('No images could be imported from the selected folder.')
+      return
+    }
+
+    const usedTitles = new Set(currentCategories.map(c => (c.title || '').trim()))
+    const categoriesToAdd: CategoryItem[] = []
+    const uploadQueue: Array<{ categoryId: string; elementId: string; file: File }> = []
+
+    for (const group of parsed.groups) {
+      const categoryId = crypto.randomUUID()
+      const title = uniqueNameFromBase(group.folderName, usedTitles)
+      usedTitles.add(title)
+
+      const elements: ElementItem[] = group.files.map((file) => {
+        const tempId = crypto.randomUUID()
+        const url = URL.createObjectURL(file)
+        uploadQueue.push({ categoryId, elementId: tempId, file })
+        return {
+          id: tempId,
+          name: stripFileExtension(file.name),
+          description: '',
+          file,
+          previewUrl: url,
+        }
+      })
+
+      categoriesToAdd.push({ id: categoryId, title, description: '', elements })
+    }
+
+    setCurrentCategories(prev => [...prev, ...categoriesToAdd])
+    setCollapsedCategories(prev => {
+      const next = new Set(prev)
+      categoriesToAdd.forEach(c => next.delete(c.id))
+      return next
+    })
+
+    setFolderImportNotice(null)
+
+    try {
+      const results = await uploadImages(uploadQueue.map(item => item.file))
+      setCurrentCategories(prev => prev.map(category => ({
+        ...category,
+        elements: category.elements.map(element => {
+          const idx = uploadQueue.findIndex(item => item.categoryId === category.id && item.elementId === element.id)
+          if (idx === -1) return element
+          return { ...element, secureUrl: results[idx]?.secure_url || element.secureUrl }
+        }).sort((a, b) => (a.name || '').localeCompare(b.name || '')),
+      })))
+    } catch (e) {
+      console.error('Folder import upload failed', e)
+      setFolderImportNotice('Categories were created but some images failed to upload. Please try again.')
+    }
+  }
+
+  const promptAddFolderForCategories = (p?: "grid" | "text") => {
+    openFolderPicker((files) => { void handleFolderImportForCategories(files, p) })
+  }
+
   const updateCategoryElement = (categoryId: string, elementId: string, patch: Partial<ElementItem>, p?: "grid" | "text") => {
     const { setter: setCurrentCategories } = getPhaseData(p)
     setCurrentCategories(prev => prev.map(c => {
@@ -1152,15 +1236,40 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
 
     return (
       <div className="mt-6">
-        <div className="flex items-center justify-between mb-4">
+        {folderImportNotice && (
+          <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+            <span>{folderImportNotice}</span>
+            <button
+              type="button"
+              className="shrink-0 text-lg leading-none opacity-60 hover:opacity-100 cursor-pointer"
+              onClick={() => setFolderImportNotice(null)}
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm font-semibold text-gray-800">Category Management</div>
-          <Button
-            className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] cursor-pointer"
-            onClick={handleAddCategory}
-            disabled={currentCategories.length >= CATEGORY_MAX || isReadOnly}
-          >
-            + Add Category
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {currentMode !== 'text' && (
+              <Button
+                variant="outline"
+                className="cursor-pointer shrink-0"
+                onClick={() => promptAddFolderForCategories(p)}
+                disabled={currentCategories.length >= CATEGORY_MAX || isReadOnly}
+              >
+                + Add Folder
+              </Button>
+            )}
+            <Button
+              className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] cursor-pointer shrink-0"
+              onClick={handleAddCategory}
+              disabled={currentCategories.length >= CATEGORY_MAX || isReadOnly}
+            >
+              + Add Category
+            </Button>
+          </div>
         </div>
 
         <div className="text-xs text-gray-600 mb-4">Min {CATEGORY_MIN}, Max {CATEGORY_MAX}. Current: {currentCategories.length}</div>
@@ -1664,6 +1773,8 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
 
   const [draftSaving, setDraftSaving] = useState(false)
   const [draftError, setDraftError] = useState<string | null>(null)
+  const [folderImportNotice, setFolderImportNotice] = useState<string | null>(null)
+  const ELEMENT_MAX = 10
   const [layerAddMenu, setLayerAddMenu] = useState<string | null>(null)
   const [showLayerTextModal, setShowLayerTextModal] = useState<LayerTextModalState | null>(null)
   const [layerTextValue, setLayerTextValue] = useState("")
@@ -4226,6 +4337,87 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
     input.click()
   }
 
+  const handleFolderImportForLayers = async (rawFiles: File[]) => {
+    const parsed = parseFolderSelection(rawFiles, {
+      maxImagesPerGroup: ELEMENT_MAX,
+      groupLabel: 'layer',
+    })
+
+    if (parsed.errors.length > 0) {
+      setFolderImportNotice(parsed.errors.join(' '))
+      return
+    }
+
+    if (parsed.groups.length === 0) {
+      setFolderImportNotice('No images could be imported from the selected folder.')
+      return
+    }
+
+    const usedNames = new Set(layers.map(l => (l.name || '').trim()))
+    const newLayers: Layer[] = []
+    const uploadQueue: Array<{ layerId: string; imageId: string; file: File }> = []
+
+    for (const group of parsed.groups) {
+      const layerId = crypto.randomUUID()
+      const layerName = uniqueNameFromBase(group.folderName, usedNames)
+      usedNames.add(layerName)
+
+      const images: LayerImage[] = group.files.map((file) => {
+        const imageId = crypto.randomUUID()
+        const url = URL.createObjectURL(file)
+        uploadQueue.push({ layerId, imageId, file })
+        return {
+          id: imageId,
+          file,
+          previewUrl: url,
+          name: stripFileExtension(file.name),
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          sourceType: 'upload' as const,
+        }
+      })
+
+      newLayers.push({
+        id: layerId,
+        name: layerName,
+        description: '',
+        z: 0,
+        images,
+        open: false,
+        layer_type: 'image',
+      })
+    }
+
+    setLayers(prev => reindexLayers(
+      [...prev, ...newLayers].sort((a, b) =>
+        (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
+      )
+    ))
+
+    setFolderImportNotice(null)
+
+    try {
+      const results = await uploadImages(uploadQueue.map(item => item.file))
+      setLayers(prev => prev.map(layer => ({
+        ...layer,
+        images: layer.images.map(img => {
+          const idx = uploadQueue.findIndex(item => item.layerId === layer.id && item.imageId === img.id)
+          if (idx === -1) return img
+          return { ...img, secureUrl: results[idx]?.secure_url || img.secureUrl }
+        }),
+      })))
+    } catch (e) {
+      console.error('Folder import upload failed', e)
+      setFolderImportNotice('Layers were created but some images failed to upload. Please try again.')
+    }
+  }
+
+  const promptAddFolderForLayers = () => {
+    openFolderPicker((files) => { void handleFolderImportForLayers(files) })
+  }
+
   // Background upload helpers
   const handleBackgroundFile = async (file: File | null) => {
     if (!file) return
@@ -4425,19 +4617,48 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
   }, [previewAspect])
 
   return (
-    <div>
-      <div className="flex items-start justify-between gap-4">
-        <div>
+    <div className="min-w-0 w-full max-w-full">
+      {folderImportNotice && (
+        <div className="mb-4 flex items-start justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+          <span>{folderImportNotice}</span>
+          <button
+            type="button"
+            className="shrink-0 text-lg leading-none opacity-60 hover:opacity-100 cursor-pointer"
+            onClick={() => setFolderImportNotice(null)}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+      <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
           <h3 className="text-lg font-semibold text-gray-800">Layer Configuration</h3>
           <p className="text-sm text-gray-600">Configure layers, upload images, and preview your layer study</p>
         </div>
-        <div className="relative flex flex-col items-end gap-1" data-layer-type-menu>
-          <Button className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] cursor-pointer" onClick={addLayer} disabled={isReadOnly}>+ Add New Layer</Button>
+        <div className="relative flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-end" data-layer-type-menu>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              className="cursor-pointer shrink-0"
+              onClick={promptAddFolderForLayers}
+              disabled={isReadOnly}
+            >
+              + Add Folder
+            </Button>
+            <Button
+              className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] cursor-pointer shrink-0"
+              onClick={addLayer}
+              disabled={isReadOnly}
+            >
+              + Add New Layer
+            </Button>
+          </div>
           <button
             type="button"
             onClick={() => openDesignConstraintModal()}
             disabled={isReadOnly || constraintElementOptions.length < 2}
-            className="cursor-pointer text-xs font-semibold text-[rgba(38,116,186,1)] hover:text-[rgba(38,116,186,0.8)] disabled:cursor-not-allowed disabled:text-gray-400"
+            className="cursor-pointer self-start text-left text-xs font-semibold text-[rgba(38,116,186,1)] hover:text-[rgba(38,116,186,0.8)] disabled:cursor-not-allowed disabled:text-gray-400 sm:self-end"
             title={constraintElementOptions.length < 2 ? 'Add at least two layer elements before creating constraints' : 'Add design constraint'}
           >
             + Design Constraint{designConstraints.length > 0 ? ` (${designConstraints.length})` : ''}

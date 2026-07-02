@@ -13,6 +13,7 @@ interface AnalyticsHeatmapProps {
     elementContentMap?: Record<string, string>
     onElementClick?: (contentUrl: string, elementName: string) => void
     appliedFilters?: StudyFilterPayload["filters"] | null
+    onPrelimColumnClick?: (selection: { questionText: string; answer: string; baseSize?: number }) => void
 }
 
 function formatCategoryLabel(title: string, isLayerStudy: boolean) {
@@ -27,6 +28,7 @@ export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({
     elementContentMap,
     onElementClick,
     appliedFilters,
+    onPrelimColumnClick,
 }) => {
     const { categories, columns } = transformAnalysisForView(
         analysisData || {},
@@ -36,6 +38,12 @@ export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({
     )
     const isLayerStudy = (studyType || "").toLowerCase() === "layer"
     const isPrelim = activeTab === "Prelim"
+
+    const parseCount = (subLabel?: string) => {
+        if (!subLabel) return 0
+        const match = subLabel.match(/\d+/)
+        return match ? Number(match[0]) : 0
+    }
 
     const getCellColor = (value: number) => {
         const v = Number(value)
@@ -135,19 +143,57 @@ export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({
                         <div className="flex-1 overflow-x-auto scrollbar-hide">
                             <div className="min-w-[400px] md:min-w-0">
                                 <div className="flex">
-                                    {sectionColumns.map((col) => (
-                                        <div
-                                            key={col.key}
-                                            className="flex-1 text-center py-2 text-[10px] md:text-xs font-semibold text-gray-500"
-                                        >
-                                            <div>{col.label}</div>
-                                            {col.subLabel && (
-                                                <div className="text-[8px] md:text-[10px] text-gray-400 font-normal">
-                                                    {col.subLabel}
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
+                                    {sectionColumns.map((col) => {
+                                        const count = parseCount(col.subLabel)
+                                        const canOpen = isPrelim && !!category.groupTitle && count > 0 && !!onPrelimColumnClick
+                                        return (
+                                            <div
+                                                key={col.key}
+                                                className="flex-1 text-center py-2 text-[10px] md:text-xs font-semibold text-gray-500"
+                                            >
+                                                {canOpen ? (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() =>
+                                                            onPrelimColumnClick?.({
+                                                                questionText: category.groupTitle || "",
+                                                                answer: col.optionFullText || col.label,
+                                                                baseSize: count,
+                                                            })
+                                                        }
+                                                        className="cursor-pointer text-gray-800 hover:text-[#2674BA] transition-colors"
+                                                        title="Compare respondents for this option"
+                                                    >
+                                                        {col.label}
+                                                    </button>
+                                                ) : (
+                                                    <div>{col.label}</div>
+                                                )}
+                                                {col.subLabel && (
+                                                    <div className={`text-[8px] md:text-[10px] font-normal ${canOpen ? "text-[#2674BA]" : "text-gray-400"}`}>
+                                                        {canOpen ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    onPrelimColumnClick?.({
+                                                                        questionText: category.groupTitle || "",
+                                                                        answer: col.optionFullText || col.label,
+                                                                        baseSize: count,
+                                                                    })
+                                                                }
+                                                                className="cursor-pointer hover:underline"
+                                                                title="Open cohort comparison"
+                                                            >
+                                                                {col.subLabel}
+                                                            </button>
+                                                        ) : (
+                                                            col.subLabel
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
                                 </div>
 
                                 <motion.div
