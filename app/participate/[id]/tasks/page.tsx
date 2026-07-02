@@ -5,6 +5,7 @@ import { useState, useRef, useEffect, useLayoutEffect } from "react"
 import Image from "next/image"
 import { ThumbsUp, ThumbsDown } from "lucide-react"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
+import { getParticipateImageUrl } from "@/lib/utils/participateImageUrls"
 import { getRespondentStudyDetails, submitTasksBulk, getSessionStatus, startMergedStudy } from "@/lib/api/ResponseAPI"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
@@ -86,14 +87,15 @@ const submitTasksBulkWithRetries = async (
   return false
 }
 
-// Helper function to get cached URLs for display
+// Helper function to get the display URL for a task image.
+// Routes remote images through the optimizing WebP proxy so what we render
+// matches exactly what the preloader warmed into the HTTP cache.
 const getCachedUrl = (url: string | undefined): string => {
   if (!url) {
     return "/placeholder.svg"
   }
 
-  const cachedUrl = imageCacheManager.getCachedUrl(url)
-  return cachedUrl
+  return getParticipateImageUrl(url) || "/placeholder.svg"
 }
 
 type Task = {
@@ -129,7 +131,15 @@ const collectTaskImageUrls = (task: Task | undefined, backgroundUrl?: string | n
   if (task.leftImageUrl) urls.push(task.leftImageUrl)
   if (task.rightImageUrl) urls.push(task.rightImageUrl)
 
-  return Array.from(new Set(urls.filter(isImageLikeUrl)))
+  // Return the optimized display URLs so preload cache keys match the <img src>.
+  return Array.from(
+    new Set(
+      urls
+        .filter(isImageLikeUrl)
+        .map((u) => getParticipateImageUrl(u))
+        .filter(Boolean),
+    ),
+  )
 }
 
 function PreparingAssetsLoader() {
@@ -432,30 +442,37 @@ export default function TasksPage() {
     const prepareStudyAssets = async () => {
       setIsTaskImagesReady(false)
 
-      const remainingUrls = imageCacheManager.getUnpreloadedUrls(tasks, backgroundUrl)
-      const needsImagePrep = remainingUrls.length > 0
+      // Gate the loader on ONLY the first task's images (background + its
+      // layers/grid). Everything else streams in the background so the user
+      // never waits more than a moment, even for 200-300 layer studies.
+      const firstTaskUrls = collectTaskImageUrls(tasks[0], backgroundUrl)
+      const needsImagePrep = firstTaskUrls.some((url) => !imageCacheManager.isPreloaded(url))
       setIsPreparingStudyAssets(needsImagePrep)
 
-      if (!needsImagePrep) {
-        taskStartRef.current = Date.now()
-        setIsTaskImagesReady(true)
-        return
+      if (needsImagePrep) {
+        try {
+          await imageCacheManager.prewarmUrls(firstTaskUrls, "critical", 4)
+        } catch (error) {
+          console.warn("First task asset preparation failed:", error)
+        }
       }
 
-      try {
-        await imageCacheManager.prewarmRemainingStudyAssets(tasks, backgroundUrl, "critical")
-        const firstTaskUrls = collectTaskImageUrls(tasks[0], backgroundUrl)
-        if (firstTaskUrls.length > 0) {
-          decodedTaskImageKeysRef.current.add(`0:${firstTaskUrls.join("|")}`)
-        }
-      } catch (error) {
-        console.warn("Study asset preparation failed:", error)
-      } finally {
-        if (cancelled) return
-        setIsPreparingStudyAssets(false)
-        taskStartRef.current = Date.now()
-        setIsTaskImagesReady(true)
+      if (cancelled) return
+
+      if (firstTaskUrls.length > 0) {
+        decodedTaskImageKeysRef.current.add(`0:${firstTaskUrls.join("|")}`)
       }
+      setIsPreparingStudyAssets(false)
+      taskStartRef.current = Date.now()
+      setIsTaskImagesReady(true)
+
+      // Fire-and-forget: warm the rest of the study at low priority. This only
+      // populates the browser HTTP cache (no decode, no JS-heap growth) and is
+      // de-duplicated against already-cached URLs, so it scales to very large
+      // layer studies without blocking the participant.
+      void imageCacheManager
+        .prewarmRemainingStudyAssets(tasks, backgroundUrl, "low", getParticipateImageUrl)
+        .catch(() => undefined)
     }
 
     prepareStudyAssets()
@@ -465,25 +482,25 @@ export default function TasksPage() {
     }
   }, [backgroundUrl, isFetching, tasks])
 
+  // Rolling look-ahead: as the participant advances, make sure the next few
+  // tasks are warmed at high priority (ahead of the low-priority bulk sweep) so
+  // each subsequent task appears instantly.
   useEffect(() => {
     if (!isTaskImagesReady || tasks.length === 0) return
 
-    const nextTaskIndex = currentTaskIndex + 1
-    const nextUrls = collectTaskImageUrls(tasks[nextTaskIndex], backgroundUrl)
-    if (nextUrls.length === 0) return
+    const LOOK_AHEAD = 3
+    for (let offset = 1; offset <= LOOK_AHEAD; offset++) {
+      const nextTaskIndex = currentTaskIndex + offset
+      if (nextTaskIndex >= tasks.length) break
 
-    const key = `${nextTaskIndex}:${nextUrls.join("|")}`
-    if (decodedTaskImageKeysRef.current.has(key)) return
-    decodedTaskImageKeysRef.current.add(key)
+      const nextUrls = collectTaskImageUrls(tasks[nextTaskIndex], backgroundUrl)
+      if (nextUrls.length === 0) continue
 
-    const prewarmNextTask = () => {
+      const key = `${nextTaskIndex}:${nextUrls.join("|")}`
+      if (decodedTaskImageKeysRef.current.has(key)) continue
+      decodedTaskImageKeysRef.current.add(key)
+
       void imageCacheManager.prewarmUrls(nextUrls, "high")
-    }
-
-    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(prewarmNextTask, { timeout: 1000 })
-    } else {
-      setTimeout(prewarmNextTask, 500)
     }
   }, [backgroundUrl, currentTaskIndex, isTaskImagesReady, tasks])
 
@@ -933,7 +950,7 @@ export default function TasksPage() {
 
                     try {
                       progressInterval = setInterval(updatePreloadProgress, 250)
-                      await imageCacheManager.preloadAllTaskImages(secondStudyTasks)
+                      await imageCacheManager.preloadAllTaskImages(secondStudyTasks, getParticipateImageUrl)
                       updatePreloadProgress()
                     } finally {
                       if (progressInterval) clearInterval(progressInterval)
@@ -944,7 +961,7 @@ export default function TasksPage() {
                   }
 
                   if (backgroundUrl && typeof backgroundUrl === 'string') {
-                    await imageCacheManager.prewarmUrls([backgroundUrl], "high")
+                    await imageCacheManager.prewarmUrls([getParticipateImageUrl(backgroundUrl)], "high")
                   }
                   setMergePreloadProgress(98)
                 } catch (preloadError) {
@@ -1238,7 +1255,7 @@ export default function TasksPage() {
                                       className="h-full w-full object-contain"
                                       loading="eager"
                                       fetchPriority="high"
-                                      unoptimized={url?.includes('blob.core.windows.net')}
+                                      unoptimized
                                     />
                                   </div>
                                 ))}
@@ -1253,7 +1270,7 @@ export default function TasksPage() {
                                     className="h-full w-full object-contain"
                                     loading="eager"
                                     fetchPriority="high"
-                                    unoptimized={task.gridUrls[2]?.includes('blob.core.windows.net')}
+                                    unoptimized
                                   />
                                 </div>
                               </div>
@@ -1270,7 +1287,7 @@ export default function TasksPage() {
                                     className="h-full w-full object-contain"
                                     loading="eager"
                                     fetchPriority="high"
-                                    unoptimized={url?.includes('blob.core.windows.net')}
+                                    unoptimized
                                   />
                                 </div>
                               ))}
@@ -1287,7 +1304,7 @@ export default function TasksPage() {
                                     className="h-full w-full object-contain"
                                     loading="eager"
                                     fetchPriority="high"
-                                    unoptimized={task.leftImageUrl?.includes("blob.core.windows.net")}
+                                    unoptimized
                                   />
                                 ) : null}
                               </div>
@@ -1301,7 +1318,7 @@ export default function TasksPage() {
                                     className="h-full w-full object-contain"
                                     loading="eager"
                                     fetchPriority="high"
-                                    unoptimized={task.rightImageUrl?.includes("blob.core.windows.net")}
+                                    unoptimized
                                   />
                                 ) : null}
                               </div>
@@ -1588,7 +1605,7 @@ export default function TasksPage() {
                                       height={300}
                                       className="max-h-full max-w-full object-contain"
                                       loading="eager"
-                                      unoptimized={urls[0]?.includes("blob.core.windows.net")}
+                                      unoptimized
                                     />
                                   )}
                                 </div>
@@ -1601,7 +1618,7 @@ export default function TasksPage() {
                                       height={300}
                                       className="max-h-full max-w-full object-contain"
                                       loading="eager"
-                                      unoptimized={urls[1]?.includes("blob.core.windows.net")}
+                                      unoptimized
                                     />
                                   )}
                                 </div>
@@ -1634,7 +1651,7 @@ export default function TasksPage() {
                                         width={300}
                                         height={300}
                                         className="h-auto w-full object-contain"
-                                        unoptimized={(url as string)?.includes("blob.core.windows.net")}
+                                        unoptimized
                                       />
                                     </div>
                                   ))}
@@ -1647,7 +1664,7 @@ export default function TasksPage() {
                                       width={300}
                                       height={300}
                                       className="h-auto w-full object-contain"
-                                      unoptimized={(urls[2] as string)?.includes("blob.core.windows.net")}
+                                      unoptimized
                                     />
                                   </div>
                                 </div>
@@ -1681,7 +1698,7 @@ export default function TasksPage() {
                                   width={300}
                                   height={300}
                                   className="h-auto w-full object-contain"
-                                  unoptimized={(url as string)?.includes("blob.core.windows.net")}
+                                  unoptimized
                                 />
                               </div>
                             ))}

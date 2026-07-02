@@ -1,4 +1,5 @@
 import { imageCacheManager, type ParticipatePreloadPhase } from '@/lib/utils/imageCacheManager'
+import { getParticipateImageUrl } from '@/lib/utils/participateImageUrls'
 
 function flattenAssignedTasks(assigned: unknown): any[] {
   if (!Array.isArray(assigned)) return []
@@ -64,5 +65,7 @@ export function loadParticipateTasksFromStorage(): {
 export function runParticipatePhasePreload(phase: ParticipatePreloadPhase): void {
   const { tasks, backgroundUrl } = loadParticipateTasksFromStorage()
   if (tasks.length === 0) return
-  void imageCacheManager.preloadParticipatePhase(tasks, phase, backgroundUrl).catch(() => undefined)
+  void imageCacheManager
+    .preloadParticipatePhase(tasks, phase, backgroundUrl, getParticipateImageUrl)
+    .catch(() => undefined)
 }

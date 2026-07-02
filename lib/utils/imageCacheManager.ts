@@ -200,14 +200,30 @@ class ImageCacheManager {
     return this.extractImageUrls(tasks.slice(startIndex, endIndex))
   }
 
+  // Optionally rewrite raw source URLs to their display form (e.g. an
+  // optimized WebP proxy URL). This keeps preloading and rendering on the same
+  // cache key. Identity by default so non-participate callers are unaffected.
+  private mapUrls(urls: string[], urlTransform?: (url: string) => string): string[] {
+    if (!urlTransform) return urls
+    return urls.map((u) => urlTransform(u)).filter((u): u is string => Boolean(u))
+  }
+
   /** URLs from the full study that are not yet in the HTTP cache tracker. */
-  getUnpreloadedUrls(tasks: any[], backgroundUrl?: string | null): string[] {
+  getUnpreloadedUrls(
+    tasks: any[],
+    backgroundUrl?: string | null,
+    urlTransform?: (url: string) => string,
+  ): string[] {
     const all = this.extractImageUrls(tasks)
     const combined = backgroundUrl ? [backgroundUrl, ...all] : all
+    const mapped = this.mapUrls(combined, urlTransform)
     return [
       ...new Set(
-        combined.filter(
-          (u) => typeof u === 'string' && u.startsWith('http') && !this.isPreloaded(u),
+        mapped.filter(
+          (u) =>
+            typeof u === 'string' &&
+            (u.startsWith('http') || u.startsWith('/')) &&
+            !this.isPreloaded(u),
         ),
       ),
     ]
@@ -218,8 +234,9 @@ class ImageCacheManager {
     startIndex: number,
     endIndex: number,
     priority: 'critical' | 'high' | 'low' = 'high',
+    urlTransform?: (url: string) => string,
   ): Promise<void> {
-    const urls = this.extractImageUrlsFromTasks(tasks, startIndex, endIndex)
+    const urls = this.mapUrls(this.extractImageUrlsFromTasks(tasks, startIndex, endIndex), urlTransform)
     if (urls.length === 0) return
     await this.preloadImages(urls, priority)
   }
@@ -234,21 +251,24 @@ class ImageCacheManager {
     tasks: any[],
     phase: ParticipatePreloadPhase,
     backgroundUrl?: string | null,
+    urlTransform?: (url: string) => string,
   ): Promise<void> {
     const n = tasks.length
     if (n === 0) return
 
+    const bg = backgroundUrl && urlTransform ? urlTransform(backgroundUrl) : backgroundUrl
+
     if (phase === 'personal-info') {
-      if (backgroundUrl) await this.prewarmUrls([backgroundUrl], 'high')
-      await this.preloadTaskRange(tasks, 0, 1, 'critical')
+      if (bg) await this.prewarmUrls([bg], 'high')
+      await this.preloadTaskRange(tasks, 0, 1, 'critical', urlTransform)
       const { end } = this.getTaskRangeForPhase(n, phase)
-      if (end > 1) await this.preloadTaskRange(tasks, 1, end, 'high')
-      else if (n > 1) await this.preloadTaskRange(tasks, 1, n, 'high')
+      if (end > 1) await this.preloadTaskRange(tasks, 1, end, 'high', urlTransform)
+      else if (n > 1) await this.preloadTaskRange(tasks, 1, n, 'high', urlTransform)
       return
     }
 
     const { start, end } = this.getTaskRangeForPhase(n, phase)
-    if (start < end) await this.preloadTaskRange(tasks, start, end, 'high')
+    if (start < end) await this.preloadTaskRange(tasks, start, end, 'high', urlTransform)
   }
 
   /** Tasks page: prewarm only images not loaded during earlier funnel pages. */
@@ -256,8 +276,9 @@ class ImageCacheManager {
     tasks: any[],
     backgroundUrl?: string | null,
     priority: 'critical' | 'high' | 'low' = 'critical',
+    urlTransform?: (url: string) => string,
   ): Promise<void> {
-    const remaining = this.getUnpreloadedUrls(tasks, backgroundUrl)
+    const remaining = this.getUnpreloadedUrls(tasks, backgroundUrl, urlTransform)
     if (remaining.length === 0) return
     await this.preloadImages(remaining, priority)
   }
@@ -391,7 +412,10 @@ class ImageCacheManager {
   // Smart preload: download every task image into the browser HTTP cache so
   // each task's <img> mounts hit cache. Memory cost is essentially zero
   // because nothing is held in JS - the browser handles eviction.
-  async preloadAllTaskImages(tasks: any[]): Promise<void> {
+  async preloadAllTaskImages(
+    tasks: any[],
+    urlTransform?: (url: string) => string,
+  ): Promise<void> {
     if (this.isPreloading) {
       console.log('Preloading already in progress, skipping...')
       return
@@ -402,7 +426,7 @@ class ImageCacheManager {
     this.preloadProgress = { total: 0, loaded: 0, failed: 0 }
 
     try {
-      const urls = this.extractImageUrls(tasks)
+      const urls = this.mapUrls(this.extractImageUrls(tasks), urlTransform)
       console.log(`Starting preload of ${urls.length} images for ${tasks.length} tasks`)
 
       if (urls.length === 0) {
