@@ -32,7 +32,7 @@ import {
   CONFIGURATOR_PRELOAD_BATCH_SIZE,
   CONFIGURATOR_PREVIEW_PRELOAD_BATCH_SIZE,
   getConfiguratorExportProxyUrl,
-  getConfiguratorPreviewUrl,
+  getConfiguratorResponsivePreviewUrl,
   getConfiguratorThumbnailUrl,
 } from "@/lib/utils/configuratorImageUrls"
 
@@ -865,6 +865,84 @@ function PreviewFullscreenModal({
   )
 }
 
+/**
+ * Paints an already-cached low-res thumbnail instantly, then fades in the
+ * device-sized high-quality preview once it decodes. This removes the
+ * tap-to-preview delay (the thumbnail is served from the browser HTTP cache
+ * with no round-trip) while still ending on a crisp, full-quality image.
+ *
+ * Only the thumbnail (tiny) and one high-res image per *selected* element are
+ * ever mounted, so decoded-bitmap memory stays bounded even for studies with
+ * hundreds of elements in the picker.
+ */
+function ProgressiveImage({
+  thumbUrl,
+  fullUrl,
+  alt,
+  wrapperClassName,
+  wrapperStyle,
+  imgClassName,
+}: {
+  thumbUrl: string
+  fullUrl: string
+  alt: string
+  wrapperClassName?: string
+  wrapperStyle?: React.CSSProperties
+  imgClassName?: string
+}) {
+  // If the device-sized preview is already in the HTTP cache (we pre-warm it
+  // when the category opens), show it immediately with no placeholder and no
+  // fade — that's the "instant, no flicker" path for anything already warmed.
+  const initiallyCached = imageCacheManager.isPreloaded(fullUrl)
+  const [hiResReady, setHiResReady] = useState(initiallyCached)
+  const [usePlaceholder, setUsePlaceholder] = useState(
+    !initiallyCached && Boolean(thumbUrl) && thumbUrl !== fullUrl
+  )
+
+  useEffect(() => {
+    const cached = imageCacheManager.isPreloaded(fullUrl)
+    setHiResReady(cached)
+    setUsePlaceholder(!cached && Boolean(thumbUrl) && thumbUrl !== fullUrl)
+  }, [fullUrl, thumbUrl])
+
+  return (
+    <div className={wrapperClassName} style={wrapperStyle}>
+      {usePlaceholder && (
+        // Low-res thumbnail stays mounted *behind* the hi-res image (which
+        // covers it once opaque), so there is never an empty frame / flicker
+        // during the cross-fade.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={thumbUrl}
+          alt=""
+          aria-hidden="true"
+          decoding="async"
+          className={`${imgClassName ?? ""} absolute inset-0`}
+          onError={(event) => {
+            event.currentTarget.style.display = "none"
+          }}
+        />
+      )}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={fullUrl}
+        alt={alt}
+        loading="eager"
+        decoding="async"
+        className={`${imgClassName ?? ""} absolute inset-0`}
+        style={{
+          opacity: hiResReady ? 1 : 0,
+          transition: usePlaceholder ? "opacity 150ms ease-out" : "none",
+        }}
+        onLoad={() => setHiResReady(true)}
+        onError={(event) => {
+          event.currentTarget.style.display = "none"
+        }}
+      />
+    </div>
+  )
+}
+
 function SelectionPreview({
   selectedElements,
   studyType,
@@ -968,7 +1046,7 @@ function SelectionPreview({
           // eslint-disable-next-line @next/next/no-img-element
           <img
             ref={backgroundImgRef}
-            src={getConfiguratorPreviewUrl(backgroundUrl)}
+            src={getConfiguratorResponsivePreviewUrl(backgroundUrl, isFullscreen)}
             alt="Background"
             loading="eager"
             decoding="async"
@@ -1048,21 +1126,17 @@ function SelectionPreview({
             }
 
             return (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <ProgressiveImage
                 key={element.id}
-                src={getConfiguratorPreviewUrl(element.imageUrl)}
+                thumbUrl={getConfiguratorThumbnailUrl(element.imageUrl)}
+                fullUrl={getConfiguratorResponsivePreviewUrl(element.imageUrl, isFullscreen)}
                 alt={element.name}
-                loading="eager"
-                decoding="async"
-                className="absolute object-contain"
-                style={{
+                wrapperClassName="absolute overflow-hidden"
+                wrapperStyle={{
                   zIndex: element.zIndex + 1,
                   ...layerStyle,
                 }}
-                onError={(event) => {
-                  event.currentTarget.style.display = "none"
-                }}
+                imgClassName="h-full w-full object-contain"
               />
             )
           })}
@@ -1120,7 +1194,7 @@ function SelectionPreview({
       {backgroundUrl && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={getConfiguratorPreviewUrl(backgroundUrl)}
+          src={getConfiguratorResponsivePreviewUrl(backgroundUrl, isFullscreen)}
           alt="Background"
           loading="eager"
           decoding="async"
@@ -1146,16 +1220,12 @@ function SelectionPreview({
                   <p className="text-xs font-medium leading-snug text-gray-800 sm:text-sm">{element.content || element.name}</p>
                 </div>
               ) : (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={getConfiguratorPreviewUrl(element.imageUrl) || ""}
+                <ProgressiveImage
+                  thumbUrl={getConfiguratorThumbnailUrl(element.imageUrl)}
+                  fullUrl={getConfiguratorResponsivePreviewUrl(element.imageUrl, isFullscreen)}
                   alt={element.name}
-                  loading="eager"
-                  decoding="async"
-                  className="h-full w-full object-contain"
-                  onError={(event) => {
-                    event.currentTarget.style.display = "none"
-                  }}
+                  wrapperClassName="relative h-full w-full"
+                  imgClassName="h-full w-full object-contain"
                 />
               )}
             </div>
@@ -1226,7 +1296,7 @@ function SelectionImageLightbox({
         </button>
         <div className="max-h-[86vh] max-w-[92vw] text-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={getConfiguratorPreviewUrl(image.url) || image.url} alt={image.name} className="max-h-[78vh] max-w-full rounded-2xl object-contain shadow-2xl" />
+          <img src={getConfiguratorResponsivePreviewUrl(image.url, true) || image.url} alt={image.name} className="max-h-[78vh] max-w-full rounded-2xl object-contain shadow-2xl" />
           <p className="mt-4 text-sm font-semibold text-white">{image.name}</p>
         </div>
       </div>
@@ -1844,13 +1914,13 @@ export function AnalyticsDesignConfigurator({
   const selectedPreviewUrls = useMemo(() => {
     const urls = new Set<string>()
     if ((!isLayerStudy || showLayerBackground) && backgroundUrl) {
-      const preview = getConfiguratorPreviewUrl(backgroundUrl)
+      const preview = getConfiguratorResponsivePreviewUrl(backgroundUrl, false)
       if (preview) urls.add(preview)
     }
     selectedElements.forEach((element) => {
       const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
       if (isText || !element.imageUrl) return
-      const preview = getConfiguratorPreviewUrl(element.imageUrl)
+      const preview = getConfiguratorResponsivePreviewUrl(element.imageUrl, false)
       if (preview) urls.add(preview)
     })
     return [...urls]
@@ -1874,6 +1944,30 @@ export function AnalyticsDesignConfigurator({
       CONFIGURATOR_PREVIEW_PRELOAD_BATCH_SIZE
     )
   }, [selectedPreviewUrls])
+
+  useEffect(() => {
+    if (!isPreviewFullscreenOpen) return
+
+    const fullscreenUrls = new Set<string>()
+    if ((!isLayerStudy || showLayerBackground) && backgroundUrl) {
+      const url = getConfiguratorResponsivePreviewUrl(backgroundUrl, true)
+      if (url) fullscreenUrls.add(url)
+    }
+    selectedElements.forEach((element) => {
+      const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
+      if (isText || !element.imageUrl) return
+      const url = getConfiguratorResponsivePreviewUrl(element.imageUrl, true)
+      if (url) fullscreenUrls.add(url)
+    })
+
+    if (fullscreenUrls.size > 0) {
+      void imageCacheManager.prewarmUrls(
+        [...fullscreenUrls],
+        "critical",
+        CONFIGURATOR_PREVIEW_PRELOAD_BATCH_SIZE
+      )
+    }
+  }, [isPreviewFullscreenOpen, isLayerStudy, showLayerBackground, backgroundUrl, selectedElements])
 
   const totalCoefficient = selectedElements.reduce((sum, element) => sum + element.value, 0)
   const selectedCount = selectedElements.length
@@ -1972,6 +2066,25 @@ export function AnalyticsDesignConfigurator({
   }
 
   const toggleCategoryOpen = (categoryKey: string) => {
+    const willOpen = !(openCategoryNames[categoryKey] ?? false)
+
+    // When a category expands, pre-warm the device-sized preview images for its
+    // elements into the browser HTTP cache (compressed bytes on disk, nothing
+    // decoded yet, throttled). By the time the user taps an element its preview
+    // is already cached, so it appears instantly with no proxy round-trip.
+    if (willOpen) {
+      const category = categories.find((item) => item.key === categoryKey)
+      if (category) {
+        const previewUrls = category.elements
+          .filter((element) => element.imageUrl && element.elementType?.toLowerCase() !== "text")
+          .map((element) => getConfiguratorResponsivePreviewUrl(element.imageUrl as string, false))
+          .filter(Boolean)
+        if (previewUrls.length > 0) {
+          void imageCacheManager.prewarmUrls(previewUrls, "high", CONFIGURATOR_PREVIEW_PRELOAD_BATCH_SIZE)
+        }
+      }
+    }
+
     setOpenCategoryNames((current) => ({
       ...current,
       [categoryKey]: !(current[categoryKey] ?? false),

@@ -2,7 +2,18 @@
 
 import React, { useEffect, useState, useMemo, useCallback } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Filter, ChevronDown, Loader2, ChevronRight, ChevronLeft, Sparkles } from "lucide-react"
+import {
+	Filter,
+	ChevronDown,
+	Loader2,
+	ChevronRight,
+	ChevronLeft,
+	Sparkles,
+	Users,
+	CalendarRange,
+	HelpCircle,
+	MessageSquareText,
+} from "lucide-react"
 import { getStudyDetails } from "@/lib/api/StudyAPI"
 import type { ClassificationQuestionPayload } from "@/lib/api/StudyAPI"
 import {
@@ -28,6 +39,88 @@ interface AnalyticsFilterAnalysisProps {
 	studyId: string
 	studyType: string
 	classificationQuestions?: ClassificationQuestionPayload[] | null
+	variant?: "wizard" | "scrollable"
+	embedded?: boolean
+}
+
+function isOpenTextQuestion(q: ClassificationQuestionPayload): boolean {
+	const type = (q.question_type || "").toLowerCase()
+	return type === "text" || type === "open_text" || type === "open"
+}
+
+function FilterChip({
+	label,
+	selected,
+	onClick,
+	delay = 0,
+}: {
+	label: string
+	selected: boolean
+	onClick: () => void
+	delay?: number
+}) {
+	return (
+		<motion.button
+			type="button"
+			onClick={onClick}
+			initial={{ opacity: 0, scale: 0.92 }}
+			animate={{ opacity: 1, scale: 1 }}
+			transition={{ delay, type: "spring", stiffness: 400, damping: 25 }}
+			whileHover={{ scale: 1.03 }}
+			whileTap={{ scale: 0.98 }}
+			className={`cursor-pointer px-4 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2674BA]/40 ${
+				selected
+					? "text-white border-transparent shadow-md"
+					: "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+			}`}
+			style={
+				selected
+					? { backgroundColor: BRAND_BLUE, boxShadow: `0 4px 14px ${BRAND_BLUE}40` }
+					: undefined
+			}
+		>
+			{label}
+		</motion.button>
+	)
+}
+
+function FilterSection({
+	icon: Icon,
+	title,
+	subtitle,
+	children,
+	badge,
+}: {
+	icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
+	title: string
+	subtitle: string
+	children: React.ReactNode
+	badge?: string
+}) {
+	return (
+		<div className="rounded-2xl border border-gray-200/80 bg-gradient-to-br from-white to-gray-50/60 p-4 sm:p-5 shadow-sm">
+			<div className="flex items-start gap-3 mb-4">
+				<div
+					className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
+					style={{ backgroundColor: `${BRAND_BLUE}14` }}
+				>
+					<Icon className="w-5 h-5" style={{ color: BRAND_BLUE }} />
+				</div>
+				<div className="min-w-0 flex-1">
+					<div className="flex items-center gap-2 flex-wrap">
+						<h3 className="text-base font-bold text-gray-900">{title}</h3>
+						{badge ? (
+							<span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
+								{badge}
+							</span>
+						) : null}
+					</div>
+					<p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>
+				</div>
+			</div>
+			{children}
+		</div>
+	)
 }
 
 function parseCategoryAndElement(key: string): { category: string; element: string } {
@@ -200,6 +293,8 @@ export const AnalyticsFilterAnalysis: React.FC<AnalyticsFilterAnalysisProps> = (
 	studyId,
 	studyType,
 	classificationQuestions: classificationQuestionsProp,
+	variant = "wizard",
+	embedded = false,
 }) => {
 	const [classificationQuestionsFetched, setClassificationQuestionsFetched] = useState<
 		ClassificationQuestionPayload[]
@@ -364,15 +459,118 @@ export const AnalyticsFilterAnalysis: React.FC<AnalyticsFilterAnalysisProps> = (
 		return Object.keys(map).length ? map : undefined
 	}, [filterResult?.by_category])
 
-	// Show step wizard only when not yet applied or no result yet; hide during filter loading
-	const showWizard = !filterLoading && (!hasAppliedFilter || !filterResult)
+	const resetToFilters = useCallback(() => {
+		setHasAppliedFilter(false)
+		if (variant === "wizard") {
+			setStep(1)
+			setDirection(0)
+		}
+	}, [variant])
+
+	const activeFilterCount =
+		genders.length +
+		ageGroups.length +
+		Object.values(classificationFilters).reduce((sum, arr) => sum + arr.length, 0)
+
+	const scrollableFilterPanel = (
+		<div className="space-y-4">
+			<FilterSection
+				icon={Users}
+				title="Gender"
+				subtitle="Choose who to include in your segment. Leave empty to include all."
+			>
+				<div className="flex flex-wrap gap-2">
+					{GENDERS.map((g, i) => (
+						<FilterChip
+							key={g}
+							label={g}
+							selected={genders.includes(g)}
+							onClick={() => toggleGender(g)}
+							delay={i * 0.03}
+						/>
+					))}
+				</div>
+			</FilterSection>
+
+			<FilterSection
+				icon={CalendarRange}
+				title="Age Group"
+				subtitle="Select one or more age ranges. Leave empty to include all ages."
+			>
+				<div className="flex flex-wrap gap-2">
+					{FILTER_AGE_GROUPS.map((age, i) => (
+						<FilterChip
+							key={age}
+							label={age}
+							selected={ageGroups.includes(age)}
+							onClick={() => toggleAge(age)}
+							delay={i * 0.02}
+						/>
+					))}
+				</div>
+			</FilterSection>
+
+			{classificationQuestions.length > 0 ? (
+				classificationQuestions.map((q, qIdx) => {
+					const isOpen = isOpenTextQuestion(q)
+					const options = q.answer_options ?? []
+					const selected = classificationFilters[q.question_text] ?? []
+					return (
+						<FilterSection
+							key={q.question_id}
+							icon={isOpen ? MessageSquareText : HelpCircle}
+							title={q.question_text}
+							subtitle={
+								isOpen
+									? "Open-ended response — shown for context; filter by choice-based answers below."
+									: "Select one or more answers to narrow your segment."
+							}
+							badge={isOpen ? "Open question" : undefined}
+						>
+							{isOpen ? (
+								<div className="rounded-xl border border-dashed border-gray-200 bg-white/80 px-4 py-3 text-sm text-gray-500">
+									Responses to this question are free text and are not used as filter criteria.
+								</div>
+							) : options.length > 0 ? (
+								<div className="flex flex-wrap gap-2">
+									{options.map((opt, oIdx) => (
+										<FilterChip
+											key={opt.id}
+											label={opt.text}
+											selected={selected.includes(opt.text)}
+											onClick={() => toggleClassificationOption(q.question_text, opt.text)}
+											delay={qIdx * 0.02 + oIdx * 0.02}
+										/>
+									))}
+								</div>
+							) : (
+								<p className="text-sm text-gray-500">No answer options configured.</p>
+							)}
+						</FilterSection>
+					)
+				})
+			) : (
+				<FilterSection
+					icon={HelpCircle}
+					title="Classification Questions"
+					subtitle="No classification questions are configured for this study."
+				>
+					<p className="text-sm text-gray-500">Add classification questions in study setup to filter by them here.</p>
+				</FilterSection>
+			)}
+		</div>
+	)
+
+	// Show filter panel only when not yet applied or no result yet; hide during filter loading
+	const showFilterPanel = !filterLoading && (!hasAppliedFilter || !filterResult)
+	const isScrollable = variant === "scrollable"
 
 	return (
-		<div className="space-y-8 transition-opacity duration-200">
-			{/* Multi-step onboarding card — only when not loading and in wizard mode */}
-			{!filterLoading && (showWizard || loadingStudy) && (
-			<div className="bg-white rounded-2xl border border-gray-200 shadow-lg overflow-hidden">
-				{/* Step progress bar */}
+		<div className={`${embedded ? "" : "space-y-8"} transition-opacity duration-200`}>
+			{/* Filter panel — wizard or scrollable */}
+			{!filterLoading && (showFilterPanel || loadingStudy) && (
+			<div className={embedded ? "" : "bg-white rounded-2xl border border-gray-200 shadow-lg overflow-hidden"}>
+				{!isScrollable && (
 				<div className="h-1 bg-gray-100 flex">
 					<motion.div
 						className="h-full rounded-r"
@@ -382,8 +580,9 @@ export const AnalyticsFilterAnalysis: React.FC<AnalyticsFilterAnalysisProps> = (
 						transition={{ type: "spring", stiffness: 300, damping: 30 }}
 					/>
 				</div>
+				)}
 
-				<div className="px-6 sm:px-8 py-6 sm:py-8 min-h-[320px]">
+				<div className={embedded ? "" : "px-6 sm:px-8 py-6 sm:py-8 min-h-[320px]"}>
 					{loadingStudy && (
 						<div className="flex items-center justify-center gap-3 text-gray-500 py-12">
 							<Loader2 className="w-5 h-5 animate-spin" style={{ color: BRAND_BLUE }} />
@@ -391,7 +590,44 @@ export const AnalyticsFilterAnalysis: React.FC<AnalyticsFilterAnalysisProps> = (
 						</div>
 					)}
 
-					{!loadingStudy && showWizard && (
+					{!loadingStudy && showFilterPanel && isScrollable && (
+						<div className="space-y-5">
+							<div className="max-h-[min(52vh,520px)] overflow-y-auto pr-1 sm:pr-2 -mr-1 sm:-mr-2 scrollbar-thin">
+								{scrollableFilterPanel}
+							</div>
+							<div className="sticky bottom-0 pt-2 border-t border-gray-100 bg-white/95 backdrop-blur-sm">
+								<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-3">
+									<p className="text-xs text-gray-500">
+										{activeFilterCount > 0
+											? `${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} selected`
+											: "No filters selected — all respondents will be included"}
+									</p>
+									<motion.button
+										type="button"
+										onClick={handleApplyFilter}
+										disabled={filterLoading}
+										whileHover={!filterLoading ? { scale: 1.02 } : undefined}
+										whileTap={!filterLoading ? { scale: 0.98 } : undefined}
+										className="cursor-pointer inline-flex items-center justify-center gap-2 w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-sm text-white shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-80 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2674BA]/40"
+										style={{
+											backgroundColor: BRAND_BLUE,
+											boxShadow: `0 8px 28px ${BRAND_BLUE}45`,
+										}}
+									>
+										<Filter className="w-4 h-4" />
+										Apply Filter
+									</motion.button>
+								</div>
+								{filterError && (
+									<p className="text-sm text-red-600 mt-2" role="alert">
+										{filterError}
+									</p>
+								)}
+							</div>
+						</div>
+					)}
+
+					{!loadingStudy && showFilterPanel && !isScrollable && (
 						<AnimatePresence mode="wait" custom={direction}>
 							{step === 1 && (
 								<motion.div
@@ -801,7 +1037,7 @@ export const AnalyticsFilterAnalysis: React.FC<AnalyticsFilterAnalysisProps> = (
 					initial={{ opacity: 0, y: 20 }}
 					animate={{ opacity: 1, y: 0 }}
 					transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
-					className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
+					className={embedded ? "mt-4" : "bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"}
 				>
 					{isEmptyResult ? (
 						<div className="flex flex-col items-center justify-center py-16 px-6">
@@ -813,7 +1049,7 @@ export const AnalyticsFilterAnalysis: React.FC<AnalyticsFilterAnalysisProps> = (
 							</p>
 							<motion.button
 								type="button"
-								onClick={() => { setHasAppliedFilter(false); setStep(1); setDirection(0); }}
+								onClick={resetToFilters}
 								className="cursor-pointer mt-6 px-5 py-2.5 rounded-xl font-semibold text-sm text-white"
 								style={{ backgroundColor: BRAND_BLUE }}
 							>
@@ -846,7 +1082,7 @@ export const AnalyticsFilterAnalysis: React.FC<AnalyticsFilterAnalysisProps> = (
 									</div>
 									<motion.button
 										type="button"
-										onClick={() => { setHasAppliedFilter(false); setStep(1); setDirection(0); }}
+										onClick={resetToFilters}
 										whileHover={{ scale: 1.02 }}
 										whileTap={{ scale: 0.98 }}
 										className="cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-200/80 transition-colors"
@@ -923,7 +1159,7 @@ export const AnalyticsFilterAnalysis: React.FC<AnalyticsFilterAnalysisProps> = (
 							</p>
 							<motion.button
 								type="button"
-								onClick={() => { setHasAppliedFilter(false); setStep(1); setDirection(0); }}
+								onClick={resetToFilters}
 								className="cursor-pointer mt-6 px-5 py-2.5 rounded-xl font-semibold text-sm text-white"
 								style={{ backgroundColor: BRAND_BLUE }}
 							>

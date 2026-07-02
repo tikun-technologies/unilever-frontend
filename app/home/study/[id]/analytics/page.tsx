@@ -5,9 +5,14 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { DashboardHeader } from "@/app/home/components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
 import { getStudyBasicDetails, StudyDetails } from "@/lib/api/StudyAPI"
-import { downloadStudyResponsesCsv, getStudyAnalysisJson } from "@/lib/api/ResponseAPI"
+import { downloadStudyResponsesCsv, getAnalyticsSession, saveActiveFilter, resetActiveFilter, type StudyFilterPayload } from "@/lib/api/ResponseAPI"
+import {
+    describeAppliedFilters,
+    hasAnyFilterSelection,
+    isEmptyFilterResponse,
+} from "@/lib/utils/filterAnalysisMerge"
 import { AnimatePresence, motion } from "framer-motion"
-import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard, Settings2, Sparkles } from "lucide-react"
+import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard, Settings2, Sparkles, X } from "lucide-react"
 import { exportDesignConfiguratorHtml, ExportHtmlStage } from "@/lib/export/designConfiguratorHtmlExport"
 import Link from "next/link"
 import { AnalyticsToolbar } from "./components/AnalyticsToolbar"
@@ -20,9 +25,9 @@ import { AnalyticsPieCharts } from "./components/AnalyticsPieCharts"
 import { AnalyticsTopBottomPerformers } from "./components/AnalyticsTopBottomPerformers"
 import { AnalyticsFatiguePredictor } from "./components/AnalyticsFatiguePredictor"
 import { AnalyticsPersonaBlueprints } from "./components/AnalyticsPersonaBlueprints"
-import { AnalyticsFilterAnalysis } from "./components/AnalyticsFilterAnalysis"
 import { AnalyticsDesignConfigurator } from "./components/AnalyticsDesignConfigurator"
 import { AnalyticsSettingsModal } from "./components/AnalyticsSettingsModal"
+import { AnalyticsAdvancedFilterModal } from "./components/AnalyticsAdvancedFilterModal"
 
 export default function StudyAnalyticsPage() {
     const params = useParams()
@@ -42,20 +47,104 @@ export default function StudyAnalyticsPage() {
     const [exportingHtml, setExportingHtml] = useState(false)
     const [exportHtmlStage, setExportHtmlStage] = useState<ExportHtmlStage>("preparing")
     const [analysisData, setAnalysisData] = useState<any>(null)
+    const [fullAnalysisData, setFullAnalysisData] = useState<any>(null)
     const [analysisLoading, setAnalysisLoading] = useState(true)
     const [analysisError, setAnalysisError] = useState<string | null>(null)
+    const [filterError, setFilterError] = useState<string | null>(null)
+    const [activeFilters, setActiveFilters] = useState<StudyFilterPayload["filters"] | null>(null)
+    const [isFilterActive, setIsFilterActive] = useState(false)
     const [settingsOpen, setSettingsOpen] = useState(false)
+    const [advancedFilterOpen, setAdvancedFilterOpen] = useState(false)
+    const [filterRunning, setFilterRunning] = useState(false)
 
     const loadAnalysis = async () => {
         if (!studyId) return
         setAnalysisLoading(true)
         setAnalysisError(null)
+        setFilterError(null)
         try {
-            const data = await getStudyAnalysisJson(studyId)
+            const session = await getAnalyticsSession(studyId)
+            const data = session.analysis
             setAnalysisData(data)
+            if (session.has_active_filter && session.active_filters) {
+                setActiveFilters(session.active_filters)
+                setIsFilterActive(true)
+                setFullAnalysisData(null)
+            } else {
+                setFullAnalysisData(data)
+                setActiveFilters(null)
+                setIsFilterActive(false)
+            }
         } catch (e) {
             console.warn("Failed to load analysis:", e)
             setAnalysisError((e as Error)?.message ?? "Failed to load analysis")
+        } finally {
+            setAnalysisLoading(false)
+        }
+    }
+
+    const runFilteredAnalysis = async (filters: StudyFilterPayload["filters"]) => {
+        if (!studyId) return
+
+        setAdvancedFilterOpen(false)
+        setFilterRunning(true)
+        setAnalysisLoading(true)
+        setFilterError(null)
+        setAnalysisError(null)
+
+        try {
+            if (!hasAnyFilterSelection(filters)) {
+                const reset = await resetActiveFilter(studyId)
+                setAnalysisData(reset.analysis)
+                setFullAnalysisData(reset.analysis)
+                setActiveFilters(null)
+                setIsFilterActive(false)
+                return
+            }
+
+            const response = await saveActiveFilter(studyId, { filters: filters ?? {} })
+
+            if (isEmptyFilterResponse(response.analysis)) {
+                setFilterError(
+                    (response.analysis?.filter_meta as any)?.error ?? "There is no response for the selected segment."
+                )
+                const reset = await resetActiveFilter(studyId)
+                setAnalysisData(reset.analysis)
+                setFullAnalysisData(reset.analysis)
+                setActiveFilters(null)
+                setIsFilterActive(false)
+                return
+            }
+
+            setAnalysisData(response.analysis)
+            setActiveFilters(response.filters ?? filters ?? {})
+            setIsFilterActive(true)
+            setFullAnalysisData(null)
+        } catch (e) {
+            setFilterError((e as Error)?.message ?? "Filter analysis failed")
+            if (fullAnalysisData) {
+                setAnalysisData(fullAnalysisData)
+            }
+            setActiveFilters(null)
+            setIsFilterActive(false)
+        } finally {
+            setAnalysisLoading(false)
+            setFilterRunning(false)
+        }
+    }
+
+    const clearActiveFilter = async () => {
+        if (!studyId) return
+        setAnalysisLoading(true)
+        setFilterError(null)
+        try {
+            const reset = await resetActiveFilter(studyId)
+            setAnalysisData(reset.analysis)
+            setFullAnalysisData(reset.analysis)
+            setActiveFilters(null)
+            setIsFilterActive(false)
+        } catch (e) {
+            setFilterError((e as Error)?.message ?? "Failed to reset filter")
         } finally {
             setAnalysisLoading(false)
         }
@@ -142,10 +231,10 @@ export default function StudyAnalyticsPage() {
         }
     }
 
-    const [analyticsView, setAnalyticsView] = useState<"overview" | "configurator" | "filter" | "detail">("overview")
+    const [analyticsView, setAnalyticsView] = useState<"overview" | "configurator" | "detail">("overview")
     const [activeView, setActiveView] = useState("table")
 
-    // Smooth scroll to top when switching tabs to prevent jarring layout shift (Overview/Detail have scroll, Filter is shorter)
+    // Smooth scroll to top when switching tabs to prevent jarring layout shift
     useEffect(() => {
         if (!analysisData) return
         window.scrollTo({ top: 0, behavior: "smooth" })
@@ -153,21 +242,24 @@ export default function StudyAnalyticsPage() {
     const [activeMetric, setActiveMetric] = useState("Top Down")
     const [activeTab, setActiveTab] = useState("Overall")
 
-    // Smooth scroll to top when switching tabs to prevent jarring layout shift
-    useEffect(() => {
-        if (!analysisData) return
-        window.scrollTo({ top: 0, behavior: "smooth" })
-    }, [analyticsView, analysisData])
-
     const loadingMessages = useMemo(
-        () => [
-            "Getting your responses...",
-            "Crunching the numbers...",
-            "Building your analysis...",
-            "Creating insights...",
-            "Almost there...",
-        ],
-        []
+        () =>
+            isFilterActive || filterRunning
+                ? [
+                      "Applying your filters…",
+                      "Building segment insights…",
+                      "Crunching the numbers…",
+                      "Updating your dashboard…",
+                      "Almost there…",
+                  ]
+                : [
+                      "Getting your responses...",
+                      "Crunching the numbers...",
+                      "Building your analysis...",
+                      "Creating insights...",
+                      "Almost there...",
+                  ],
+        [isFilterActive, filterRunning]
     )
     const [loadingMessageIndex, setLoadingMessageIndex] = useState(0)
     useEffect(() => {
@@ -192,6 +284,11 @@ export default function StudyAnalyticsPage() {
             </AuthGuard>
         )
     }
+
+    const classificationQuestions =
+        (study as any)?.classification_questions ??
+        (analysisData as any)?.classification_questions ??
+        (analysisData as any)?.meta?.classification_questions
 
     const pageTitle = study?.title || analysisData?.["Information Block"]?.["Study Title"] || "Study Analytics"
     const rawStudyType = study?.study_type || analysisData?.["Information Block"]?.["Study Type"] || "text"
@@ -225,52 +322,67 @@ export default function StudyAnalyticsPage() {
                 <DashboardHeader />
 
                 {/* Header Section */}
-                <div className="text-white" style={{ backgroundColor: '#2674BA' }}>
-                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+                <div className="text-white overflow-hidden" style={{ backgroundColor: '#2674BA' }}>
+                    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6">
                         {/* Breadcrumbs */}
-                        <nav className="text-[10px] sm:text-xs md:text-sm mb-4">
-                            <Link href={homeHref} className="text-blue-200 hover:text-white transition-colors">Dashboard</Link>
-                            <span className="mx-2 text-blue-300 opacity-50">/</span>
-                            <Link href={homeHref} className="text-blue-200 hover:text-white transition-colors">Studies</Link>
-                            <span className="mx-2 text-blue-300 opacity-50">/</span>
-                            <span className="text-white font-medium">
+                        <nav className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] sm:text-xs md:text-sm mb-3 sm:mb-4">
+                            <Link href={homeHref} className="text-blue-200 hover:text-white transition-colors shrink-0">Dashboard</Link>
+                            <span className="text-blue-300 opacity-50 shrink-0">/</span>
+                            <Link href={homeHref} className="text-blue-200 hover:text-white transition-colors shrink-0">Studies</Link>
+                            <span className="text-blue-300 opacity-50 shrink-0">/</span>
+                            <span className="text-white font-medium break-words">
                                 {studyType === "grid" ? "Grid Study" : studyType === "hybrid" ? "Hybrid Study" : studyType === "text" ? "Text Study" : "Layer Study"} Analytics
                             </span>
                         </nav>
 
                         {/* Title and Actions */}
-                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
-                            <h1 className="text-xl sm:text-2xl md:text-3xl font-bold tracking-tight">{pageTitle}</h1>
-                            <div className="flex items-center gap-3 w-full lg:w-auto">
+                        <div className="flex flex-col gap-4 sm:gap-5 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
+                            <h1 className="min-w-0 flex-1 text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold tracking-tight leading-snug break-words">
+                                {pageTitle}
+                            </h1>
+                            <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full sm:flex sm:flex-wrap sm:items-center lg:justify-end lg:w-auto lg:max-w-2xl xl:max-w-none shrink-0">
                                 <button
                                     type="button"
                                     onClick={() => setSettingsOpen(true)}
-                                    className="cursor-pointer flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold"
+                                    className="cursor-pointer w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold shrink-0"
                                     style={{ borderColor: 'rgba(255, 255, 255, 0.3)', color: '#FFFFFF' }}
                                 >
-                                    <Settings2 className="w-4 h-4" />
-                                    <span className="whitespace-nowrap">Analysis Settings</span>
+                                    <Settings2 className="w-4 h-4 shrink-0" />
+                                    <span className="truncate">Analysis Settings</span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setFilterError(null)
+                                        setAdvancedFilterOpen(true)
+                                    }}
+                                    className="cursor-pointer w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold shrink-0"
+                                    style={{ borderColor: 'rgba(255, 255, 255, 0.3)', color: '#FFFFFF' }}
+                                >
+                                    <Filter className="w-4 h-4 shrink-0" />
+                                    <span className="truncate">Advanced Filter</span>
                                 </button>
 
                                 <button
                                     onClick={() => router.push(studyHref)}
-                                    className="cursor-pointer flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold"
+                                    className="cursor-pointer w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold shrink-0"
                                     style={{ borderColor: 'rgba(255, 255, 255, 0.3)', color: '#FFFFFF' }}
                                 >
-                                    <ArrowLeft className="w-4 h-4" />
-                                    <span className="whitespace-nowrap">Back to Study</span>
+                                    <ArrowLeft className="w-4 h-4 shrink-0" />
+                                    <span className="truncate">Back to Study</span>
                                 </button>
 
                                 <button
                                     onClick={buildCsvAndDownload}
                                     disabled={exporting || !study}
-                                    className="cursor-pointer flex-1 lg:flex-none flex items-center justify-center gap-2 px-4 py-2.5 bg-white rounded-lg transition-all duration-200 hover:shadow-lg active:scale-95 font-bold text-xs sm:text-sm whitespace-nowrap disabled:cursor-not-allowed"
+                                    className="cursor-pointer w-full sm:w-auto col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 bg-white rounded-lg transition-all duration-200 hover:shadow-lg active:scale-95 font-bold text-xs sm:text-sm shrink-0 disabled:cursor-not-allowed disabled:opacity-70"
                                     style={{ color: '#2674BA' }}
                                 >
                                     {exporting ? (
                                         <>
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current" />
-                                            <span>
+                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current shrink-0" />
+                                            <span className="truncate">
                                                 {exportStage === 1 && "Extracting..."}
                                                 {exportStage === 2 && "Processing..."}
                                                 {exportStage === 3 && "Generating..."}
@@ -278,7 +390,7 @@ export default function StudyAnalyticsPage() {
                                         </>
                                     ) : (
                                         <>
-                                            <Download className="w-4 h-4" />
+                                            <Download className="w-4 h-4 shrink-0" />
                                             <span>Export CSV</span>
                                         </>
                                     )}
@@ -297,6 +409,37 @@ export default function StudyAnalyticsPage() {
                         </div>
                     )}
 
+                    {filterError && (
+                        <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
+                            <p className="font-medium">Filter could not be applied</p>
+                            <p className="text-sm mt-1">{filterError}</p>
+                        </div>
+                    )}
+
+                    {isFilterActive && activeFilters && !analysisLoading && (
+                        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-[#2674BA]/25 bg-[#2674BA]/5 px-4 py-3">
+                            <div className="flex items-start gap-3 min-w-0">
+                                <div className="shrink-0 w-9 h-9 rounded-lg bg-[#2674BA]/15 flex items-center justify-center">
+                                    <Filter className="w-4 h-4 text-[#2674BA]" />
+                                </div>
+                                <div className="min-w-0">
+                                    <p className="text-sm font-semibold text-[#2674BA]">Filtered analysis active</p>
+                                    <p className="text-sm text-gray-600 truncate">
+                                        {describeAppliedFilters(activeFilters)}
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => void clearActiveFilter()}
+                                className="cursor-pointer inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 shrink-0"
+                            >
+                                <X className="w-3.5 h-3.5" />
+                                Clear filter
+                            </button>
+                        </div>
+                    )}
+
                     {analysisLoading ? (
                         <div className="flex flex-col items-center justify-center min-h-[60vh] bg-gray-50/80 rounded-xl border border-gray-100">
                             <div className="animate-spin rounded-full h-14 w-14 border-2 border-[#2674BA] border-t-transparent" />
@@ -309,7 +452,7 @@ export default function StudyAnalyticsPage() {
                         </div>
                     ) : (
                         <>
-                            {/* Overview / Filter Analysis / Detail Analysis toggle */}
+                            {/* Overview / Design Configurator / Detail Analysis toggle */}
                             {analysisData && (
                                 <div className="flex flex-wrap gap-2 mb-6">
                                     <button
@@ -324,19 +467,6 @@ export default function StudyAnalyticsPage() {
                                     >
                                         <LayoutDashboard className="w-4 h-4" />
                                         Overview
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => setAnalyticsView("filter")}
-                                        className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-all duration-200 ${
-                                            analyticsView === "filter"
-                                                ? "text-white shadow-sm"
-                                                : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-50"
-                                        }`}
-                                        style={analyticsView === "filter" ? { backgroundColor: "#2674BA" } : undefined}
-                                    >
-                                        <Filter className="w-4 h-4" />
-                                        Filter Analysis
                                     </button>
                                     <button
                                         type="button"
@@ -415,11 +545,11 @@ export default function StudyAnalyticsPage() {
                                             setActiveTab={setActiveTab}
                                         />
                                         {activeView === "table" ? (
-                                            <AnalyticsTable analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
+                                            <AnalyticsTable analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} appliedFilters={isFilterActive ? activeFilters : null} />
                                         ) : activeView === "heatmap" ? (
-                                            <AnalyticsHeatmap analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
+                                            <AnalyticsHeatmap analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} appliedFilters={isFilterActive ? activeFilters : null} />
                                         ) : activeView === "graph" ? (
-                                            <AnalyticsGraph analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} />
+                                            <AnalyticsGraph analysisData={analysisData} activeMetric={activeMetric} activeTab={activeTab} studyType={studyType} appliedFilters={isFilterActive ? activeFilters : null} />
                                         ) : (
                                             <div className="bg-white rounded-lg shadow-sm border border-gray-100 p-12 text-center text-gray-500">
                                                 <BarChart3 className="w-16 h-16 mx-auto mb-4" style={{ color: "#2674BA" }} />
@@ -446,18 +576,6 @@ export default function StudyAnalyticsPage() {
                                 />
                             </div>
 
-                            {/* Keep mounted when not active so filter state and results persist when switching tabs */}
-                            <div className={analyticsView !== "filter" ? "hidden" : undefined}>
-                                <AnalyticsFilterAnalysis
-                                    studyId={studyId}
-                                    studyType={studyType}
-                                    classificationQuestions={
-                                        (study as any)?.classification_questions ??
-                                        (analysisData as any)?.classification_questions ??
-                                        (analysisData as any)?.meta?.classification_questions
-                                    }
-                                />
-                            </div>
                             </div>
                         </>
                     )}
@@ -468,9 +586,25 @@ export default function StudyAnalyticsPage() {
                 studyId={studyId}
                 isOpen={settingsOpen}
                 onClose={() => setSettingsOpen(false)}
+                onOpenAdvancedFilter={() => {
+                    setSettingsOpen(false)
+                    setFilterError(null)
+                    setAdvancedFilterOpen(true)
+                }}
                 onSaved={() => {
                     void loadAnalysis()
                 }}
+            />
+
+            <AnalyticsAdvancedFilterModal
+                studyId={studyId}
+                classificationQuestions={classificationQuestions}
+                initialFilters={activeFilters}
+                isOpen={advancedFilterOpen}
+                onClose={() => setAdvancedFilterOpen(false)}
+                onRunAnalysis={(filters) => void runFilteredAnalysis(filters)}
+                isRunning={filterRunning}
+                error={filterError}
             />
         </AuthGuard>
     )

@@ -530,6 +530,146 @@ export async function getStudyAnalysisJson(studyId: string): Promise<any> {
 	return response.json()
 }
 
+export interface AnalyticsSessionResponse {
+	study_id: string
+	active_filters?: StudyFilterPayload['filters']
+	has_active_filter: boolean
+	analysis: any
+}
+
+export interface ActiveFilterSaveResponse {
+	study_id: string
+	filters?: StudyFilterPayload['filters'] | null
+	has_active_filter: boolean
+	updated_at?: string | null
+	analysis: any
+}
+
+/**
+ * Fast bootstrap: saved active filter + fresh analysis in one call.
+ */
+export async function getAnalyticsSession(studyId: string): Promise<AnalyticsSessionResponse> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/analytics-session`,
+		{ method: 'GET', headers: { 'Content-Type': 'application/json' } }
+	)
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(
+			`Failed to load analytics session: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
+		)
+	}
+	return response.json()
+}
+
+export async function getActiveFilter(studyId: string): Promise<{
+	study_id: string
+	filters?: StudyFilterPayload['filters'] | null
+	has_active_filter: boolean
+	updated_at?: string | null
+}> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/active-filter`,
+		{ method: 'GET', headers: { 'Content-Type': 'application/json' } }
+	)
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(
+			`Failed to load active filter: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
+		)
+	}
+	return response.json()
+}
+
+/** Save active filter to DB and return matching analysis JSON. */
+export async function saveActiveFilter(
+	studyId: string,
+	payload: { filters?: StudyFilterPayload['filters'] }
+): Promise<ActiveFilterSaveResponse> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/active-filter`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ filters: payload.filters ?? {} }),
+		}
+	)
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(
+			`Failed to save active filter: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
+		)
+	}
+	return response.json()
+}
+
+/** Clear saved filter and return full-study analysis. */
+export async function resetActiveFilter(studyId: string): Promise<ActiveFilterSaveResponse> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/active-filter`,
+		{ method: 'DELETE', headers: { 'Content-Type': 'application/json' } }
+	)
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(
+			`Failed to reset active filter: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
+		)
+	}
+	return response.json()
+}
+
+export interface OptimizedAnalysisPayload {
+	filters?: {
+		age_groups?: string[]
+		genders?: string[]
+		classification_filters?: Record<string, string[]>
+	}
+	save_to_history?: boolean
+	name?: string
+}
+
+/**
+ * POST optimized analysis JSON with optional filters.
+ * Returns the full analytics shape computed on the filtered cohort only.
+ */
+export async function postStudyOptimizedAnalysisJson(
+	studyId: string,
+	payload: OptimizedAnalysisPayload = {}
+): Promise<any> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+
+	const body: OptimizedAnalysisPayload = {
+		filters: payload.filters ?? {},
+		save_to_history: payload.save_to_history ?? true,
+		...(payload.name ? { name: payload.name } : {}),
+	}
+
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/optimized-analysis-json`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(body),
+		}
+	)
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(
+			`Failed to load filtered analysis: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
+		)
+	}
+	return response.json()
+}
+
 // ---------------- Analysis Settings ----------------
 
 export interface RatingScoringGroup {
