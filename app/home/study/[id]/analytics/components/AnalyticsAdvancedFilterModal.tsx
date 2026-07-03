@@ -4,34 +4,60 @@ import React, { useEffect, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import { Filter, X } from "lucide-react"
 import type { ClassificationQuestionPayload } from "@/lib/api/StudyAPI"
-import type { StudyFilterPayload } from "@/lib/api/ResponseAPI"
+import type { SavedFilterReport, StudyFilterPayload } from "@/lib/api/ResponseAPI"
 import { AnalyticsAdvancedFilterPanel } from "./AnalyticsAdvancedFilterPanel"
 
 interface AnalyticsAdvancedFilterModalProps {
 	studyId: string
 	classificationQuestions?: ClassificationQuestionPayload[] | null
 	initialFilters?: StudyFilterPayload["filters"] | null
+	savedReports?: SavedFilterReport[]
 	isOpen: boolean
 	onClose: () => void
 	onRunAnalysis: (filters: StudyFilterPayload["filters"]) => void
+	onSaveAndRun?: (name: string, filters: StudyFilterPayload["filters"]) => void | Promise<void>
 	isRunning?: boolean
 	error?: string | null
+	saveError?: string | null
 }
 
 export function AnalyticsAdvancedFilterModal({
 	studyId,
 	classificationQuestions,
 	initialFilters = null,
+	savedReports = [],
 	isOpen,
 	onClose,
 	onRunAnalysis,
+	onSaveAndRun,
 	isRunning = false,
 	error = null,
+	saveError = null,
 }: AnalyticsAdvancedFilterModalProps) {
 	const [panelKey, setPanelKey] = useState(0)
 
 	useEffect(() => {
 		if (isOpen) setPanelKey((k) => k + 1)
+	}, [isOpen])
+
+	useEffect(() => {
+		if (!isOpen) return
+		const previousBodyOverflow = document.body.style.overflow
+		const previousBodyOverscroll = document.body.style.overscrollBehavior
+		const previousHtmlOverflow = document.documentElement.style.overflow
+		const previousHtmlOverscroll = document.documentElement.style.overscrollBehavior
+
+		document.body.style.overflow = "hidden"
+		document.body.style.overscrollBehavior = "none"
+		document.documentElement.style.overflow = "hidden"
+		document.documentElement.style.overscrollBehavior = "none"
+
+		return () => {
+			document.body.style.overflow = previousBodyOverflow
+			document.body.style.overscrollBehavior = previousBodyOverscroll
+			document.documentElement.style.overflow = previousHtmlOverflow
+			document.documentElement.style.overscrollBehavior = previousHtmlOverscroll
+		}
 	}, [isOpen])
 
 	if (!isOpen) return null
@@ -81,15 +107,19 @@ export function AnalyticsAdvancedFilterModal({
 						</button>
 					</div>
 
-					<div className="flex-1 min-h-0 overflow-y-auto px-5 sm:px-6 py-4 sm:py-5">
+					<div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 sm:px-6 py-4 sm:py-5">
 						<AnalyticsAdvancedFilterPanel
 							key={panelKey}
 							studyId={studyId}
 							classificationQuestions={classificationQuestions}
 							initialFilters={initialFilters}
+							savedReports={savedReports}
 							onRunAnalysis={onRunAnalysis}
+							onSaveAndRun={onSaveAndRun}
+							onCancel={onClose}
 							isRunning={isRunning}
 							error={error}
+							saveError={saveError}
 						/>
 					</div>
 

@@ -626,6 +626,94 @@ export async function resetActiveFilter(studyId: string): Promise<ActiveFilterSa
 	return response.json()
 }
 
+// ---------------- Saved filter reports ----------------
+
+export interface SavedFilterReport {
+	id: string
+	study_id: string
+	name: string
+	filters: StudyFilterPayload['filters']
+	created_at?: string | null
+}
+
+async function throwResponseError(response: Response, fallback: string): Promise<never> {
+	const errorData = await response.json().catch(() => ({}))
+	const detail =
+		typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)
+	const err = new Error(`${fallback}: ${response.status} ${detail}`) as Error & { status?: number }
+	err.status = response.status
+	throw err
+}
+
+export async function getSavedFilterReports(studyId: string): Promise<SavedFilterReport[]> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/saved-reports`,
+		{ method: 'GET', headers: { 'Content-Type': 'application/json' } }
+	)
+	if (!response.ok) {
+		await throwResponseError(response, 'Failed to load saved reports')
+	}
+	return response.json()
+}
+
+export async function createSavedFilterReport(
+	studyId: string,
+	payload: { name: string; filters: StudyFilterPayload['filters'] }
+): Promise<SavedFilterReport> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/saved-reports`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				name: payload.name,
+				filters: payload.filters ?? {},
+			}),
+		}
+	)
+	if (!response.ok) {
+		await throwResponseError(response, 'Failed to save report')
+	}
+	return response.json()
+}
+
+export async function renameSavedFilterReport(
+	studyId: string,
+	reportId: string,
+	name: string
+): Promise<SavedFilterReport> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/saved-reports/${encodeURIComponent(reportId)}`,
+		{
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name }),
+		}
+	)
+	if (!response.ok) {
+		await throwResponseError(response, 'Failed to rename report')
+	}
+	return response.json()
+}
+
+export async function deleteSavedFilterReport(studyId: string, reportId: string): Promise<void> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/saved-reports/${encodeURIComponent(reportId)}`,
+		{ method: 'DELETE', headers: { 'Content-Type': 'application/json' } }
+	)
+	if (!response.ok) {
+		await throwResponseError(response, 'Failed to delete report')
+	}
+}
+
 export interface ClassificationCohortPayload {
 	filters?: StudyFilterPayload['filters']
 	question_text: string

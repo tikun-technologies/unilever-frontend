@@ -1,12 +1,12 @@
 "use client"
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { motion } from "framer-motion"
+import { AnimatePresence, motion } from "framer-motion"
 import { Filter, Loader2, Users, CalendarRange, HelpCircle, MessageSquareText } from "lucide-react"
 import { getStudyDetails } from "@/lib/api/StudyAPI"
 import type { ClassificationQuestionPayload } from "@/lib/api/StudyAPI"
-import type { StudyFilterPayload } from "@/lib/api/ResponseAPI"
-import { buildFilterPayload, filtersEqual } from "@/lib/utils/filterAnalysisMerge"
+import type { SavedFilterReport, StudyFilterPayload } from "@/lib/api/ResponseAPI"
+import { buildFilterPayload, describeAppliedFilters, filtersEqual } from "@/lib/utils/filterAnalysisMerge"
 
 const FILTER_AGE_GROUPS = ["13-18", "18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
 const GENDERS = ["Male", "Female"]
@@ -21,23 +21,16 @@ function FilterChip({
 	label,
 	selected,
 	onClick,
-	delay = 0,
 }: {
 	label: string
 	selected: boolean
 	onClick: () => void
-	delay?: number
 }) {
 	return (
-		<motion.button
+		<button
 			type="button"
 			onClick={onClick}
-			initial={{ opacity: 0, scale: 0.92 }}
-			animate={{ opacity: 1, scale: 1 }}
-			transition={{ delay, type: "spring", stiffness: 400, damping: 25 }}
-			whileHover={{ scale: 1.03 }}
-			whileTap={{ scale: 0.98 }}
-			className={`cursor-pointer px-4 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2674BA]/40 ${
+			className={`cursor-pointer px-4 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2674BA]/40 ${
 				selected
 					? "text-white border-transparent shadow-md"
 					: "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
@@ -49,7 +42,7 @@ function FilterChip({
 			}
 		>
 			{label}
-		</motion.button>
+		</button>
 	)
 }
 
@@ -60,6 +53,7 @@ function FilterSection({
 	children,
 	badge,
 	headerAction,
+	hideSubtitleOnMobile = false,
 }: {
 	icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
 	title: string
@@ -67,6 +61,7 @@ function FilterSection({
 	children: React.ReactNode
 	badge?: string
 	headerAction?: React.ReactNode
+	hideSubtitleOnMobile?: boolean
 }) {
 	return (
 		<div className="rounded-2xl border border-gray-200/80 bg-gradient-to-br from-white to-gray-50/60 p-4 sm:p-5 shadow-sm">
@@ -88,7 +83,11 @@ function FilterSection({
 									</span>
 								) : null}
 							</div>
-							<p className="text-sm text-gray-500 mt-0.5">{subtitle}</p>
+							<p
+								className={`text-sm text-gray-500 mt-0.5 ${hideSubtitleOnMobile ? "hidden lg:block" : ""}`}
+							>
+								{subtitle}
+							</p>
 						</div>
 						{headerAction ? <div className="shrink-0">{headerAction}</div> : null}
 					</div>
@@ -178,9 +177,13 @@ interface AnalyticsAdvancedFilterPanelProps {
 	studyId: string
 	classificationQuestions?: ClassificationQuestionPayload[] | null
 	initialFilters?: StudyFilterPayload["filters"] | null
+	savedReports?: SavedFilterReport[]
 	onRunAnalysis: (filters: StudyFilterPayload["filters"]) => void
+	onSaveAndRun?: (name: string, filters: StudyFilterPayload["filters"]) => void | Promise<void>
+	onCancel?: () => void
 	isRunning?: boolean
 	error?: string | null
+	saveError?: string | null
 }
 
 function applyInitialFilters(initialFilters?: StudyFilterPayload["filters"] | null) {
@@ -195,9 +198,13 @@ export function AnalyticsAdvancedFilterPanel({
 	studyId,
 	classificationQuestions: classificationQuestionsProp,
 	initialFilters = null,
+	savedReports = [],
 	onRunAnalysis,
+	onSaveAndRun,
+	onCancel,
 	isRunning = false,
 	error = null,
+	saveError = null,
 }: AnalyticsAdvancedFilterPanelProps) {
 	const [classificationQuestionsFetched, setClassificationQuestionsFetched] = useState<
 		ClassificationQuestionPayload[]
@@ -211,6 +218,9 @@ export function AnalyticsAdvancedFilterPanel({
 	const [classificationFilters, setClassificationFilters] = useState<Record<string, string[]>>(
 		() => applyInitialFilters(initialFilters).classificationFilters
 	)
+	const [saveStepOpen, setSaveStepOpen] = useState(false)
+	const [reportName, setReportName] = useState("")
+	const [localSaveError, setLocalSaveError] = useState<string | null>(null)
 
 	useEffect(() => {
 		if (!studyId || hasProp) return
@@ -270,8 +280,35 @@ export function AnalyticsAdvancedFilterPanel({
 	}
 
 	const handleRunAnalysis = useCallback(() => {
+		setSaveStepOpen(false)
+		setLocalSaveError(null)
 		onRunAnalysis(buildFilterPayload(ageGroups, genders, classificationFilters))
 	}, [ageGroups, genders, classificationFilters, onRunAnalysis])
+
+	const openSaveStep = useCallback(() => {
+		const filters = buildFilterPayload(ageGroups, genders, classificationFilters)
+		const defaultName = describeAppliedFilters(filters) || "Custom report"
+		setReportName(defaultName.slice(0, 255))
+		setLocalSaveError(null)
+		setSaveStepOpen(true)
+	}, [ageGroups, genders, classificationFilters])
+
+	const handleSaveAndRun = useCallback(async () => {
+		const filters = buildFilterPayload(ageGroups, genders, classificationFilters)
+		const trimmed = reportName.trim()
+		if (!trimmed) {
+			setLocalSaveError("Please enter a report name.")
+			return
+		}
+		const duplicate = savedReports.find((r) => filtersEqual(r.filters, filters))
+		if (duplicate) {
+			setLocalSaveError(`This filter is already saved as "${duplicate.name}".`)
+			return
+		}
+		if (!onSaveAndRun) return
+		setLocalSaveError(null)
+		await onSaveAndRun(trimmed, filters)
+	}, [ageGroups, genders, classificationFilters, reportName, savedReports, onSaveAndRun])
 
 	const draftFilters = useMemo(
 		() => buildFilterPayload(ageGroups, genders, classificationFilters),
@@ -299,7 +336,7 @@ export function AnalyticsAdvancedFilterPanel({
 
 	return (
 		<div className="space-y-5">
-			<div className="max-h-[min(52vh,520px)] overflow-y-auto pr-1 sm:pr-2 -mr-1 sm:-mr-2">
+			<div className="pr-0 sm:pr-2 sm:-mr-2 sm:max-h-[min(52vh,520px)] sm:overflow-y-auto">
 				<div className="space-y-4">
 					<FilterSection
 						icon={Users}
@@ -307,13 +344,12 @@ export function AnalyticsAdvancedFilterPanel({
 						subtitle="Choose who to include in your segment. Leave empty to include all."
 					>
 						<div className="flex flex-wrap gap-2">
-							{GENDERS.map((g, i) => (
+							{GENDERS.map((g) => (
 								<FilterChip
 									key={g}
 									label={g}
 									selected={genders.includes(g)}
 									onClick={() => toggleGender(g)}
-									delay={i * 0.03}
 								/>
 							))}
 						</div>
@@ -325,20 +361,19 @@ export function AnalyticsAdvancedFilterPanel({
 						subtitle="Select one or more age ranges. Leave empty to include all ages."
 					>
 						<div className="flex flex-wrap gap-2">
-							{FILTER_AGE_GROUPS.map((age, i) => (
+							{FILTER_AGE_GROUPS.map((age) => (
 								<FilterChip
 									key={age}
 									label={age}
 									selected={ageGroups.includes(age)}
 									onClick={() => toggleAge(age)}
-									delay={i * 0.02}
 								/>
 							))}
 						</div>
 					</FilterSection>
 
 					{classificationQuestions.length > 0 ? (
-						classificationQuestions.map((q, qIdx) => {
+						classificationQuestions.map((q) => {
 							const isOpen = isOpenTextQuestion(q)
 							const options = q.answer_options ?? []
 							const optionTexts = options.map((opt) => opt.text)
@@ -351,6 +386,7 @@ export function AnalyticsAdvancedFilterPanel({
 									key={q.question_id}
 									icon={isOpen ? MessageSquareText : HelpCircle}
 									title={q.question_text}
+									hideSubtitleOnMobile={!isOpen && optionTexts.length > 0}
 									subtitle={
 										isOpen
 											? "Open-ended response — shown for context; filter by choice-based answers below."
@@ -378,13 +414,12 @@ export function AnalyticsAdvancedFilterPanel({
 										</div>
 									) : options.length > 0 ? (
 										<div className="flex flex-wrap gap-2">
-											{options.map((opt, oIdx) => (
+											{options.map((opt) => (
 												<FilterChip
 													key={opt.id}
 													label={opt.text}
 													selected={selected.includes(opt.text)}
 													onClick={() => toggleClassificationOption(q.question_text, opt.text)}
-													delay={qIdx * 0.02 + oIdx * 0.02}
 												/>
 											))}
 										</div>
@@ -409,18 +444,28 @@ export function AnalyticsAdvancedFilterPanel({
 			</div>
 
 			<div className="sticky bottom-0 pt-2 border-t border-gray-100 bg-white/95 backdrop-blur-sm">
-				<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pt-3">
+				<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pt-3">
 					<p className="text-xs text-gray-500">
 						{activeFilterCount > 0
 							? `${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} selected`
 							: "No filters selected — all respondents will be included"}
 					</p>
-					<div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+					<div className="grid grid-cols-2 gap-2 w-full sm:flex sm:flex-row sm:w-auto">
+						{onCancel ? (
+							<button
+								type="button"
+								onClick={onCancel}
+								disabled={isRunning}
+								className="cursor-pointer inline-flex items-center justify-center gap-2 w-full sm:w-auto px-3 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-sm text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+							>
+								Cancel
+							</button>
+						) : null}
 						<button
 							type="button"
 							onClick={handleClearAllFilters}
 							disabled={isRunning || activeFilterCount === 0}
-							className="cursor-pointer inline-flex items-center justify-center gap-2 w-full sm:w-auto px-5 py-3 rounded-xl font-semibold text-sm text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
+							className="cursor-pointer inline-flex items-center justify-center gap-2 w-full sm:w-auto px-3 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-sm text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
 						>
 							Clear all filters
 						</button>
@@ -430,7 +475,7 @@ export function AnalyticsAdvancedFilterPanel({
 							disabled={isRunning || filtersUnchanged}
 							whileHover={!isRunning && !filtersUnchanged ? { scale: 1.02 } : undefined}
 							whileTap={!isRunning && !filtersUnchanged ? { scale: 0.98 } : undefined}
-							className="cursor-pointer inline-flex items-center justify-center gap-2 w-full sm:w-auto px-6 py-3 rounded-xl font-bold text-sm text-white shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-80 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2674BA]/40"
+							className="cursor-pointer inline-flex items-center justify-center gap-2 w-full sm:w-auto px-3 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold text-sm text-white shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-80 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2674BA]/40"
 							style={{
 								backgroundColor: BRAND_BLUE,
 								boxShadow: filtersUnchanged ? undefined : `0 8px 28px ${BRAND_BLUE}45`,
@@ -443,14 +488,113 @@ export function AnalyticsAdvancedFilterPanel({
 							)}
 							{filtersUnchanged && !isRunning ? "Already applied" : "Run Analysis"}
 						</motion.button>
+						{onSaveAndRun ? (
+							<motion.button
+								type="button"
+								onClick={openSaveStep}
+								disabled={isRunning || activeFilterCount === 0}
+								whileHover={!isRunning && activeFilterCount > 0 ? { scale: 1.02 } : undefined}
+								whileTap={!isRunning && activeFilterCount > 0 ? { scale: 0.98 } : undefined}
+								className="cursor-pointer inline-flex items-center justify-center gap-2 w-full sm:w-auto px-3 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold text-sm border-2 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2674BA]/40"
+								style={{
+									borderColor: BRAND_BLUE,
+									color: BRAND_BLUE,
+									backgroundColor: "white",
+								}}
+							>
+								Save and Run Analysis
+							</motion.button>
+						) : null}
 					</div>
 				</div>
-				{error ? (
+				{error && !saveStepOpen ? (
 					<p className="text-sm text-red-600 mt-2" role="alert">
 						{error}
 					</p>
 				) : null}
 			</div>
+			<AnimatePresence>
+				{saveStepOpen ? (
+					<motion.div
+						initial={{ opacity: 0 }}
+						animate={{ opacity: 1 }}
+						exit={{ opacity: 0 }}
+						className="fixed inset-0 z-[130] flex items-center justify-center p-4"
+					>
+						<button
+							type="button"
+							className="absolute inset-0 bg-black/35 backdrop-blur-[3px] cursor-pointer"
+							onClick={() => {
+								if (isRunning) return
+								setSaveStepOpen(false)
+								setLocalSaveError(null)
+							}}
+							disabled={isRunning}
+							aria-label="Close save report dialog"
+						/>
+						<motion.div
+							initial={{ opacity: 0, y: 18, scale: 0.98 }}
+							animate={{ opacity: 1, y: 0, scale: 1 }}
+							exit={{ opacity: 0, y: 10, scale: 0.98 }}
+							transition={{ duration: 0.2 }}
+							className="relative w-full max-w-xl rounded-2xl border border-gray-200 bg-white shadow-2xl p-5 sm:p-6"
+							onClick={(e) => e.stopPropagation()}
+						>
+							<h3 className="text-base sm:text-lg font-bold text-gray-900">Save filter report</h3>
+							<p className="text-sm text-gray-500 mt-1 mb-4">
+								Enter a name for this filter set. You can edit the default name.
+							</p>
+							<label htmlFor="report-name" className="block text-xs font-semibold text-gray-700 mb-1.5">
+								Report name
+							</label>
+							<input
+								id="report-name"
+								type="text"
+								value={reportName}
+								onChange={(e) => setReportName(e.target.value)}
+								maxLength={255}
+								disabled={isRunning}
+								className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#2674BA]/30 disabled:opacity-60"
+								placeholder="Name this filter report"
+								autoFocus
+							/>
+							<p className="text-[11px] text-gray-500 mt-1.5">
+								Default is your current filter selection.
+							</p>
+							{(localSaveError || saveError) && (
+								<p className="text-sm text-red-600 mt-3" role="alert">
+									{localSaveError || saveError}
+								</p>
+							)}
+							<div className="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+								<button
+									type="button"
+									onClick={() => {
+										setSaveStepOpen(false)
+										setLocalSaveError(null)
+									}}
+									disabled={isRunning}
+									className="cursor-pointer inline-flex items-center justify-center px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-700 border border-gray-200 bg-white hover:bg-gray-50 disabled:opacity-60"
+								>
+									Cancel
+								</button>
+								<button
+									type="button"
+									onClick={() => void handleSaveAndRun()}
+									disabled={isRunning || !reportName.trim() || activeFilterCount === 0}
+									className="cursor-pointer inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-[#2674BA] hover:bg-[#1f5d95] disabled:opacity-60"
+								>
+									{isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+									{isRunning ? "Saving and running..." : "Save and run"}
+								</button>
+							</div>
+							{isRunning ? (
+								<p className="mt-3 text-xs text-[#2674BA] font-semibold">Saving report and running analysis...</p>
+							) : null}
+						</motion.div>
+					</motion.div>
+				) : null}
+			</AnimatePresence>
 		</div>
 	)
 }

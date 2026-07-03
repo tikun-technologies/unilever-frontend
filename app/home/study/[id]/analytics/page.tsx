@@ -6,12 +6,17 @@ import { DashboardHeader } from "@/app/home/components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
 import { getStudyBasicDetails, StudyDetails } from "@/lib/api/StudyAPI"
 import {
+    createSavedFilterReport,
+    deleteSavedFilterReport,
     downloadStudyResponsesCsv,
     getAnalyticsSession,
+    getSavedFilterReports,
     postClassificationCohort,
+    renameSavedFilterReport,
     resetActiveFilter,
     saveActiveFilter,
     type ClassificationCohortResponse,
+    type SavedFilterReport,
     type StudyFilterPayload,
 } from "@/lib/api/ResponseAPI"
 import {
@@ -37,6 +42,7 @@ import { AnalyticsDesignConfigurator } from "./components/AnalyticsDesignConfigu
 import { AnalyticsSettingsModal } from "./components/AnalyticsSettingsModal"
 import { AnalyticsAdvancedFilterModal } from "./components/AnalyticsAdvancedFilterModal"
 import { AnalyticsPrelimCohortModal } from "./components/AnalyticsPrelimCohortModal"
+import { AnalyticsSavedReportsSidebar } from "./components/AnalyticsSavedReportsSidebar"
 
 export default function StudyAnalyticsPage() {
     const params = useParams()
@@ -65,12 +71,30 @@ export default function StudyAnalyticsPage() {
     const [settingsOpen, setSettingsOpen] = useState(false)
     const [advancedFilterOpen, setAdvancedFilterOpen] = useState(false)
     const [filterRunning, setFilterRunning] = useState(false)
+    const [saveAndRunPending, setSaveAndRunPending] = useState(false)
     const [cohortOpen, setCohortOpen] = useState(false)
     const [cohortSelection, setCohortSelection] = useState<{ questionText: string; answer: string; baseSize?: number } | null>(null)
     const [cohortData, setCohortData] = useState<ClassificationCohortResponse | null>(null)
     const [cohortLoading, setCohortLoading] = useState(false)
     const [cohortLoadingMore, setCohortLoadingMore] = useState(false)
     const [cohortError, setCohortError] = useState<string | null>(null)
+    const [savedReports, setSavedReports] = useState<SavedFilterReport[]>([])
+    const [savedReportsLoading, setSavedReportsLoading] = useState(false)
+    const [saveReportError, setSaveReportError] = useState<string | null>(null)
+    const [applyingReportId, setApplyingReportId] = useState<string | null>(null)
+
+    const loadSavedReports = async () => {
+        if (!studyId) return
+        setSavedReportsLoading(true)
+        try {
+            const rows = await getSavedFilterReports(studyId)
+            setSavedReports(rows)
+        } catch (e) {
+            console.warn("Failed to load saved reports:", e)
+        } finally {
+            setSavedReportsLoading(false)
+        }
+    }
 
     const loadAnalysis = async () => {
         if (!studyId) return
@@ -106,6 +130,7 @@ export default function StudyAnalyticsPage() {
         setAnalysisLoading(true)
         setFilterError(null)
         setAnalysisError(null)
+        setSaveReportError(null)
 
         try {
             if (!hasAnyFilterSelection(filters)) {
@@ -145,7 +170,35 @@ export default function StudyAnalyticsPage() {
         } finally {
             setAnalysisLoading(false)
             setFilterRunning(false)
+            setApplyingReportId(null)
         }
+    }
+
+    const saveAndRunFilteredAnalysis = async (
+        name: string,
+        filters: StudyFilterPayload["filters"]
+    ) => {
+        if (!studyId) return
+        setSaveAndRunPending(true)
+        setSaveReportError(null)
+        try {
+            await createSavedFilterReport(studyId, { name, filters: filters ?? {} })
+            await loadSavedReports()
+            await runFilteredAnalysis(filters)
+        } catch (e) {
+            const err = e as Error & { status?: number }
+            setSaveReportError(err.message ?? "Failed to save report")
+            if (err.status !== 409) {
+                throw e
+            }
+        } finally {
+            setSaveAndRunPending(false)
+        }
+    }
+
+    const applySavedReport = async (report: SavedFilterReport) => {
+        setApplyingReportId(report.id)
+        await runFilteredAnalysis(report.filters)
     }
 
     const clearActiveFilter = async () => {
@@ -224,6 +277,7 @@ export default function StudyAnalyticsPage() {
     useEffect(() => {
         if (!studyId) return
         void loadAnalysis()
+        void loadSavedReports()
     }, [studyId])
 
     const loadStudyDetails = async () => {
@@ -384,7 +438,40 @@ export default function StudyAnalyticsPage() {
 
     return (
         <AuthGuard requireAuth={true}>
-            <div className="min-h-screen bg-gray-50">
+            <div className="flex min-h-screen bg-gray-50">
+            <AnalyticsSavedReportsSidebar
+                reports={savedReports}
+                onSelectReport={(report) => void applySavedReport(report)}
+                onRename={async (reportId, name) => {
+                    const snapshot = savedReports
+                    setSavedReports((prev) =>
+                        prev.map((r) => (r.id === reportId ? { ...r, name } : r))
+                    )
+                    try {
+                        await renameSavedFilterReport(studyId, reportId, name)
+                    } catch (e) {
+                        setSavedReports(snapshot)
+                        console.warn("Failed to rename saved report:", e)
+                        alert((e as Error)?.message ?? "Failed to rename report")
+                    }
+                }}
+                onDelete={async (reportId) => {
+                    const snapshot = savedReports
+                    setSavedReports((prev) => prev.filter((r) => r.id !== reportId))
+                    try {
+                        await deleteSavedFilterReport(studyId, reportId)
+                    } catch (e) {
+                        setSavedReports(snapshot)
+                        console.warn("Failed to delete saved report:", e)
+                        alert((e as Error)?.message ?? "Failed to delete report")
+                    }
+                }}
+                activeFilters={isFilterActive ? activeFilters : null}
+                loading={savedReportsLoading}
+                applyingId={applyingReportId}
+            />
+
+            <div className="flex-1 overflow-auto min-w-0">
                 <DashboardHeader />
 
                 {/* Header Section */}
@@ -421,6 +508,7 @@ export default function StudyAnalyticsPage() {
                                     type="button"
                                     onClick={() => {
                                         setFilterError(null)
+                                        setSaveReportError(null)
                                         setAdvancedFilterOpen(true)
                                     }}
                                     className="cursor-pointer w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold shrink-0"
@@ -662,11 +750,11 @@ export default function StudyAnalyticsPage() {
                                     exportHtmlStage={exportHtmlStage}
                                 />
                             </div>
-
                             </div>
                         </>
                     )}
                 </div>
+            </div>
             </div>
 
             <AnalyticsSettingsModal
@@ -676,6 +764,7 @@ export default function StudyAnalyticsPage() {
                 onOpenAdvancedFilter={() => {
                     setSettingsOpen(false)
                     setFilterError(null)
+                    setSaveReportError(null)
                     setAdvancedFilterOpen(true)
                 }}
                 onSaved={() => {
@@ -687,11 +776,17 @@ export default function StudyAnalyticsPage() {
                 studyId={studyId}
                 classificationQuestions={classificationQuestions}
                 initialFilters={activeFilters}
+                savedReports={savedReports}
                 isOpen={advancedFilterOpen}
-                onClose={() => setAdvancedFilterOpen(false)}
+                onClose={() => {
+                    setAdvancedFilterOpen(false)
+                    setSaveReportError(null)
+                }}
                 onRunAnalysis={(filters) => void runFilteredAnalysis(filters)}
-                isRunning={filterRunning}
+                onSaveAndRun={(name, filters) => saveAndRunFilteredAnalysis(name, filters)}
+                isRunning={filterRunning || saveAndRunPending}
                 error={filterError}
+                saveError={saveReportError}
             />
 
             <AnalyticsPrelimCohortModal
