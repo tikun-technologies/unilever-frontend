@@ -8,7 +8,8 @@ import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { updateStudyStatus, putUpdateStudy, StudyDetails, getStudyBasicDetails } from "@/lib/api/StudyAPI"
 import { StudyAnalytics, downloadStudyResponsesCsv, subscribeStudyAnalytics } from "@/lib/api/ResponseAPI"
-import { Pause, Play, CheckCircle, Share, Download, BarChart3, ArrowLeft, ChevronDown, LineChart, Bot } from "lucide-react"
+import { Pause, Play, CheckCircle, Share, Download, BarChart3, ArrowLeft, ChevronDown, LineChart, Bot, UserPlus } from "lucide-react"
+import { ShareStudyModal } from "@/components/create-study/ShareStudyModal"
 import Link from "next/link"
 import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
@@ -232,6 +233,7 @@ export default function StudyManagementPage() {
   ]
   const [exportMessageIndex, setExportMessageIndex] = useState(0)
   const [showLaunchCongrats, setShowLaunchCongrats] = useState(false)
+  const [isCollaboratorModalOpen, setIsCollaboratorModalOpen] = useState(false)
 
   // Cache keys
   const STUDY_CACHE_KEY = `study_details_cache_v2_${studyId}`
@@ -559,6 +561,16 @@ export default function StudyManagementPage() {
     : rawStudyCategories
   const hasElementDetails = studyLayers.length > 0 || studyCategories.length > 0
 
+  const studyUserRole = (() => {
+    const roleFromStudy = (study as StudyDetails & { user_role?: string }).user_role
+    if (roleFromStudy) return roleFromStudy
+    if (typeof window !== "undefined") {
+      if (projId) return localStorage.getItem(`ps_role_${projId}`) || "viewer"
+      return localStorage.getItem("user_role") || "admin"
+    }
+    return "admin"
+  })()
+
   return (
     <AuthGuard requireAuth={true}>
       <div className="min-h-screen bg-gray-50">
@@ -645,58 +657,58 @@ export default function StudyManagementPage() {
           {/* Study Overview */}
           <div className="bg-white rounded-lg shadow-sm border p-0 mb-6 overflow-hidden">
             {/* Top row: title + actions */}
-            <div className="px-6 pt-4 pb-3 flex items-center justify-between">
-              <div className="text-[16px] font-semibold" style={{ color: '#2674BA' }}>
+            <div className="px-4 sm:px-6 pt-4 pb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-base font-semibold shrink-0" style={{ color: '#2674BA' }}>
                 {study.study_type === "layer" ? "Layer Study" : study.study_type === "text" ? "Text Study" : study.study_type === "hybrid" ? "Hybrid Study" : "Grid Study"}
               </div>
-              <div className="flex items-center gap-5 text-sm" style={{ color: '#2674BA' }}>
-                <div className="relative group">
-                  <button
-                    onClick={() => study.status === 'active' && router.push(studySubpageHref('share'))}
-                    disabled={study.status !== 'active'}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all duration-200 ${study.status === 'active'
-                      ? 'hover:opacity-80 cursor-pointer'
-                      : 'opacity-50 cursor-not-allowed'
-                      }`}
-                    title={study.status !== 'active' ? 'Activate study to share' : ''}
-                  >
-                    <Share className="w-6 h-6" />
-                    <span className="font-medium text-lg">Share</span>
-                  </button>
-                  {/* {study.status !== 'active' && (
-                    <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none whitespace-nowrap z-10">
-                      
-                      <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-800"></div>
-                    </div>
-                  )} */}
-                </div>
-                {/* <button className="flex items-center gap-2 hover:opacity-80">
-                  <Eye className="w-4 h-4" />
-                  <span>Preview</span>
-                </button> */}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <button
+                  onClick={() => setIsCollaboratorModalOpen(true)}
+                  className="flex flex-1 sm:flex-initial items-center justify-center gap-1.5 px-2.5 py-2 sm:px-3 sm:py-1.5 rounded-lg border border-[rgba(38,116,186,0.35)] text-[rgba(38,116,186,1)] bg-[rgba(38,116,186,0.06)] hover:bg-[rgba(38,116,186,0.12)] transition-all duration-200 cursor-pointer min-w-0"
+                  title="Add collaborator"
+                >
+                  <UserPlus className="w-4 h-4 shrink-0" />
+                  <span className="font-medium text-sm sm:text-base truncate">
+                    <span className="sm:hidden">Collaborator</span>
+                    <span className="hidden sm:inline">Add Collaborator</span>
+                  </span>
+                </button>
+                <button
+                  onClick={() => study.status === 'active' && router.push(studySubpageHref('share'))}
+                  disabled={study.status !== 'active'}
+                  className={`flex flex-1 sm:flex-initial items-center justify-center gap-1.5 px-2.5 py-2 sm:px-3 sm:py-1.5 rounded-lg border transition-all duration-200 min-w-0 ${
+                    study.status === 'active'
+                      ? 'border-[rgba(38,116,186,0.35)] text-[rgba(38,116,186,1)] bg-[rgba(38,116,186,0.06)] hover:bg-[rgba(38,116,186,0.12)] cursor-pointer'
+                      : 'border-gray-200 text-gray-400 bg-gray-50 opacity-60 cursor-not-allowed'
+                  }`}
+                  title={study.status !== 'active' ? 'Activate study to share' : 'Share study with participants'}
+                >
+                  <Share className="w-4 h-4 shrink-0" />
+                  <span className="font-medium text-sm sm:text-base">Share</span>
+                </button>
               </div>
             </div>
             <div className="border-t" style={{ borderColor: 'rgba(0,0,0,0.06)' }} />
             {/* Meta row */}
-            <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-3 gap-8 text-sm">
-              <div className="flex items-center gap-2">
-                <span className="text-gray-700">Status :</span>
+            <div className="px-4 sm:px-6 py-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 text-sm">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-gray-700 shrink-0">Status :</span>
                 <span className={getStatusColor(study.status)}>{getStatusDisplay(study.status)}</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-gray-700">Type :</span>
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-gray-700 shrink-0">Type :</span>
                 <span className="text-gray-700">{study.study_type === 'layer' ? 'Layer - Based' : study.study_type === 'hybrid' ? 'Hybrid - Based' : study.study_type === 'text' ? 'Text - Based' : 'Grid - Based'}</span>
               </div>
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-700">Created :</span>
-                  <span className="text-gray-700">{createdDisplay}</span>
+              <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-gray-700 shrink-0">Created :</span>
+                  <span className="text-gray-700 whitespace-nowrap">{createdDisplay}</span>
                 </div>
                 <a
                   href={`/home/create-study/preview?studyId=${encodeURIComponent(studyId)}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-sm font-medium text-[rgba(38,116,186,1)] hover:underline whitespace-nowrap shrink-0"
+                  className="text-sm font-medium text-[rgba(38,116,186,1)] hover:underline whitespace-nowrap shrink-0 self-start sm:self-auto"
                 >
                   Preview as Participant ↗
                 </a>
@@ -705,14 +717,14 @@ export default function StudyManagementPage() {
              {/* AI agentic respondents CTA - commented out */}
             {study.status === "completed" ? (
               <div
-                className="mx-6 mb-4 block rounded-xl p-4 transition-all duration-300 border border-gray-200 bg-gray-50 opacity-70 cursor-not-allowed"
+                className="mx-4 sm:mx-6 mb-4 block rounded-xl p-3 sm:p-4 transition-all duration-300 border border-gray-200 bg-gray-50 opacity-70 cursor-not-allowed"
                 aria-disabled="true"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-start sm:items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-gray-200">
                     <Bot className="w-5 h-5 text-gray-400" />
                   </div>
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium text-gray-500 text-sm">Don&apos;t have respondents? We&apos;ve got you.</p>
                     <p className="text-gray-400 text-xs mt-0.5">AI agentic respondents — not available for completed studies.</p>
                   </div>
@@ -722,13 +734,13 @@ export default function StudyManagementPage() {
             ) : (
               <Link
                 href={studySubpageHref('synthetic-respondent')}
-                className="mx-6 mb-4 block rounded-xl p-4 cursor-pointer transition-all duration-300 border hover:scale-[1.01] hover:shadow-md border-[#2674BA]/20 bg-gradient-to-br from-[#2674BA]/10 to-[#2674BA]/5 hover:border-[#2674BA]/50 hover:from-[#2674BA]/18 hover:to-[#2674BA]/10"
+                className="mx-4 sm:mx-6 mb-4 block rounded-xl p-3 sm:p-4 cursor-pointer transition-all duration-300 border hover:scale-[1.01] hover:shadow-md border-[#2674BA]/20 bg-gradient-to-br from-[#2674BA]/10 to-[#2674BA]/5 hover:border-[#2674BA]/50 hover:from-[#2674BA]/18 hover:to-[#2674BA]/10"
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-start sm:items-center gap-3 min-w-0">
                   <div className="w-10 h-10 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(38,116,186,0.15)' }}>
                     <Bot className="w-5 h-5" style={{ color: '#2674BA' }} />
                   </div>
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <p className="font-medium text-gray-800 text-sm">Don&apos;t have respondents? We&apos;ve got you.</p>
                     <p className="text-gray-600 text-xs mt-0.5">AI agentic respondents can complete your study at scale — no waiting for real users.</p>
                   </div>
@@ -1114,6 +1126,13 @@ export default function StudyManagementPage() {
           </div> */}
         </div>
       </div>
+
+      <ShareStudyModal
+        isOpen={isCollaboratorModalOpen}
+        onClose={() => setIsCollaboratorModalOpen(false)}
+        studyId={studyId}
+        userRole={studyUserRole}
+      />
 
       <StudyLaunchCongrats
         isOpen={showLaunchCongrats}

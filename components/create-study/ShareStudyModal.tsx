@@ -324,8 +324,8 @@ export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }
                                                 const showAdminBadge = isExplicitAdmin || isSelfAndStudyAdmin;
 
                                                 return (
-                                                    <div key={member.id} className="flex items-center justify-between group">
-                                                        <div className="flex items-center space-x-3">
+                                                    <div key={member.id} className="flex items-center justify-between gap-2 group min-w-0">
+                                                        <div className="flex items-center space-x-3 min-w-0 flex-1">
                                                             <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
                                                                 {member.name ? (
                                                                     <span className="text-xs font-bold text-gray-600">
@@ -335,8 +335,8 @@ export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }
                                                                     <Mail className="w-4 h-4 text-gray-400" />
                                                                 )}
                                                             </div>
-                                                            <div>
-                                                                <p className="text-sm font-medium text-gray-800">
+                                                            <div className="min-w-0">
+                                                                <p className="text-sm font-medium text-gray-800 truncate">
                                                                     {showAdminBadge ? (
                                                                         member.name || member.email || member.invited_email
                                                                     ) : (
@@ -352,7 +352,7 @@ export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }
                                                             </div>
                                                         </div>
 
-                                                        <div className="flex items-center space-x-2">
+                                                        <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
                                                             {showAdminBadge ? (
                                                                 <span className="text-xs font-medium text-gray-400 px-2 py-1 bg-gray-50 rounded italic">
                                                                     Admin
@@ -364,7 +364,7 @@ export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }
                                                                         onValueChange={(val) => handleUpdateRole(member.id, val)}
                                                                         disabled={isActionLoading || userRole !== 'admin'}
                                                                     >
-                                                                        <SelectTrigger className="h-8 border-transparent hover:bg-gray-100 transition-colors text-xs w-24">
+                                                                        <SelectTrigger className="h-8 border-transparent hover:bg-gray-100 transition-colors text-xs w-20 sm:w-24">
                                                                             <SelectValue />
                                                                         </SelectTrigger>
                                                                         <SelectContent>
@@ -375,7 +375,9 @@ export function ShareStudyModal({ isOpen, onClose, studyId, userRole = 'admin' }
                                                                     {userRole === 'admin' && (
                                                                         <button
                                                                             onClick={() => handleRemoveMember(member.id)}
-                                                                            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all opacity-0 group-hover:opacity-100"
+                                                                            title="Remove member"
+                                                                            aria-label="Remove member"
+                                                                            className="p-1.5 text-gray-400 hover:text-red-500 active:text-red-500 hover:bg-red-50 active:bg-red-50 rounded transition-all opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
                                                                         >
                                                                             <Trash2 className="w-3.5 h-3.5" />
                                                                         </button>

@@ -352,8 +352,8 @@ export function ShareProjectModal({ isOpen, onClose, projectId, userRole = 'view
                                                 const showAdminBadge = rawRole === 'admin';
 
                                                 return (
-                                                    <div key={member.id} className="flex items-center justify-between group">
-                                                        <div className="flex items-center space-x-3">
+                                                    <div key={member.id} className="flex items-center justify-between gap-2 group min-w-0">
+                                                        <div className="flex items-center space-x-3 min-w-0 flex-1">
                                                             <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0">
                                                                 {member.name ? (
                                                                     <span className="text-xs font-bold text-gray-600">{member.name.charAt(0).toUpperCase()}</span>
@@ -361,8 +361,8 @@ export function ShareProjectModal({ isOpen, onClose, projectId, userRole = 'view
                                                                     <Mail className="w-4 h-4 text-gray-400" />
                                                                 )}
                                                             </div>
-                                                            <div>
-                                                                <p className="text-sm font-medium text-gray-800">
+                                                            <div className="min-w-0">
+                                                                <p className="text-sm font-medium text-gray-800 truncate">
                                                                     {showAdminBadge ? (
                                                                         member.name || member.email || member.invited_email
                                                                     ) : (
@@ -378,7 +378,7 @@ export function ShareProjectModal({ isOpen, onClose, projectId, userRole = 'view
                                                             </div>
                                                         </div>
 
-                                                        <div className="flex items-center space-x-2">
+                                                        <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
                                                             {showAdminBadge ? (
                                                                 <span className="text-xs font-medium text-gray-400 px-2 py-1 bg-gray-50 rounded italic">Admin</span>
                                                             ) : (
@@ -388,7 +388,7 @@ export function ShareProjectModal({ isOpen, onClose, projectId, userRole = 'view
                                                                         onValueChange={(val) => handleUpdateRole(member.id, val)}
                                                                         disabled={isActionLoading || (effectiveRole !== 'admin' && effectiveRole !== 'owner')}
                                                                     >
-                                                                        <SelectTrigger className="h-8 border-transparent hover:bg-gray-100 transition-colors text-xs w-24">
+                                                                        <SelectTrigger className="h-8 border-transparent hover:bg-gray-100 transition-colors text-xs w-20 sm:w-24">
                                                                             <SelectValue />
                                                                         </SelectTrigger>
                                                                         <SelectContent>
@@ -399,7 +399,9 @@ export function ShareProjectModal({ isOpen, onClose, projectId, userRole = 'view
                                                                     {(effectiveRole === 'admin' || effectiveRole === 'owner') && (
                                                                         <button
                                                                             onClick={() => handleRemoveMember(member.id)}
-                                                                            className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition-all opacity-0 group-hover:opacity-100"
+                                                                            title="Remove member"
+                                                                            aria-label="Remove member"
+                                                                            className="p-1.5 text-gray-400 hover:text-red-500 active:text-red-500 hover:bg-red-50 active:bg-red-50 rounded transition-all opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0"
                                                                         >
                                                                             <Trash2 className="w-3.5 h-3.5" />
                                                                         </button>

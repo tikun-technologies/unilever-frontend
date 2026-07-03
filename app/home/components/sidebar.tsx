@@ -376,7 +376,7 @@ export function Sidebar({
                                                                                 <FileText className="w-4 h-4 shrink-0 text-gray-400" />
                                                                                 <span className="truncate">{study.title || "Untitled"}</span>
                                                                             </button>
-                                                                            {canCopyInProject && study.status !== "draft" && (
+                                                                            {canCopyInProject && (
                                                                                 <button
                                                                                     type="button"
                                                                                     onClick={async (e) => {
@@ -392,7 +392,7 @@ export function Sidebar({
                                                                                     }}
                                                                                     disabled={copyLoadingStudyId !== null}
                                                                                     className="p-1.5 rounded hover:bg-[rgba(38,116,186,0.15)] text-[rgba(38,116,186,1)] disabled:opacity-50 shrink-0"
-                                                                                    title="Copy study"
+                                                                                    title={study.status === "draft" ? "Copy draft study" : "Copy study"}
                                                                                 >
                                                                                     {isCopying ? (
                                                                                         <span className="inline-block w-3.5 h-3.5 border-2 border-[rgba(38,116,186,1)] border-t-transparent rounded-full animate-spin" />
