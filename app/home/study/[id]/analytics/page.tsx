@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState, useMemo, useRef } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { DashboardHeader } from "@/app/home/components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
@@ -21,11 +21,12 @@ import {
 } from "@/lib/api/ResponseAPI"
 import {
     describeAppliedFilters,
+    filtersEqual,
     hasAnyFilterSelection,
     isEmptyFilterResponse,
 } from "@/lib/utils/filterAnalysisMerge"
 import { AnimatePresence, motion } from "framer-motion"
-import { ArrowLeft, BarChart3, Download, Filter, LayoutDashboard, Settings2, Sparkles, X } from "lucide-react"
+import { ArrowLeft, BarChart3, ChevronDown, Download, Filter, LayoutDashboard, Settings2, Sparkles, X } from "lucide-react"
 import { exportDesignConfiguratorHtml, ExportHtmlStage } from "@/lib/export/designConfiguratorHtmlExport"
 import Link from "next/link"
 import { AnalyticsToolbar } from "./components/AnalyticsToolbar"
@@ -59,6 +60,9 @@ export default function StudyAnalyticsPage() {
     const [error, setError] = useState<string | null>(null)
     const [exporting, setExporting] = useState(false)
     const [exportStage, setExportStage] = useState(0)
+    const [exportMenuOpen, setExportMenuOpen] = useState(false)
+    const [exportModeLabel, setExportModeLabel] = useState("Exporting...")
+    const exportMenuRef = useRef<HTMLDivElement | null>(null)
     const [exportingHtml, setExportingHtml] = useState(false)
     const [exportHtmlStage, setExportHtmlStage] = useState<ExportHtmlStage>("preparing")
     const [analysisData, setAnalysisData] = useState<any>(null)
@@ -82,6 +86,7 @@ export default function StudyAnalyticsPage() {
     const [savedReportsLoading, setSavedReportsLoading] = useState(false)
     const [saveReportError, setSaveReportError] = useState<string | null>(null)
     const [applyingReportId, setApplyingReportId] = useState<string | null>(null)
+    const [downloadingReportId, setDownloadingReportId] = useState<string | null>(null)
 
     const loadSavedReports = async () => {
         if (!studyId) return
@@ -197,6 +202,7 @@ export default function StudyAnalyticsPage() {
     }
 
     const applySavedReport = async (report: SavedFilterReport) => {
+        if (isFilterActive && filtersEqual(report.filters, activeFilters)) return
         setApplyingReportId(report.id)
         await runFilteredAnalysis(report.filters)
     }
@@ -323,11 +329,57 @@ export default function StudyAnalyticsPage() {
         }
     }
 
-    const buildCsvAndDownload = async () => {
+    const hasFilteredExport = isFilterActive && hasAnyFilterSelection(activeFilters)
+
+    const safeFileNamePart = (value: string | null | undefined, fallback: string) => {
+        const cleaned = (value || fallback)
+            .trim()
+            .replace(/[\\/:*?"<>|]+/g, "-")
+            .replace(/\s+/g, "-")
+            .replace(/-+/g, "-")
+            .replace(/^-|-$/g, "")
+        return cleaned || fallback
+    }
+
+    useEffect(() => {
+        if (!exportMenuOpen) return
+
+        const handlePointerDown = (event: MouseEvent) => {
+            if (!exportMenuRef.current?.contains(event.target as Node)) {
+                setExportMenuOpen(false)
+            }
+        }
+
+        document.addEventListener("mousedown", handlePointerDown)
+        return () => document.removeEventListener("mousedown", handlePointerDown)
+    }, [exportMenuOpen])
+
+    const downloadCsv = async (
+        filters: StudyFilterPayload["filters"] | null | undefined,
+        suffix: string
+    ) => {
         if (!study) return
 
+        const blob = await downloadStudyResponsesCsv(studyId, filters ?? undefined)
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${safeFileNamePart(study?.title, "study")}-${safeFileNamePart(suffix, "analysis")}.xlsx`
+        a.click()
+        URL.revokeObjectURL(url)
+    }
+
+    const buildCsvAndDownload = async (mode: "filtered" | "complete" = hasFilteredExport ? "filtered" : "complete") => {
+        if (!study) return
+
+        const shouldUseFilters = mode === "filtered" && hasFilteredExport
+        const filters = shouldUseFilters ? activeFilters : undefined
+        const suffix = shouldUseFilters ? "filtered-analysis" : "analysis"
+
         try {
+            setExportMenuOpen(false)
             setExporting(true)
+            setExportModeLabel(shouldUseFilters ? "Exporting filtered CSV..." : "Exporting complete CSV...")
             setExportStage(1)
             await new Promise(resolve => setTimeout(resolve, 1000))
             setExportStage(2)
@@ -335,19 +387,28 @@ export default function StudyAnalyticsPage() {
             setExportStage(3)
             await new Promise(resolve => setTimeout(resolve, 500))
 
-            const blob = await downloadStudyResponsesCsv(studyId)
-            const url = URL.createObjectURL(blob)
-            const a = document.createElement('a')
-            a.href = url
-            a.download = `${study?.title || 'study'}-analytics.csv`
-            a.click()
-            URL.revokeObjectURL(url)
+            await downloadCsv(filters, suffix)
         } catch (e) {
             console.error('Export CSV failed:', e)
             alert('Failed to export CSV')
         } finally {
             setExporting(false)
             setExportStage(0)
+            setExportModeLabel("Exporting...")
+        }
+    }
+
+    const downloadSavedReportCsv = async (report: SavedFilterReport) => {
+        if (!study || downloadingReportId || exporting) return
+
+        try {
+            setDownloadingReportId(report.id)
+            await downloadCsv(report.filters, `${report.name || "saved-report"}-filtered-analysis`)
+        } catch (e) {
+            console.error("Saved report export failed:", e)
+            alert((e as Error)?.message || "Failed to export saved report")
+        } finally {
+            setDownloadingReportId(null)
         }
     }
 
@@ -466,16 +527,18 @@ export default function StudyAnalyticsPage() {
                         alert((e as Error)?.message ?? "Failed to delete report")
                     }
                 }}
+                onDownloadReport={(report) => void downloadSavedReportCsv(report)}
                 activeFilters={isFilterActive ? activeFilters : null}
                 loading={savedReportsLoading}
                 applyingId={applyingReportId}
+                downloadingId={downloadingReportId}
             />
 
             <div className="flex-1 overflow-auto min-w-0">
                 <DashboardHeader />
 
                 {/* Header Section */}
-                <div className="text-white overflow-hidden" style={{ backgroundColor: '#2674BA' }}>
+                <div className="relative z-10 text-white overflow-visible" style={{ backgroundColor: '#2674BA' }}>
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6">
                         {/* Breadcrumbs */}
                         <nav className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] sm:text-xs md:text-sm mb-3 sm:mb-4">
@@ -527,28 +590,89 @@ export default function StudyAnalyticsPage() {
                                     <span className="truncate">Back to Study</span>
                                 </button>
 
-                                <button
-                                    onClick={buildCsvAndDownload}
-                                    disabled={exporting || !study}
-                                    className="cursor-pointer w-full sm:w-auto col-span-2 sm:col-span-1 flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 bg-white rounded-lg transition-all duration-200 hover:shadow-lg active:scale-95 font-bold text-xs sm:text-sm shrink-0 disabled:cursor-not-allowed disabled:opacity-70"
-                                    style={{ color: '#2674BA' }}
+                                <div
+                                    ref={exportMenuRef}
+                                    className="relative z-30 w-full sm:w-auto col-span-2 sm:col-span-1 overflow-visible"
                                 >
-                                    {exporting ? (
-                                        <>
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current shrink-0" />
-                                            <span className="truncate">
-                                                {exportStage === 1 && "Extracting..."}
-                                                {exportStage === 2 && "Processing..."}
-                                                {exportStage === 3 && "Generating..."}
-                                            </span>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Download className="w-4 h-4 shrink-0" />
-                                            <span>Export CSV</span>
-                                        </>
-                                    )}
-                                </button>
+                                    <div
+                                        className={`flex w-full sm:w-auto items-stretch overflow-hidden rounded-xl bg-white shadow-md ring-1 ring-white/30 transition-all duration-200 hover:shadow-lg ${
+                                            exportMenuOpen ? "ring-2 ring-white/50 shadow-lg" : ""
+                                        }`}
+                                    >
+                                        <button
+                                            type="button"
+                                            onClick={() => void buildCsvAndDownload()}
+                                            disabled={exporting || !study}
+                                            className="cursor-pointer min-w-0 flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 transition-all duration-200 active:scale-[0.98] font-bold text-xs sm:text-sm shrink-0 disabled:cursor-not-allowed disabled:opacity-70"
+                                            style={{ color: '#2674BA' }}
+                                        >
+                                            {exporting ? (
+                                                <>
+                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current shrink-0" />
+                                                    <span className="truncate">
+                                                        {exportStage === 1 && "Extracting..."}
+                                                        {exportStage === 2 && "Processing..."}
+                                                        {exportStage === 3 && "Generating..."}
+                                                        {exportStage === 0 && exportModeLabel}
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <Download className="w-4 h-4 shrink-0" />
+                                                    <span>{hasFilteredExport ? "Export CSV with filters" : "Export CSV"}</span>
+                                                </>
+                                            )}
+                                        </button>
+                                        {hasFilteredExport && (
+                                            <>
+                                                <div className="w-px shrink-0 bg-[#2674BA]/12 self-stretch my-2" aria-hidden="true" />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setExportMenuOpen((open) => !open)}
+                                                    disabled={exporting || !study}
+                                                    className={`cursor-pointer flex shrink-0 items-center justify-center px-2.5 py-2.5 transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
+                                                        exportMenuOpen ? "bg-[#2674BA]/8" : "hover:bg-[#2674BA]/6"
+                                                    }`}
+                                                    style={{ color: '#2674BA' }}
+                                                    aria-label="More export options"
+                                                    aria-expanded={exportMenuOpen}
+                                                    aria-haspopup="menu"
+                                                >
+                                                    <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${exportMenuOpen ? "rotate-180" : ""}`} />
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                    <AnimatePresence>
+                                        {hasFilteredExport && exportMenuOpen && (
+                                            <motion.div
+                                                initial={{ opacity: 0, y: -8 }}
+                                                animate={{ opacity: 1, y: 0 }}
+                                                exit={{ opacity: 0, y: -8 }}
+                                                transition={{ duration: 0.15, ease: "easeOut" }}
+                                                role="menu"
+                                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[200] w-72 overflow-hidden rounded-xl border border-slate-200/90 bg-white p-1.5 shadow-2xl"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    role="menuitem"
+                                                    onClick={() => void buildCsvAndDownload("complete")}
+                                                    className="cursor-pointer flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-50"
+                                                >
+                                                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                                                        <Download className="h-4 w-4" />
+                                                    </span>
+                                                    <span className="min-w-0">
+                                                        <span className="block text-sm font-semibold text-slate-900">Export complete CSV</span>
+                                                        <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
+                                                            Download the full study report without any filters applied.
+                                                        </span>
+                                                    </span>
+                                                </button>
+                                            </motion.div>
+                                        )}
+                                    </AnimatePresence>
+                                </div>
 
                             </div>
                         </div>

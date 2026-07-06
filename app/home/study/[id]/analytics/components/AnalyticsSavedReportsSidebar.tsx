@@ -2,7 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { Bookmark, Loader2, Menu, Pencil, Trash2, X } from "lucide-react"
+import { Bookmark, Download, Loader2, Menu, Pencil, Trash2, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { SavedFilterReport, StudyFilterPayload } from "@/lib/api/ResponseAPI"
 import { describeAppliedFilters, filtersEqual } from "@/lib/utils/filterAnalysisMerge"
@@ -10,21 +10,25 @@ import { describeAppliedFilters, filtersEqual } from "@/lib/utils/filterAnalysis
 interface AnalyticsSavedReportsSidebarProps {
 	reports: SavedFilterReport[]
 	onSelectReport: (report: SavedFilterReport) => void
+	onDownloadReport?: (report: SavedFilterReport) => void
 	onRename: (reportId: string, name: string) => Promise<void>
 	onDelete: (reportId: string) => Promise<void>
 	activeFilters?: StudyFilterPayload["filters"] | null
 	loading?: boolean
 	applyingId?: string | null
+	downloadingId?: string | null
 }
 
 export function AnalyticsSavedReportsSidebar({
 	reports,
 	onSelectReport,
+	onDownloadReport,
 	onRename,
 	onDelete,
 	activeFilters,
 	loading = false,
 	applyingId = null,
+	downloadingId = null,
 }: AnalyticsSavedReportsSidebarProps) {
 	const [isCollapsed, setIsCollapsed] = useState(true)
 	const [isMobile, setIsMobile] = useState(false)
@@ -68,8 +72,17 @@ export function AnalyticsSavedReportsSidebar({
 	}
 
 	const handleSelectReport = (report: SavedFilterReport) => {
+		if (filtersEqual(report.filters, activeFilters)) {
+			if (isMobile) setIsCollapsed(true)
+			return
+		}
 		onSelectReport(report)
 		if (isMobile) setIsCollapsed(true)
+	}
+
+	const handleDownload = (event: React.MouseEvent<HTMLButtonElement>, report: SavedFilterReport) => {
+		event.stopPropagation()
+		onDownloadReport?.(report)
 	}
 
 	return (
@@ -155,7 +168,8 @@ export function AnalyticsSavedReportsSidebar({
 							{reports.map((report) => {
 								const isActive = report.id === activeReportId
 								const isEditing = editingId === report.id
-								const isBusy = busyId === report.id || applyingId === report.id
+								const isDownloading = downloadingId === report.id
+								const isBusy = busyId === report.id || applyingId === report.id || isDownloading
 								const summary = describeAppliedFilters(report.filters)
 
 								if (isCollapsed) {
@@ -228,7 +242,7 @@ export function AnalyticsSavedReportsSidebar({
 													type="button"
 													onClick={() => handleSelectReport(report)}
 													disabled={isBusy}
-													className="cursor-pointer w-full text-left px-4 py-3 pr-16 disabled:opacity-60"
+													className="cursor-pointer w-full text-left px-4 py-3 pr-24 disabled:opacity-60"
 												>
 													<div className="flex items-start justify-between gap-2">
 														<div className="min-w-0 flex-1">
@@ -253,6 +267,20 @@ export function AnalyticsSavedReportsSidebar({
 														isMobile ? "opacity-100" : "opacity-0 group-hover:opacity-100"
 													}`}
 												>
+													<button
+														type="button"
+														onClick={(event) => handleDownload(event, report)}
+														disabled={isBusy || !onDownloadReport}
+														className="cursor-pointer p-1.5 rounded-full hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
+														aria-label={`Download ${report.name}`}
+														title="Export saved report CSV"
+													>
+														{isDownloading ? (
+															<Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-600" />
+														) : (
+															<Download className="w-3.5 h-3.5 text-emerald-600" />
+														)}
+													</button>
 													<button
 														type="button"
 														onClick={() => startEdit(report)}

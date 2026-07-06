@@ -175,7 +175,7 @@ export default function StudyResponsesPage() {
       const studyName = study?.title || `study-${studyId}`
       // Sanitize filename by replacing invalid characters (match home/study/[id] page)
       const safeStudyName = studyName.replace(/[<>:"/\\|?*]/g, '-')
-      a.download = `${safeStudyName}-responses.csv`
+      a.download = `${safeStudyName}-analysis.xlsx`
       a.click()
       URL.revokeObjectURL(url)
     } catch (e) {

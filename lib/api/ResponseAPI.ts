@@ -1246,17 +1246,46 @@ export async function getResponseSessionDetails(sessionId: string): Promise<Resp
 	return res.json()
 }
 
-/** Download flattened CSV for a study (owner-only) */
-export async function downloadStudyResponsesCsv(studyId: string): Promise<Blob> {
-	const res = await fetchWithAuth(`${API_BASE_URL}/responses/export/study/${studyId}/flattened-csv`, {
+/** Download full Excel analysis report for a study. Optional filters match active analytics filter. */
+export async function downloadStudyResponsesCsv(
+	studyId: string,
+	filters?: StudyFilterPayload['filters'],
+): Promise<Blob> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+
+	const hasFilters =
+		!!filters &&
+		((filters.age_groups?.length ?? 0) > 0 ||
+			(filters.genders?.length ?? 0) > 0 ||
+			Object.values(filters.classification_filters ?? {}).some((answers) => (answers?.length ?? 0) > 0))
+
+	const url = `${API_BASE_URL}/responses/export/study/${encodeURIComponent(cleanId)}/flattened-csv`
+	const accept = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+	if (hasFilters) {
+		const res = await fetchWithAuth(url, {
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Accept: accept,
+			},
+			body: JSON.stringify({ filters }),
+		})
+		if (!res.ok) {
+			const errorText = await res.text().catch(() => '')
+			throw new Error(`Failed to export filtered report: ${res.status} ${errorText}`)
+		}
+		return await res.blob()
+	}
+
+	const res = await fetchWithAuth(url, {
 		method: 'GET',
-		headers: {
-			'Accept': 'text/csv',
-		},
+		headers: { Accept: accept },
 	})
 	if (!res.ok) {
 		const errorText = await res.text().catch(() => '')
-		throw new Error(`Failed to export CSV: ${res.status} ${errorText}`)
+		throw new Error(`Failed to export report: ${res.status} ${errorText}`)
 	}
 	return await res.blob()
 }
