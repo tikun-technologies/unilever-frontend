@@ -398,6 +398,9 @@
   .top-12 {
     top: calc(var(--spacing) * 12);
   }
+  .top-\[calc\(100\%\+0\.5rem\)\] {
+    top: calc(100% + 0.5rem);
+  }
   .top-full {
     top: 100%;
   }
@@ -601,6 +604,9 @@
   }
   .my-1 {
     margin-block: var(--spacing);
+  }
+  .my-2 {
+    margin-block: calc(var(--spacing) * 2);
   }
   .-mt-1 {
     margin-top: calc(var(--spacing) * -1);
@@ -1776,6 +1782,9 @@
   .self-start {
     align-self: flex-start;
   }
+  .self-stretch {
+    align-self: stretch;
+  }
   .truncate {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1786,6 +1795,9 @@
   }
   .overflow-hidden {
     overflow: hidden;
+  }
+  .overflow-visible {
+    overflow: visible;
   }
   .overflow-x-auto {
     overflow-x: auto;
@@ -2207,8 +2219,14 @@
   .bg-\[\#2674BA\]\/5 {
     background-color: color-mix(in oklab, #2674BA 5%, transparent);
   }
+  .bg-\[\#2674BA\]\/8 {
+    background-color: color-mix(in oklab, #2674BA 8%, transparent);
+  }
   .bg-\[\#2674BA\]\/10 {
     background-color: color-mix(in oklab, #2674BA 10%, transparent);
+  }
+  .bg-\[\#2674BA\]\/12 {
+    background-color: color-mix(in oklab, #2674BA 12%, transparent);
   }
   .bg-\[\#2674BA\]\/15 {
     background-color: color-mix(in oklab, #2674BA 15%, transparent);
@@ -2959,9 +2977,6 @@
   .pr-12 {
     padding-right: calc(var(--spacing) * 12);
   }
-  .pr-16 {
-    padding-right: calc(var(--spacing) * 16);
-  }
   .pr-24 {
     padding-right: calc(var(--spacing) * 24);
   }
@@ -3607,6 +3622,18 @@
   .ring-red-100 {
     --tw-ring-color: var(--color-red-100);
   }
+  .ring-white\/30 {
+    --tw-ring-color: color-mix(in srgb, #fff 30%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      --tw-ring-color: color-mix(in oklab, var(--color-white) 30%, transparent);
+    }
+  }
+  .ring-white\/50 {
+    --tw-ring-color: color-mix(in srgb, #fff 50%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      --tw-ring-color: color-mix(in oklab, var(--color-white) 50%, transparent);
+    }
+  }
   .outline-hidden {
     --tw-outline-style: none;
     outline-style: none;
@@ -4120,6 +4147,13 @@
       }
     }
   }
+  .hover\:bg-\[\#2674BA\]\/6 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: color-mix(in oklab, #2674BA 6%, transparent);
+      }
+    }
+  }
   .hover\:bg-\[\#2674BA\]\/10 {
     &:hover {
       @media (hover: hover) {
@@ -4255,6 +4289,13 @@
     &:hover {
       @media (hover: hover) {
         background-color: var(--color-blue-700);
+      }
+    }
+  }
+  .hover\:bg-emerald-50 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: var(--color-emerald-50);
       }
     }
   }

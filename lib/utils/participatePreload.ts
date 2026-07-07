@@ -69,3 +69,57 @@ export function runParticipatePhasePreload(phase: ParticipatePreloadPhase): void
     .preloadParticipatePhase(tasks, phase, backgroundUrl, getParticipateImageUrl)
     .catch(() => undefined)
 }
+
+function extractPreviewRespondentTasks(matrix: unknown): any[] {
+  if (Array.isArray(matrix)) return matrix
+  if (!matrix || typeof matrix !== 'object') return []
+
+  const m = matrix as Record<string, unknown>
+  if (Array.isArray(m.preview_tasks)) return m.preview_tasks
+  if (Array.isArray(m.tasks)) return m.tasks
+
+  if (m.tasks && typeof m.tasks === 'object') {
+    const buckets = m.tasks as Record<string, unknown>
+    if (Array.isArray(buckets['0']) && buckets['0'].length) return buckets['0']
+    for (const v of Object.values(buckets)) {
+      if (Array.isArray(v) && v.length) return v
+    }
+  }
+
+  return []
+}
+
+/** Load respondent tasks + layer background from localStorage (preview funnel). */
+export function loadPreviewTasksFromStorage(): {
+  tasks: any[]
+  backgroundUrl: string | null
+} {
+  if (typeof window === 'undefined') return { tasks: [], backgroundUrl: null }
+
+  try {
+    const step7matrixRaw = localStorage.getItem('cs_step7_matrix')
+    const layerBgRaw = localStorage.getItem('cs_step5_layer_background')
+    if (!step7matrixRaw) return { tasks: [], backgroundUrl: null }
+
+    const matrix = JSON.parse(step7matrixRaw)
+    const layerBg = layerBgRaw ? JSON.parse(layerBgRaw) : null
+    const tasks = extractPreviewRespondentTasks(matrix)
+    const backgroundUrl =
+      (layerBg?.secureUrl as string | undefined) ||
+      (layerBg?.previewUrl as string | undefined) ||
+      null
+
+    return { tasks, backgroundUrl }
+  } catch {
+    return { tasks: [], backgroundUrl: null }
+  }
+}
+
+/** Staged preload for the create-study preview funnel (same strategy as participate). */
+export function runPreviewPhasePreload(phase: ParticipatePreloadPhase): void {
+  const { tasks, backgroundUrl } = loadPreviewTasksFromStorage()
+  if (tasks.length === 0) return
+  void imageCacheManager
+    .preloadParticipatePhase(tasks, phase, backgroundUrl, getParticipateImageUrl)
+    .catch(() => undefined)
+}

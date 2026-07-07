@@ -5,6 +5,7 @@ import { useState, useEffect, Suspense } from "react"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { getStudyDetailsForSharedPreview, getPublicPreviewDetails } from "@/lib/api/StudyAPI"
 import { hydrateLocalStorageFromStudy } from "@/lib/utils/studyPreviewMapping"
+import { runPreviewPhasePreload } from "@/lib/utils/participatePreload"
 import { Share2, Check } from "lucide-react"
 
 function ParticipateIntroContent() {
@@ -87,119 +88,9 @@ function ParticipateIntroContent() {
         }
 
         const step2 = JSON.parse(localStorage.getItem('cs_step2') || '{}')
-        const step5grid = JSON.parse(localStorage.getItem('cs_step5_grid') || '[]')
-        const step5layer = JSON.parse(localStorage.getItem('cs_step5_layer') || '[]')
-        const step7matrix = JSON.parse(localStorage.getItem('cs_step7_matrix') || '{}')
-        const layerBg = JSON.parse(localStorage.getItem('cs_step5_layer_background') || '{}')
 
-        console.log('[Preview] Step2:', step2)
-        console.log('[Preview] Step7 Matrix:', step7matrix)
-
-        const urls = new Set<string>()
-
-        if (step2?.type === 'text') {
-          console.log('[Preview] Skipping image preloading for text study type')
-        } else {
-          if (layerBg?.secureUrl) {
-            urls.add(String(layerBg.secureUrl))
-            console.log('[Preview] Adding background URL:', layerBg.secureUrl)
-          }
-
-          if (step2?.type === 'grid') {
-            ; (Array.isArray(step5grid) ? step5grid : []).forEach((e: Record<string, unknown>) => {
-              if (e?.secureUrl) {
-                urls.add(String(e.secureUrl))
-                console.log('[Preview] Adding grid URL:', e.secureUrl)
-              }
-            })
-          }
-
-          if (step2?.type === 'layer') {
-            ; (Array.isArray(step5layer) ? step5layer : []).forEach((l: Record<string, unknown>) => {
-              ; (Array.isArray(l?.images) ? l.images : []).forEach((img: Record<string, unknown>) => {
-                if (img?.secureUrl) {
-                  urls.add(String(img.secureUrl))
-                  console.log('[Preview] Adding layer URL:', img.secureUrl)
-                }
-              })
-            })
-          }
-
-          if (step7matrix && typeof step7matrix === 'object') {
-            if (Array.isArray(step7matrix.preview_tasks)) {
-              console.log('[Preview] Found preview_tasks:', step7matrix.preview_tasks.length)
-              step7matrix.preview_tasks.forEach((t: any) => {
-                const content = t?.elements_shown_content || {}
-                Object.values(content).forEach((v: any) => {
-                  if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
-                    urls.add(String(v.url))
-                  } else if (v && typeof v === 'object') {
-                    if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
-                      urls.add(String(v.content))
-                    }
-                  } else if (typeof v === 'string' && v.startsWith('http')) {
-                    urls.add(String(v))
-                  }
-                })
-              })
-            } else if (Array.isArray(step7matrix.tasks)) {
-              step7matrix.tasks.forEach((t: any) => {
-                const content = t?.elements_shown_content || {}
-                Object.values(content).forEach((v: any) => {
-                  if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
-                    urls.add(String(v.url))
-                  } else if (v && typeof v === 'object') {
-                    if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
-                      urls.add(String(v.content))
-                    }
-                  } else if (typeof v === 'string' && v.startsWith('http')) {
-                    urls.add(String(v))
-                  }
-                })
-              })
-            } else if (step7matrix.tasks && typeof step7matrix.tasks === 'object') {
-              const buckets = step7matrix.tasks as Record<string, any>
-              let respondentTasks: any[] = []
-              if (Array.isArray(buckets['0']) && buckets['0'].length) {
-                respondentTasks = buckets['0']
-              } else {
-                for (const v of Object.values(buckets)) {
-                  if (Array.isArray(v) && v.length) {
-                    respondentTasks = v
-                    break
-                  }
-                }
-              }
-              respondentTasks.forEach((t: any) => {
-                const content = t?.elements_shown_content || {}
-                Object.values(content).forEach((v: any) => {
-                  if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
-                    urls.add(String(v.url))
-                  } else if (v && typeof v === 'object') {
-                    if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
-                      urls.add(String(v.content))
-                    }
-                  } else if (typeof v === 'string' && v.startsWith('http')) {
-                    urls.add(String(v))
-                  }
-                })
-              })
-            }
-          }
-        }
-
-        if (urls.size > 0) {
-          console.log('[Preview] Preloading', urls.size, 'images')
-          Array.from(urls).forEach((src) => {
-            try {
-              const img = new Image()
-              ; (img as any).decoding = 'async'
-              ; (img as any).referrerPolicy = 'no-referrer'
-              img.src = src
-            } catch (e) {
-              console.error('[Preview] Failed to preload:', src, e)
-            }
-          })
+        if (step2?.type !== 'text') {
+          runPreviewPhasePreload('personal-info')
         }
       } catch (e) {
         console.error('[Preview] Error in init:', e)
@@ -276,97 +167,6 @@ function ParticipateIntroContent() {
 
     try {
       localStorage.removeItem("preview_post_classification_answers")
-
-      const step2 = JSON.parse(localStorage.getItem('cs_step2') || '{}')
-      if (step2?.type === 'text') {
-        console.log('[Preview] Start Study - Skipping image preloading for text study type')
-      } else {
-        const step7matrix = JSON.parse(localStorage.getItem('cs_step7_matrix') || '{}')
-        const layerBg = JSON.parse(localStorage.getItem('cs_step5_layer_background') || '{}')
-
-        const urls = new Set<string>()
-
-        if (layerBg?.secureUrl) {
-          urls.add(String(layerBg.secureUrl))
-        }
-
-        if (step7matrix && typeof step7matrix === 'object') {
-          if (Array.isArray(step7matrix.preview_tasks)) {
-            step7matrix.preview_tasks.forEach((t: any) => {
-              const content = t?.elements_shown_content || {}
-              Object.values(content).forEach((v: any) => {
-                if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
-                  urls.add(String(v.url))
-                }
-                else if (v && typeof v === 'object') {
-                  if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
-                    urls.add(String(v.content))
-                  }
-                } else if (typeof v === 'string' && v.startsWith('http')) {
-                  urls.add(String(v))
-                }
-              })
-            })
-          } else if (Array.isArray(step7matrix.tasks)) {
-            step7matrix.tasks.forEach((t: any) => {
-              const content = t?.elements_shown_content || {}
-              Object.values(content).forEach((v: any) => {
-                if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
-                  urls.add(String(v.url))
-                }
-                else if (v && typeof v === 'object') {
-                  if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
-                    urls.add(String(v.content))
-                  }
-                } else if (typeof v === 'string' && v.startsWith('http')) {
-                  urls.add(String(v))
-                }
-              })
-            })
-          } else if (step7matrix.tasks && typeof step7matrix.tasks === 'object') {
-            const buckets = step7matrix.tasks as Record<string, any>
-            let respondentTasks: any[] = []
-            if (Array.isArray(buckets['0']) && buckets['0'].length) {
-              respondentTasks = buckets['0']
-            } else {
-              for (const v of Object.values(buckets)) {
-                if (Array.isArray(v) && v.length) { respondentTasks = v; break }
-              }
-            }
-            respondentTasks.forEach((t: any) => {
-              const content = t?.elements_shown_content || {}
-              Object.values(content).forEach((v: any) => {
-                if (v && typeof v === 'object' && v.url && typeof v.url === 'string' && v.url.startsWith('http')) {
-                  urls.add(String(v.url))
-                }
-                else if (v && typeof v === 'object') {
-                  if (v.content && typeof v.content === 'string' && v.content.startsWith('http')) {
-                    urls.add(String(v.content))
-                  }
-                } else if (typeof v === 'string' && v.startsWith('http')) {
-                  urls.add(String(v))
-                }
-              })
-            })
-          }
-        }
-
-        if (urls.size > 0) {
-          console.log('[Preview] Start Study - Preloading', urls.size, 'images with high priority')
-          Array.from(urls).forEach((src) => {
-            try {
-              console.log('[Preview] High priority preloading:', src)
-              const img = new Image()
-              ; (img as any).decoding = 'async'
-              ; (img as any).referrerPolicy = 'no-referrer'
-              ; (img as any).fetchPriority = 'high'
-              img.src = src
-            } catch (e) {
-              console.error('[Preview] Failed to preload:', src, e)
-            }
-          })
-        }
-      }
     } catch (e) {
       console.error('[Preview] Error in handleStartStudy:', e)
     }

@@ -5,16 +5,17 @@ import { useRouter } from "next/navigation"
 import Image from "next/image"
 import { ThumbsUp, ThumbsDown } from "lucide-react"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
+import { getParticipateImageUrl } from "@/lib/utils/participateImageUrls"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 
-// Helper function to get cached URLs for display
+// Routes remote images through the optimizing WebP proxy so preload cache keys
+// match the <img src> exactly (same as live participate flow).
 const getCachedUrl = (url: string | undefined): string => {
   if (!url) {
     return "/placeholder.svg"
   }
 
-  const cachedUrl = imageCacheManager.getCachedUrl(url)
-  return cachedUrl
+  return getParticipateImageUrl(url) || "/placeholder.svg"
 }
 
 const hasPreviewPostClassificationQuestions = () => {
@@ -72,7 +73,14 @@ const collectTaskImageUrls = (task: Task | undefined, backgroundUrl?: string | n
   if (task.leftImageUrl) urls.push(task.leftImageUrl)
   if (task.rightImageUrl) urls.push(task.rightImageUrl)
 
-  return Array.from(new Set(urls.filter(isImageLikeUrl)))
+  return Array.from(
+    new Set(
+      urls
+        .filter(isImageLikeUrl)
+        .map((u) => getParticipateImageUrl(u))
+        .filter(Boolean),
+    ),
+  )
 }
 
 function PreparingAssetsLoader() {
@@ -440,30 +448,30 @@ export default function TasksPage() {
     const prepareStudyAssets = async () => {
       setIsTaskImagesReady(false)
 
-      const remainingUrls = imageCacheManager.getUnpreloadedUrls(tasks, backgroundUrl)
-      const needsImagePrep = remainingUrls.length > 0
+      const firstTaskUrls = collectTaskImageUrls(tasks[0], backgroundUrl)
+      const needsImagePrep = firstTaskUrls.some((url) => !imageCacheManager.isPreloaded(url))
       setIsPreparingStudyAssets(needsImagePrep)
 
-      if (!needsImagePrep) {
-        taskStartRef.current = Date.now()
-        setIsTaskImagesReady(true)
-        return
+      if (needsImagePrep) {
+        try {
+          await imageCacheManager.prewarmUrls(firstTaskUrls, "critical", 4)
+        } catch (error) {
+          console.warn("First task asset preparation failed:", error)
+        }
       }
 
-      try {
-        await imageCacheManager.prewarmRemainingStudyAssets(tasks, backgroundUrl, "critical")
-        const firstTaskUrls = collectTaskImageUrls(tasks[0], backgroundUrl)
-        if (firstTaskUrls.length > 0) {
-          decodedTaskImageKeysRef.current.add(`0:${firstTaskUrls.join("|")}`)
-        }
-      } catch (error) {
-        console.warn("Preview study asset preparation failed:", error)
-      } finally {
-        if (cancelled) return
-        setIsPreparingStudyAssets(false)
-        taskStartRef.current = Date.now()
-        setIsTaskImagesReady(true)
+      if (cancelled) return
+
+      if (firstTaskUrls.length > 0) {
+        decodedTaskImageKeysRef.current.add(`0:${firstTaskUrls.join("|")}`)
       }
+      setIsPreparingStudyAssets(false)
+      taskStartRef.current = Date.now()
+      setIsTaskImagesReady(true)
+
+      void imageCacheManager
+        .prewarmRemainingStudyAssets(tasks, backgroundUrl, "low", getParticipateImageUrl)
+        .catch(() => undefined)
     }
 
     prepareStudyAssets()
@@ -476,22 +484,19 @@ export default function TasksPage() {
   useEffect(() => {
     if (!isTaskImagesReady || tasks.length === 0) return
 
-    const nextTaskIndex = currentTaskIndex + 1
-    const nextUrls = collectTaskImageUrls(tasks[nextTaskIndex], backgroundUrl)
-    if (nextUrls.length === 0) return
+    const LOOK_AHEAD = 3
+    for (let offset = 1; offset <= LOOK_AHEAD; offset++) {
+      const nextTaskIndex = currentTaskIndex + offset
+      if (nextTaskIndex >= tasks.length) break
 
-    const key = `${nextTaskIndex}:${nextUrls.join("|")}`
-    if (decodedTaskImageKeysRef.current.has(key)) return
-    decodedTaskImageKeysRef.current.add(key)
+      const nextUrls = collectTaskImageUrls(tasks[nextTaskIndex], backgroundUrl)
+      if (nextUrls.length === 0) continue
 
-    const prewarmNextTask = () => {
+      const key = `${nextTaskIndex}:${nextUrls.join("|")}`
+      if (decodedTaskImageKeysRef.current.has(key)) continue
+      decodedTaskImageKeysRef.current.add(key)
+
       void imageCacheManager.prewarmUrls(nextUrls, "high")
-    }
-
-    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
-      window.requestIdleCallback(prewarmNextTask, { timeout: 1000 })
-    } else {
-      setTimeout(prewarmNextTask, 500)
     }
   }, [backgroundUrl, currentTaskIndex, isTaskImagesReady, tasks])
 

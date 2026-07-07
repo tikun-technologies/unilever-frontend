@@ -14,6 +14,7 @@ import { Search, User, Check } from "lucide-react"
 import { searchPanelists, Panelist } from "@/lib/api/PanelistAPI"
 import { cn } from "@/lib/utils"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
+import { runPreviewPhasePreload } from "@/lib/utils/participatePreload"
 
 export default function PreviewPersonalInformation() {
   const router = useRouter()
@@ -46,6 +47,10 @@ export default function PreviewPersonalInformation() {
       }
       setIsAdmin(checkIsSpecialCreator(creatorEmail))
     } catch { }
+  }, [])
+
+  useEffect(() => {
+    runPreviewPhasePreload('personal-info')
   }, [])
 
   const handleDateChange = (newValue: any) => {

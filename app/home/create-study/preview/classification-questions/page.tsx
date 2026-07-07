@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation"
 import { useState, useEffect } from "react"
+import { runPreviewPhasePreload } from "@/lib/utils/participatePreload"
 
 interface ClassificationQuestion {
   id: string
@@ -66,6 +67,10 @@ export default function PreviewClassificationQuestions() {
     }
 
     loadQuestions()
+  }, [])
+
+  useEffect(() => {
+    runPreviewPhasePreload('classification')
   }, [])
 
   const handleOptionSelect = (questionId: string, optionId: string) => {

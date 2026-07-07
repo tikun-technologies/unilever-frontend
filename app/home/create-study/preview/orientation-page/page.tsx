@@ -2,6 +2,7 @@
 
 import { useParams, useRouter } from "next/navigation"
 import { useState, useEffect, useRef } from "react"
+import { runPreviewPhasePreload } from "@/lib/utils/participatePreload"
 
 export default function OrientationPage() {
   const params = useParams<{ id: string }>()
@@ -27,6 +28,10 @@ export default function OrientationPage() {
     } finally {
       setIsLoading(false)
     }
+  }, [])
+
+  useEffect(() => {
+    runPreviewPhasePreload('orientation')
   }, [])
 
   const handleStartSurvey = async () => {
