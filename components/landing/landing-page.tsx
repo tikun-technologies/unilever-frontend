@@ -2,7 +2,7 @@
 
 import Image from "next/image"
 import Link from "next/link"
-import { useRef, useState, useEffect } from "react"
+import { useRef, useState, useEffect, useMemo } from "react"
 import { ArrowRight, Menu, X } from "lucide-react"
 import gsap from "gsap"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
@@ -21,49 +21,103 @@ const BRAND_BLUE_RGB = "26, 89, 150"
 
 const ACTION_WORDS = ["Choose.", "Decide.", "Act.", "Buy.", "Engage."]
 
-const shardData = [
-  { label: "Unclear direction", segment: "Low fit", score: "-8%", img: "/worstdesign.webp", isBest: false },
-  { label: "Design route 1", segment: "Best for Gen Z", score: "+18%", img: "/desgn1.webp", isBest: false },
-  { label: "Best Design", segment: "Best overall", score: "+34%", img: "/Best Design.webp", isBest: true },
-  { label: "Design route 2", segment: "Best for Millennials", score: "+21%", img: "/design2.webp", isBest: false },
-  { label: "Design route 3", segment: "Best for Families", score: "+16%", img: "/design3.webp", isBest: false },
+/**
+ * Each bottle lives in its own folder and is built from 9 stacked layers
+ * (z-0 = bare bottle + cap, z-1..z-8 = individual label elements). Stacked
+ * they read as a finished pack; pulled apart they reveal the idea's parts.
+ */
+const BOTTLES = [
+  { folder: "Bottle1", segment: "Best for Gen Z", score: "+18%", isBest: false },
+  { folder: "Bottle2", segment: "Best overall", score: "+34%", isBest: true },
+  { folder: "Bottle3", segment: "Best for Families", score: "+16%", isBest: false },
+]
+const BEST_INDEX = Math.max(0, BOTTLES.findIndex((b) => b.isBest))
+const LAYER_COUNT = 9
+
+/**
+ * Deconstruction targets for the label layers (index 1..8), expressed as a
+ * fraction of the bottle box size. Index 0 (the bare bottle) never moves.
+ * The pattern alternates left / right and fans outward so that vertically
+ * adjacent pieces always separate — guaranteeing no overlap on any device.
+ * Horizontal reach is kept <= ~0.30 so scatter fits between neighbouring
+ * bottles; vertical reach is kept compact so the whole scene stays in view.
+ */
+const SCATTER: ({ x: number; y: number; r: number } | null)[] = [
+  null,
+  { x: 0.28, y: -0.18, r: 10 },
+  { x: -0.26, y: -0.2, r: -9 },
+  { x: -0.3, y: -0.06, r: -7 },
+  { x: 0.3, y: -0.05, r: 7 },
+  { x: -0.28, y: 0.03, r: -6 },
+  { x: 0.28, y: 0.11, r: 6 },
+  { x: -0.28, y: 0.12, r: -9 },
+  { x: 0.24, y: 0.1, r: 9 },
 ]
 
-/** 3 on top row, 2 on bottom row — keeps all 5 visible on phones */
-function getMobileGridPosition(index: number, phase: "shatter" | "scan") {
-  const isSmallPhone = typeof window !== "undefined" && window.innerWidth < 480
-  const spread = isSmallPhone ? 0.9 : 1
+// Horizontal reach (fraction of box) of the widest scattered element from the
+// bottle centre — used to keep everything inside the viewport on any screen.
+// (Measured worst case ~0.43; 0.45 leaves a safety margin against cropping.)
+const H_REACH = 0.45
 
-  const topRow = [
-    { x: -66 * spread, y: -58 * spread },
-    { x: 0, y: -68 * spread },
-    { x: 66 * spread, y: -58 * spread },
-  ]
-  const bottomRow = [
-    { x: -34 * spread, y: 74 * spread },
-    { x: 34 * spread, y: 74 * spread },
-  ]
+/**
+ * All geometry is derived from the live viewport so the scene never crops and
+ * bottles/tags never overlap — from an iPhone mini up to a wide desktop.
+ *
+ * The single-bottle states (intro + winner) use `soloBox` and can be large,
+ * while the three-up scan uses `trioBox` (small enough that 3 packs + their
+ * scattered parts + tags always fit the width). The bottle element is drawn at
+ * `soloBox`; during the three-up phase the whole group is scaled by
+ * `trioScale`, so one CSS size serves both without ever cropping.
+ */
+function computeStageMetrics(vw: number, vh: number) {
+  const isMobile = vw < 768
+  const pad = vw < 480 ? 12 : 24
+  const availW = Math.min(vw - pad * 2, 1080)
+  const usableHalf = availW / 2 - 6
 
-  const pos = [...topRow, ...bottomRow][index] ?? { x: 0, y: 0 }
+  const alpha = isMobile ? 0.9 : 0.92 // bottle spread as a fraction of trio box
 
-  if (phase === "scan") {
-    return { x: pos.x * 1.06, y: pos.y * 1.04 }
+  // Three-up size: constrained by width (fit 3 + scatter) and height.
+  const trioByWidth = usableHalf / (alpha + H_REACH)
+  const trioByHeight = (vh * 0.46) / 1.15
+  const trioMax = isMobile ? 210 : 360
+  let trioBox = Math.max(90, Math.min(trioByWidth, trioByHeight, trioMax))
+
+  // Single-bottle size: much larger, especially on phones.
+  const soloByWidth = vw * (isMobile ? 0.66 : 0.36)
+  const soloByHeight = vh * (isMobile ? 0.4 : 0.52)
+  const soloMax = isMobile ? 300 : 400
+  let soloBox = Math.min(soloByWidth, soloByHeight, soloMax)
+  soloBox = Math.max(soloBox, trioBox)
+
+  soloBox = Math.round(soloBox)
+  trioBox = Math.round(trioBox)
+  const trioScale = trioBox / soloBox
+
+  let spread = trioBox * alpha
+  const maxSpread = usableHalf - H_REACH * trioBox
+  if (spread > maxSpread) spread = Math.max(trioBox * 0.6, maxSpread)
+
+  const tagW = Math.max(72, Math.min(trioBox * 1.05, spread - (isMobile ? 6 : 14)))
+
+  // Vertical anchors (from stage centre).
+  const tagYTrio = Math.round(trioBox * 0.5 + 8)
+  const tagYSolo = Math.round(soloBox * 0.52 + 10)
+  const stageH = Math.round(soloBox * 1.3 + 40)
+  // Pull the whole scene up on phones so it sits just under the heading.
+  const stageShift = isMobile ? -Math.round(vh * 0.09) : 0
+
+  return {
+    soloBox,
+    trioBox,
+    trioScale,
+    spread: Math.round(spread),
+    tagW: Math.round(tagW),
+    tagYTrio,
+    tagYSolo,
+    stageH,
+    stageShift,
   }
-  return pos
-}
-
-/** Scanner is positioned at `-left-32`; travel must cover the full mobile grid width. */
-function getMobileScannerX(isStart: boolean): number {
-  if (typeof window === "undefined") return isStart ? 0 : 420
-
-  const containerW = Math.min(window.innerWidth - 32, 1024)
-  const positions = [0, 1, 2, 3, 4].map((i) => getMobileGridPosition(i, "scan").x)
-  const halfBottle = window.innerWidth < 480 ? 44 : 50
-  const edge = isStart ? Math.min(...positions) : Math.max(...positions)
-  const sign = isStart ? -1 : 1
-
-  // -128px base offset (-left-32) + x transform = container center + shard offset ± half bottle
-  return containerW / 2 + sign * halfBottle + edge + 128
 }
 
 function Logo() {
@@ -87,6 +141,38 @@ export function LandingPage() {
   const [isDeleting, setIsDeleting] = useState(false)
   const [loopNum, setLoopNum] = useState(0)
   const [typingSpeed, setTypingSpeed] = useState(150)
+
+  // Live viewport → drives fully dynamic bottle sizing (updates on resize /
+  // orientation change, only when the change is meaningful to avoid churn).
+  const [viewport, setViewport] = useState({ w: 1280, h: 800 })
+
+  useEffect(() => {
+    let raf = 0
+    const update = () =>
+      setViewport((prev) => {
+        const w = window.innerWidth
+        const h = window.innerHeight
+        if (Math.abs(prev.w - w) < 24 && Math.abs(prev.h - h) < 40) return prev
+        return { w, h }
+      })
+    update()
+    const onResize = () => {
+      cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(update)
+    }
+    window.addEventListener("resize", onResize)
+    window.addEventListener("orientationchange", onResize)
+    return () => {
+      window.removeEventListener("resize", onResize)
+      window.removeEventListener("orientationchange", onResize)
+      cancelAnimationFrame(raf)
+    }
+  }, [])
+
+  const metrics = useMemo(() => computeStageMetrics(viewport.w, viewport.h), [viewport])
+  // Mirror metrics into a ref so the (build-once) GSAP timeline can read the
+  // latest values via function-based tweens without ever rebuilding the pin.
+  const metricsRef = useRef(metrics)
 
   useEffect(() => {
     const handleType = () => {
@@ -135,10 +221,9 @@ export function LandingPage() {
   const word4MouseRef = useRef<HTMLDivElement>(null)
 
   // Object refs
-  const shardsRef = useRef<HTMLDivElement[]>([])
-  const shardVisualRefs = useRef<HTMLDivElement[]>([])
+  const bottleRefs = useRef<HTMLDivElement[]>([])
+  const layerRefs = useRef<HTMLDivElement[][]>([[], [], []])
   const tagsRef = useRef<HTMLDivElement[]>([])
-  const tagsDesktopRef = useRef<HTMLDivElement[]>([])
   const scannerRef = useRef<HTMLDivElement>(null)
 
   useGSAP(() => {
@@ -155,210 +240,150 @@ export function LandingPage() {
       invalidateOnRefresh: true,
     }
 
-    const buildStoryTimeline = (isDesktop: boolean) => {
-      const scaleTargets = isDesktop ? shardVisualRefs.current : shardsRef.current
-      const tagTargets = isDesktop ? tagsDesktopRef.current : tagsRef.current
+    // All size-dependent values are function-based so `invalidateOnRefresh`
+    // recomputes them on resize — the pin itself is only ever built once.
+    const m = () => metricsRef.current
+    const bottleX = (b: number) => (b - BEST_INDEX) * m().spread
 
+    const buildStoryTimeline = () => {
       const tl = gsap.timeline({ scrollTrigger: scrollConfig })
 
-      gsap.set(shardsRef.current, {
-        xPercent: -50,
-        yPercent: -50,
-        x: 0,
-        y: 0,
-        z: 0,
-        opacity: (i) => (i === 0 ? 1 : 0),
-        ...(isDesktop
-          ? { rotationX: 0, rotationY: 0, rotationZ: 0, scale: 1 }
-          : {
-              rotationX: 0,
-              rotationY: 0,
-              rotationZ: 0,
-              scale: (i) => (i === 0 ? 1.15 : 0.7),
-            }),
-      })
-
-      if (isDesktop) {
-        gsap.set(shardVisualRefs.current, {
-          rotationX: 0,
-          rotationY: 0,
-          rotationZ: 0,
-          scale: (i) => (i === 0 ? 1 : 0.7),
+      // Initial state: only Bottle 1 is visible, centered and large.
+      bottleRefs.current.forEach((el, b) => {
+        gsap.set(el, {
+          xPercent: -50,
+          yPercent: -50,
+          x: 0,
+          y: 0,
+          opacity: b === 0 ? 1 : 0,
+          scale: b === 0 ? 1 : m().trioScale * 0.8,
+          filter: "drop-shadow(0 14px 26px rgba(15, 23, 42, 0.10))",
         })
-      }
+        layerRefs.current[b]?.forEach((layer) => {
+          if (layer) gsap.set(layer, { x: 0, y: 0, rotation: 0, opacity: 1 })
+        })
+      })
+      // Tags live at stage level (so they never inherit the group's scale).
+      gsap.set(tagsRef.current, { xPercent: -50, x: 0, y: () => m().tagYTrio, opacity: 0, scale: 0.9 })
+      gsap.set(scannerRef.current, { opacity: 0, scaleY: 0.6, x: () => -(m().spread + m().trioBox * 0.7) })
 
-      gsap.set(tagTargets, { opacity: 0, y: 10 })
-      gsap.set(scannerRef.current, { opacity: 0, scaleY: 0 })
-
+      // ── Phase 1 → 2 : the single weak concept splits into three routes ──
       tl.to(text1Ref.current, { opacity: 0, y: -20, duration: 1 })
         .to(text2Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
+        .to(bottleRefs.current[0], { x: () => bottleX(0), scale: () => m().trioScale, duration: 1.5, ease: "power3.inOut" }, "<0.15")
+        .to(bottleRefs.current[2], { x: () => bottleX(2), opacity: 1, scale: () => m().trioScale, duration: 1.5, ease: "power3.inOut" }, "<")
+        .to(bottleRefs.current[1], { opacity: 1, scale: () => m().trioScale, duration: 1.1, ease: "power2.out" }, "<0.1")
 
-      if (isDesktop) {
-        tl.to(scaleTargets[0], {
-          scale: 0.78,
-          rotationZ: -8,
-          duration: 1.2,
-          ease: "power2.inOut",
-        }, "<")
-          .to(shardsRef.current[0], { opacity: 0.35, duration: 1.2, ease: "power2.inOut" }, "<")
-      } else {
-        tl.to(shardsRef.current[0], {
-          scale: 0.9,
-          opacity: 0.35,
-          rotationZ: -8,
-          duration: 1.2,
-          ease: "power2.inOut",
-        }, "<")
-      }
-
-      tl.to(
-        shardsRef.current,
-        {
-          x: (i) => {
-            if (!isDesktop) return getMobileGridPosition(i, "shatter").x
-            return (i - 2) * 135
-          },
-          y: (i) => {
-            if (!isDesktop) return getMobileGridPosition(i, "shatter").y
-            const offsets = [32, -20, 0, -18, 28]
-            return offsets[i] ?? 0
-          },
-          z: 0,
-          opacity: 0.72,
-          duration: 2,
-          ease: "power2.inOut",
-        },
-        "-=0.4"
-      )
-        .to(
-          scaleTargets,
-          {
-            rotationX: 0,
-            rotationY: (i) => (isDesktop ? (i - 2) * -5 : 0),
-            rotationZ: (i) => {
-              const rotations = [-7, 4, 0, -4, 7]
-              return rotations[i] ?? 0
-            },
-            scale: isDesktop ? 0.64 : 0.5,
-            duration: 2,
-            ease: "power2.inOut",
-          },
-          "-=2"
-        )
-
-      tl.to(text2Ref.current, { opacity: 0, y: -20, duration: 1 }, "+=0.5")
+      // ── Phase 3 : scan sweeps left→right, deconstructing each pack ──
+      tl.to(text2Ref.current, { opacity: 0, y: -20, duration: 1 }, "+=0.4")
         .to(text3Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
-        .to(
-          shardsRef.current,
-          {
-            x: (i) => {
-              if (!isDesktop) return getMobileGridPosition(i, "scan").x
-              return (i - 2) * 170
-            },
-            y: (i) => {
-              if (!isDesktop) return getMobileGridPosition(i, "scan").y
-              return 0
-            },
-            z: 0,
-            opacity: 0.76,
-            duration: 2,
-            ease: "power3.inOut",
-          },
-          "<"
-        )
-        .to(
-          scaleTargets,
-          {
-            rotationX: 0,
-            rotationY: 0,
-            rotationZ: 0,
-            scale: isDesktop ? 0.72 : 0.56,
-            duration: 2,
-            ease: "power3.inOut",
-          },
-          "<"
-        )
-        .to(scannerRef.current, { opacity: 1, scaleY: 1, duration: 0.5 }, "-=0.5")
-
-      if (isDesktop) {
-        tl.to(scannerRef.current, {
-          x: 980,
-          duration: 1.5,
-          ease: "none",
-        }, "scan")
-      } else {
-        tl.fromTo(
+        .addLabel("scan")
+        .to(scannerRef.current, { opacity: 1, scaleY: 1, duration: 0.4 }, "scan")
+        .fromTo(
           scannerRef.current,
-          { x: () => getMobileScannerX(true) },
-          { x: () => getMobileScannerX(false), duration: 1.5, ease: "none" },
+          { x: () => -(m().spread + m().trioBox * 0.7) },
+          { x: () => m().spread + m().trioBox * 0.7, duration: 2.6, ease: "none" },
           "scan"
         )
-      }
 
-      tl.to(scannerRef.current, { opacity: 0, duration: 0.2 }, "scan+=1.5")
-
-      tagTargets.forEach((tag, i) => {
-        if (!tag) return
-        tl.fromTo(
-          tag,
-          isDesktop ? { opacity: 0, y: 12 } : { opacity: 0, y: 14, scale: 0.92 },
-          isDesktop
-            ? { opacity: 1, y: 0, duration: 0.22, ease: "power2.out" }
-            : { opacity: 1, y: 0, scale: 1, duration: 0.22, ease: "back.out(1.7)" },
-          `scan+=${0.1 + i * 0.28}`
-        )
+      BOTTLES.forEach((_, b) => {
+        const at = `scan+=${0.35 + b * 0.72}`
+        // Child offsets are in soloBox px; the group's trioScale renders them
+        // at the correct trioBox distance.
+        layerRefs.current[b]?.forEach((layer, i) => {
+          const s = SCATTER[i]
+          if (!s || !layer) return
+          tl.to(
+            layer,
+            {
+              x: () => s.x * m().soloBox,
+              y: () => s.y * m().soloBox,
+              rotation: s.r,
+              duration: 1,
+              ease: "power2.out",
+            },
+            at
+          )
+        })
+        if (tagsRef.current[b]) {
+          tl.fromTo(
+            tagsRef.current[b],
+            { x: () => bottleX(b), y: () => m().tagYTrio, opacity: 0, scale: 0.9 },
+            { x: () => bottleX(b), y: () => m().tagYTrio, opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.6)" },
+            `${at}+=0.45`
+          )
+        }
       })
 
+      tl.to(scannerRef.current, { opacity: 0, duration: 0.3 }, "scan+=2.6")
+
+      // ── Phase 4 : pieces snap back, then the losers slide away and the
+      //             winning pack glides to the middle and grows. ──
       tl.to(text3Ref.current, { opacity: 0, y: -20, duration: 1 }, "+=0.5")
         .to(text4Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
-        .to({}, { duration: 1 })
-        .to(tagTargets, { opacity: (i) => (i === 2 ? 1 : 0.18), y: (i) => (i === 2 ? 0 : 10), duration: 0.7 }, "+=0.2")
-        .to(
-          shardsRef.current,
-          {
-            x: 0,
-            y: isDesktop ? 20 : 10,
-            z: (i) => (i === 2 ? 160 : -200),
-            opacity: (i) => (i === 2 ? 1 : 0),
-            duration: 2,
-            ease: "power3.inOut",
-          },
-          "<"
-        )
-        .to(
-          scaleTargets,
-          {
-            rotationX: 0,
-            rotationY: 0,
-            rotationZ: 0,
-            scale: (i) => {
-              if (i !== 2) return isDesktop ? 0.5 : 0.45
-              return isDesktop ? 1 : 0.95
-            },
-            duration: 2,
-            ease: "power3.inOut",
-          },
-          "<"
-        )
+        .addLabel("rebuild")
 
-      if (isDesktop) {
-        tl.to(scaleTargets[2], { filter: `drop-shadow(0 24px 40px rgba(${BRAND_BLUE_RGB}, 0.22))`, duration: 1 }, "-=0.6")
-          .to(shardsRef.current[2], { y: 20, duration: 1.2, ease: "none" }, "+=0.4")
-          .to(scaleTargets[2], { scale: 1.1, duration: 1.2, ease: "none" }, "<")
-      } else {
-        tl.to(shardsRef.current[2], { filter: `drop-shadow(0 24px 40px rgba(${BRAND_BLUE_RGB}, 0.22))`, duration: 1 }, "-=0.6")
-          .to(shardsRef.current[2], { scale: 1.05, y: 10, duration: 1.2, ease: "none" }, "+=0.4")
-      }
+      BOTTLES.forEach((_, b) => {
+        layerRefs.current[b]?.forEach((layer, i) => {
+          if (i === 0 || !layer) return
+          tl.to(layer, { x: 0, y: 0, rotation: 0, duration: 1.2, ease: "power3.inOut" }, "rebuild")
+        })
+      })
+
+      tl.addLabel("choose", ">")
+
+      // The two runner-up packs slide outward and fade out (no blur) …
+      bottleRefs.current.forEach((el, b) => {
+        if (b === BEST_INDEX) return
+        const dir = b < BEST_INDEX ? -1 : 1
+        tl.to(
+          el,
+          { x: () => dir * (m().spread + m().trioBox * 1.1), scale: () => m().trioScale * 0.7, opacity: 0, duration: 1.3, ease: "power3.inOut" },
+          "choose"
+        )
+      })
+      tagsRef.current.forEach((tag, b) => {
+        if (b === BEST_INDEX || !tag) return
+        const dir = b < BEST_INDEX ? -1 : 1
+        tl.to(tag, { x: () => dir * (m().spread + m().trioBox), opacity: 0, duration: 1, ease: "power3.inOut" }, "choose")
+      })
+
+      // … while the winner grows to full size at dead-centre.
+      tl.to(
+        bottleRefs.current[BEST_INDEX],
+        {
+          x: 0,
+          y: -6,
+          scale: 1,
+          filter: `drop-shadow(0 30px 52px rgba(${BRAND_BLUE_RGB}, 0.28))`,
+          duration: 1.3,
+          ease: "power3.inOut",
+        },
+        "choose"
+      )
+        .to(
+          tagsRef.current[BEST_INDEX],
+          { x: 0, y: () => m().tagYSolo, scale: 1.05, duration: 1.1, ease: "power2.out" },
+          "choose+=0.1"
+        )
+        .to(bottleRefs.current[BEST_INDEX], { y: -14, duration: 1.4, ease: "sine.inOut" }, ">-0.1")
 
       return tl
     }
 
     const mm = gsap.matchMedia()
-    mm.add("(min-width: 768px)", () => buildStoryTimeline(true))
-    mm.add("(max-width: 767px)", () => buildStoryTimeline(false))
+    mm.add("(min-width: 320px)", () => buildStoryTimeline())
 
     return () => mm.revert()
   }, { scope: wrapperRef })
+
+  // On viewport change: update the metrics the timeline reads, then ask
+  // ScrollTrigger to recompute its function-based values (no pin rebuild).
+  useEffect(() => {
+    metricsRef.current = metrics
+    const id = requestAnimationFrame(() => ScrollTrigger.refresh())
+    return () => cancelAnimationFrame(id)
+  }, [metrics])
 
   useGSAP(() => {
     if (!heroRef.current) return
@@ -513,89 +538,83 @@ export function LandingPage() {
         <div ref={containerRef} className="flex h-screen w-full flex-col items-center justify-center overflow-hidden">
 
           {/* Text Container */}
-          <div className="absolute top-1/4 z-20 w-full px-4 text-center">
-            <h2 ref={text1Ref} className="text-3xl font-medium tracking-tight text-slate-900 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
+          <div className="absolute top-[8%] z-20 w-full px-4 text-center sm:top-[12%]">
+            <h2 ref={text1Ref} className="text-2xl font-medium tracking-tight text-slate-900 sm:text-3xl md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
               Why does one design win?
             </h2>
-            <h2 ref={text2Ref} className="absolute left-0 top-0 w-full text-3xl font-medium tracking-tight text-slate-900 opacity-0 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
+            <h2 ref={text2Ref} className="absolute left-0 top-0 w-full px-4 text-2xl font-medium tracking-tight text-slate-900 opacity-0 sm:text-3xl md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
               Break the weak concept into testable alternatives.
             </h2>
-            <h2 ref={text3Ref} className="absolute left-0 top-0 w-full text-3xl font-medium tracking-tight text-slate-900 opacity-0 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
+            <h2 ref={text3Ref} className="absolute left-0 top-0 w-full px-4 text-2xl font-medium tracking-tight text-slate-900 opacity-0 sm:text-3xl md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
               Scan what people actually respond to.
             </h2>
-            <h2 ref={text4Ref} className="absolute left-0 top-0 w-full text-3xl font-medium tracking-tight text-slate-900 opacity-0 md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
+            <h2 ref={text4Ref} className="absolute left-0 top-0 w-full px-4 text-2xl font-medium tracking-tight text-slate-900 opacity-0 sm:text-3xl md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
               Choose the strongest design for each segment.
             </h2>
           </div>
 
-          {/* 3D Abstract Object Container — taller on mobile for 3+2 grid */}
-          <div className="relative z-10 mt-16 h-[440px] w-full max-w-5xl perspective-[1000px] sm:mt-20 sm:h-[480px] md:mt-32 md:h-64">
+          {/* Layered Bottle Container — height + vertical offset driven by live metrics */}
+          <div
+            id="bottle-stage"
+            className="relative z-10 w-full max-w-6xl"
+            style={{ height: metrics.stageH, transform: `translateY(${metrics.stageShift}px)` }}
+          >
             {/* Scanner Line */}
             <div
               ref={scannerRef}
-              className="absolute -left-32 top-1/2 z-30 h-[72%] w-1 -translate-y-1/2 rounded-full"
+              className="absolute left-1/2 top-1/2 z-30 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full"
               style={{
+                height: metrics.trioBox * 0.86,
                 backgroundColor: BRAND_BLUE,
-                boxShadow: `0 0 20px rgba(${BRAND_BLUE_RGB}, 0.8)`,
+                boxShadow: `0 0 22px 3px rgba(${BRAND_BLUE_RGB}, 0.75)`,
               }}
             />
 
-            {/* Shards */}
-            {shardData.map((shard, i) => (
+            {/* Bottles — each a stack of 9 layers (z-0 base + z-1..z-8 elements) */}
+            {BOTTLES.map((bottle, b) => (
               <div
-                key={i}
+                key={bottle.folder}
                 ref={(el) => {
-                  if (el) shardsRef.current[i] = el
+                  if (el) bottleRefs.current[b] = el
                 }}
-                className="absolute left-1/2 top-1/2 preserve-3d"
+                className="absolute left-1/2 top-1/2"
+                style={{ height: metrics.soloBox, width: metrics.soloBox }}
               >
-                <div
-                  ref={(el) => {
-                    if (el) shardVisualRefs.current[i] = el
-                  }}
-                  className="md:origin-center md:preserve-3d"
-                >
-                  <div className="relative flex h-48 w-36 items-center justify-center sm:h-52 sm:w-40 md:h-72 md:w-56">
+                {Array.from({ length: LAYER_COUNT }).map((_, i) => (
+                  <div
+                    key={i}
+                    ref={(el) => {
+                      if (el) layerRefs.current[b][i] = el
+                    }}
+                    className="absolute inset-0 will-change-transform"
+                  >
                     <Image
-                      src={shard.img}
-                      alt={shard.label}
+                      src={`/landing-page/${bottle.folder}/z-${i}.webp`}
+                      alt={i === 0 ? `${bottle.segment} design` : ""}
                       fill
-                      sizes="(max-width: 768px) 48vw, 288px"
+                      sizes="(max-width: 768px) 66vw, 400px"
                       className="object-contain"
-                      priority={i === 0 || shard.isBest}
+                      priority={b === 0}
                     />
                   </div>
-                  {/* Mobile tags — unchanged styling & inside scaled parent */}
-                  <div
-                    ref={(el) => {
-                      if (el) tagsRef.current[i] = el
-                    }}
-                    className={[
-                      "absolute left-1/2 top-full mt-2 w-max max-w-[9rem] -translate-x-1/2 rounded-xl border border-slate-200 bg-white/90 px-2 py-1 text-center text-[10px] leading-tight shadow-lg shadow-slate-200/70 backdrop-blur-md md:hidden",
-                      "sm:mt-4 sm:max-w-[13rem] sm:rounded-2xl sm:px-4 sm:py-2 sm:text-xs sm:leading-normal",
-                      i === 0 && "!-translate-x-[calc(50%+20px)]",
-                      i === 2 && "!-translate-x-[calc(50%-20px)]",
-                      i === 3 && "!-translate-x-[calc(50%+16px)] mt-3",
-                      i === 4 && "!-translate-x-[calc(50%-16px)] mt-3",
-                    ].filter(Boolean).join(" ")}
-                  >
-                    <div className="font-semibold text-slate-900">{shard.segment}</div>
-                    <div className={`mt-0.5 font-semibold ${shard.isBest ? "text-[#1a5f96]" : "text-slate-500"}`}>
-                      {shard.score} preference lift
-                    </div>
-                  </div>
-                </div>
-                {/* Desktop tags — solid background, outside scaled bottle wrapper */}
-                <div
-                  ref={(el) => {
-                    if (el) tagsDesktopRef.current[i] = el
-                  }}
-                  className="pointer-events-none absolute left-1/2 top-full mt-4 hidden w-max max-w-[11rem] -translate-x-1/2 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-center text-xs leading-normal antialiased shadow-md md:block"
-                >
-                  <div className="font-semibold text-slate-900">{shard.segment}</div>
-                  <div className={`mt-0.5 font-semibold ${shard.isBest ? "text-[#1a5f96]" : "text-slate-500"}`}>
-                    {shard.score} preference lift
-                  </div>
+                ))}
+              </div>
+            ))}
+
+            {/* Segment tags — positioned at stage level so they keep a fixed,
+                readable size regardless of the bottle group's scale. */}
+            {BOTTLES.map((bottle, b) => (
+              <div
+                key={`tag-${bottle.folder}`}
+                ref={(el) => {
+                  if (el) tagsRef.current[b] = el
+                }}
+                className="pointer-events-none absolute left-1/2 top-1/2 rounded-xl border border-slate-200 bg-white px-2 py-1 text-center opacity-0 shadow-md sm:rounded-2xl sm:px-3 sm:py-1.5"
+                style={{ width: metrics.tagW }}
+              >
+                <div className="text-[10px] font-semibold leading-tight text-slate-900 sm:text-xs">{bottle.segment}</div>
+                <div className={`mt-0.5 text-[10px] font-semibold leading-tight sm:text-xs ${bottle.isBest ? "text-[#1a5f96]" : "text-slate-500"}`}>
+                  {bottle.score} lift
                 </div>
               </div>
             ))}
