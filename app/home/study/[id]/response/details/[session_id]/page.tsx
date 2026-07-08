@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { AuthGuard } from "@/components/auth/AuthGuard"
 import { DashboardHeader } from "../../../../../components/dashboard-header"
 import { getResponseSessionDetails, type ResponseSessionDetails, type SessionTaskItem } from "@/lib/api/ResponseAPI"
+import { getParticipateImageUrl } from "@/lib/utils/participateImageUrls"
 
 function resolveTaskType(task: SessionTaskItem, studyType?: string): string {
   const explicit = task.task_type || (task as { phase_type?: string }).phase_type
@@ -308,8 +309,9 @@ export default function ResponseDetailsPage() {
                                       // eslint-disable-next-line @next/next/no-img-element
                                       <img
                                         ref={isFirstLayerTask ? layerBgImgRef : undefined}
-                                        src={data.background_image_url}
+                                        src={getParticipateImageUrl(data.background_image_url) || data.background_image_url}
                                         alt="Background"
+                                        decoding="async"
                                         className="absolute inset-0 m-auto h-full w-full object-contain"
                                         style={{ zIndex: 0 }}
                                         onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
@@ -329,8 +331,10 @@ export default function ResponseDetailsPage() {
                                           // eslint-disable-next-line @next/next/no-img-element
                                           <img
                                             key={`${img.url}-${imgIdx}`}
-                                            src={img.url}
+                                            src={getParticipateImageUrl(img.url) || img.url}
                                             alt={img.alt}
+                                            loading="lazy"
+                                            decoding="async"
                                             className="absolute object-contain"
                                             style={{
                                               zIndex: img.z,
@@ -468,7 +472,7 @@ export default function ResponseDetailsPage() {
                                 return list.map((e, i) => (
                                   <div key={i} className="aspect-[4/5] rounded-md overflow-hidden flex items-center justify-center">
                                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                                    <img src={e.url} alt={e?.alt_text || e?.name || ''} className="object-contain w-full h-full" />
+                                    <img src={getParticipateImageUrl(e.url) || e.url} alt={e?.alt_text || e?.name || ''} loading="lazy" decoding="async" className="object-contain w-full h-full" />
                                   </div>
                                 ))
                               })()
