@@ -1080,6 +1080,9 @@
   .min-h-\[320px\] {
     min-height: 320px;
   }
+  .min-h-full {
+    min-height: 100%;
+  }
   .min-h-screen {
     min-height: 100vh;
   }
@@ -3051,9 +3054,6 @@
   }
   .align-top {
     vertical-align: top;
-  }
-  .font-\[family-name\:var\(--font-inter\)\,ui-sans-serif\,system-ui\,sans-serif\] {
-    font-family: var(--font-inter),ui-sans-serif,system-ui,sans-serif;
   }
   .font-mono {
     font-family: var(--font-mono);

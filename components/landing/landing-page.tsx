@@ -87,7 +87,7 @@ export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
-    <div className="min-h-screen bg-white font-[family-name:var(--font-inter),ui-sans-serif,system-ui,sans-serif] text-gray-800 antialiased selection:bg-blue-600 selection:text-white">
+    <div className="min-h-screen bg-white font-sans text-gray-800 antialiased selection:bg-blue-600 selection:text-white">
       {/* Navigation — fixed h-20, max-w-7xl (reference HTML) */}
       <nav className="fixed z-50 w-full border-b border-gray-100 bg-white/90 backdrop-blur-md transition-all duration-300">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
