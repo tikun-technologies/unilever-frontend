@@ -6226,6 +6226,11 @@
       bottom: calc(var(--spacing) * 10);
     }
   }
+  .lg\:z-10 {
+    @media (width >= 64rem) {
+      z-index: 10;
+    }
+  }
   .lg\:col-span-1 {
     @media (width >= 64rem) {
       grid-column: span 1 / span 1;
@@ -6326,6 +6331,11 @@
       max-height: 55vh;
     }
   }
+  .lg\:max-h-\[calc\(100vh-2rem\)\] {
+    @media (width >= 64rem) {
+      max-height: calc(100vh - 2rem);
+    }
+  }
   .lg\:max-h-\[calc\(100vh-3rem\)\] {
     @media (width >= 64rem) {
       max-height: calc(100vh - 3rem);
@@ -6404,6 +6414,11 @@
   .lg\:flex-1 {
     @media (width >= 64rem) {
       flex: 1;
+    }
+  }
+  .lg\:flex-shrink-0 {
+    @media (width >= 64rem) {
+      flex-shrink: 0;
     }
   }
   .lg\:shrink-0 {
@@ -6486,6 +6501,11 @@
       gap: calc(var(--spacing) * 6);
     }
   }
+  .lg\:self-start {
+    @media (width >= 64rem) {
+      align-self: flex-start;
+    }
+  }
   .lg\:overflow-hidden {
     @media (width >= 64rem) {
       overflow: hidden;
@@ -6494,6 +6514,11 @@
   .lg\:overflow-y-auto {
     @media (width >= 64rem) {
       overflow-y: auto;
+    }
+  }
+  .lg\:overscroll-contain {
+    @media (width >= 64rem) {
+      overscroll-behavior: contain;
     }
   }
   .lg\:rounded-2xl {

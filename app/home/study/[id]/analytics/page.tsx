@@ -63,6 +63,8 @@ export default function StudyAnalyticsPage() {
     const [exportMenuOpen, setExportMenuOpen] = useState(false)
     const [exportModeLabel, setExportModeLabel] = useState("Exporting...")
     const exportMenuRef = useRef<HTMLDivElement | null>(null)
+    // The real scroll container for the page content (window does not scroll — see h-screen root)
+    const scrollContainerRef = useRef<HTMLDivElement | null>(null)
     const [exportingHtml, setExportingHtml] = useState(false)
     const [exportHtmlStage, setExportHtmlStage] = useState<ExportHtmlStage>("preparing")
     const [analysisData, setAnalysisData] = useState<any>(null)
@@ -415,9 +417,12 @@ export default function StudyAnalyticsPage() {
     const [analyticsView, setAnalyticsView] = useState<"overview" | "configurator" | "detail">("overview")
     const [activeView, setActiveView] = useState("table")
 
-    // Smooth scroll to top when switching tabs to prevent jarring layout shift
+    // Smooth scroll to top when switching tabs to prevent jarring layout shift.
+    // The page content scrolls inside scrollContainerRef (h-screen root + overflow-auto),
+    // not the window, so scroll that container.
     useEffect(() => {
         if (!analysisData) return
+        scrollContainerRef.current?.scrollTo({ top: 0, behavior: "smooth" })
         window.scrollTo({ top: 0, behavior: "smooth" })
     }, [analyticsView, analysisData])
     const [activeMetric, setActiveMetric] = useState("Top Down")
@@ -499,7 +504,12 @@ export default function StudyAnalyticsPage() {
 
     return (
         <AuthGuard requireAuth={true}>
-            <div className="flex min-h-screen bg-gray-50">
+            {/* h-screen (not min-h-screen) is required: it bounds the overflow-auto child
+                so IT becomes the real scroll container. position:sticky inside (design
+                configurator columns) resolves against the nearest overflow ancestor —
+                with min-h-screen that ancestor never scrolls (the window does) and
+                sticky silently never engages. */}
+            <div className="flex h-screen bg-gray-50">
             <AnalyticsSavedReportsSidebar
                 reports={savedReports}
                 onSelectReport={(report) => void applySavedReport(report)}
@@ -534,7 +544,7 @@ export default function StudyAnalyticsPage() {
                 downloadingId={downloadingReportId}
             />
 
-            <div className="flex-1 overflow-auto min-w-0">
+            <div ref={scrollContainerRef} className="flex-1 overflow-auto min-w-0">
                 <DashboardHeader />
 
                 {/* Header Section */}

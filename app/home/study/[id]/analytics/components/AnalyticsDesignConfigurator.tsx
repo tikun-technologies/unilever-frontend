@@ -1000,7 +1000,10 @@ function SelectionPreview({
   }, [aspectRatio, backgroundUrl, isLayerStudy])
 
   const isLandscape = aspectRatio === "16 / 9"
-  const layerMaxHeight = isFullscreen ? "85vh" : isLandscape ? "600px" : "320px"
+  // Non-fullscreen preview lives in the sticky sidebar next to the scrolling element
+  // list. Cap it relative to the viewport (not a fixed px) so the buttons + preview +
+  // total-coefficient block always fits on screen and the action buttons stay pinned.
+  const layerMaxHeight = isFullscreen ? "85vh" : isLandscape ? "min(600px, 40vh)" : "min(320px, 34vh)"
   const layerMaxWidth = isFullscreen
     ? isLandscape
       ? "90vw"
@@ -2291,9 +2294,12 @@ export function AnalyticsDesignConfigurator({
   if (!analysisData || categories.length === 0) return null
 
   return (
+    // NOTE: opacity-only animation on purpose. A `y` (translate) animation leaves a
+    // CSS transform on this section, and a transform on any ancestor breaks
+    // `position: sticky` for the left preview column — the buttons would scroll away.
     <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
       className="mb-10"
     >
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -2412,8 +2418,14 @@ export function AnalyticsDesignConfigurator({
       </div>
 
       <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
-        {/* Left Column - Preview & Selected Elements */}
-        <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:w-5/12 lg:max-h-[calc(100vh-3rem)] lg:overflow-y-auto lg:pr-2 lg:pb-4">
+        {/* Left Column - Preview & Selected Elements (fixed while right column scrolls) */}
+        {/* Bounded to the viewport (max-h) with NO scrollbar on the column itself — the
+            preview card (buttons + preview + total) is flex-shrink-0 and stays pinned at
+            the top, while only the Active Selection card scrolls internally. The preview
+            height is viewport-capped (see layerMaxHeight) so this top block always fits,
+            which is what keeps the action buttons visible. A scrollbar here would also
+            narrow the column and make the button header wrap. */}
+        <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:z-10 lg:w-5/12 lg:flex-shrink-0 lg:self-start lg:pr-2 lg:max-h-[calc(100vh-3rem)] lg:min-h-0">
           {/* Preview Card */}
           <div className="flex flex-shrink-0 flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 bg-gray-50/50 px-3 py-3 sm:px-5">
@@ -2698,8 +2710,11 @@ export function AnalyticsDesignConfigurator({
           )}
         </div>
 
-        {/* Right Column - Categories */}
-        <div className="hidden space-y-4 pb-10 lg:block lg:w-7/12 lg:pr-4">
+        {/* Right Column - Categories (independently scrollable on desktop).
+            overscroll-auto (not -contain) lets the scroll CHAIN to the page: when the
+            element list reaches its top or bottom edge, continued scrolling carries over
+            and moves the whole page, so the user never gets "stuck" inside the list. */}
+        <div className="hidden space-y-4 pb-10 lg:sticky lg:top-6 lg:block lg:w-7/12 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:overscroll-auto lg:pr-2 [-webkit-overflow-scrolling:touch]">
           {!isLayerStudy && selectedCount >= MAX_NON_LAYER_SELECTIONS && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-medium text-amber-800">
               Maximum 4 elements can be selected. Remove one to add another category.
