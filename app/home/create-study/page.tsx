@@ -878,6 +878,23 @@ export default function CreateStudyPage() {
     if (!options?.skipSave && userRole !== 'viewer') {
       saveStudyStepOnNavigate(currentStep, isSpecialCreator)
     }
+    // Keep studyType in sync with the latest Step 2 selection before rendering the
+    // target step. Step 2 persists every change to cs_step2, but the parent state
+    // was previously only updated via its onNext ("Save & Next"). Without this,
+    // changing the type and leaving Step 2 via the stepper left Step 5 rendering
+    // the old mode's structure until the user went back and pressed Save & Next.
+    try {
+      const s2 = localStorage.getItem('cs_step2')
+      if (s2) {
+        const v = JSON.parse(s2) as { type?: string }
+        if (
+          (v?.type === 'layer' || v?.type === 'grid' || v?.type === 'text' || v?.type === 'hybrid') &&
+          v.type !== studyType
+        ) {
+          setStudyType(v.type)
+        }
+      }
+    } catch { /* ignore malformed step2 cache */ }
     setCurrentStep(newStep)
   }
 
