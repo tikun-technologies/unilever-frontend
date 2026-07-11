@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ChevronDown, Plus, LogOut, PlayCircle, Share2, Trash2 } from "lucide-react"
+import { ChevronDown, Plus, LogOut, PlayCircle, Share2, Trash2, Eye } from "lucide-react"
 import { useAuth } from "@/lib/auth/AuthContext"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -12,7 +12,7 @@ import { ShareStudyModal } from "@/components/create-study/ShareStudyModal"
 import { ShareProjectModal } from "@/components/home/ShareProjectModal"
 import { deleteStudy } from "@/lib/api/StudyAPI"
 import { requestRestartWalkthrough } from "@/components/onboarding/MindSurveOnboarding"
-import { prepareFreshCreateStudy } from "@/lib/utils/createStudyStorage"
+import { prepareFreshCreateStudy, hasGeneratedTasks } from "@/lib/utils/createStudyStorage"
 import { JobNotificationBell } from "@/components/notifications/JobNotificationBell"
 
 export function DashboardHeader() {
@@ -23,6 +23,7 @@ export function DashboardHeader() {
   const [isDisposeModalOpen, setIsDisposeModalOpen] = useState(false)
   const [isDisposing, setIsDisposing] = useState(false)
   const [studyId, setStudyId] = useState<string | null>(null)
+  const [tasksGenerated, setTasksGenerated] = useState(false)
   const [userRole, setUserRole] = useState<string>('viewer')
 
   const dropdownRef = useRef<HTMLDivElement>(null)
@@ -33,7 +34,7 @@ export function DashboardHeader() {
   const homeHref = projId ? `/home?proj_id=${encodeURIComponent(projId)}` : '/home'
   const isCreateStudyRoute = pathname?.startsWith('/home/create-study')
 
-  // Effect to track cs_study_id and user_role in localStorage
+  // Effect to track cs_study_id, task generation, and user_role in localStorage
   useEffect(() => {
     const checkStudyInfo = () => {
       const storedId = localStorage.getItem('cs_study_id')
@@ -71,14 +72,35 @@ export function DashboardHeader() {
       } else {
         setStudyId(null)
       }
+
+      setTasksGenerated(hasGeneratedTasks())
     }
+
+    const handleStudyInfoChange = () => checkStudyInfo()
 
     // Check periodically since Step 1 might update it
     const interval = setInterval(checkStudyInfo, 1000)
     checkStudyInfo() // Initial check
 
-    return () => clearInterval(interval)
+    window.addEventListener('stepDataChanged', handleStudyInfoChange)
+    window.addEventListener('storage', handleStudyInfoChange)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('stepDataChanged', handleStudyInfoChange)
+      window.removeEventListener('storage', handleStudyInfoChange)
+    }
   }, [projId])
+
+  const canViewStudyDetail = !!studyId && tasksGenerated
+
+  const handleViewStudyDetail = () => {
+    if (!canViewStudyDetail || !studyId) return
+    const url = projId
+      ? `/home/study/${studyId}?proj_id=${encodeURIComponent(projId)}`
+      : `/home/study/${studyId}`
+    router.push(url)
+  }
 
   const handleCreateNewStudy = () => {
     prepareFreshCreateStudy()
@@ -140,13 +162,32 @@ export function DashboardHeader() {
 
           {/* Right side */}
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
-            {/* Share + Dispose Study (Create Study Route Only) */}
+            {/* View Detail + Share (Create Study Route Only) */}
             {isCreateStudyRoute && (
               <motion.div
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="flex items-center"
+                className="flex items-center gap-1 sm:gap-2"
               >
+                <Button
+                  onClick={handleViewStudyDetail}
+                  disabled={!canViewStudyDetail}
+                  variant="outline"
+                  className={`${canViewStudyDetail
+                    ? "border-blue-200 text-blue-600 hover:bg-blue-50"
+                    : "opacity-50 cursor-not-allowed text-gray-400 border-gray-200"
+                    } h-9 px-2 sm:px-3 md:px-4 py-2 rounded-lg flex items-center justify-center gap-1 sm:gap-2 transition-all shrink-0 text-xs sm:text-sm`}
+                  title={
+                    !studyId
+                      ? "Create a study first to view details"
+                      : !tasksGenerated
+                        ? "Generate tasks to view study details"
+                        : "View study details"
+                  }
+                >
+                  <Eye className="w-4 h-4 shrink-0" />
+                  <span className="whitespace-nowrap">View Details</span>
+                </Button>
                 <Button
                   onClick={() => setIsShareModalOpen(true)}
                   disabled={!studyId || !userRole}
@@ -154,11 +195,11 @@ export function DashboardHeader() {
                   className={`${studyId
                     ? "border-blue-200 text-blue-600 hover:bg-blue-50"
                     : "opacity-50 cursor-not-allowed text-gray-400 border-gray-200"
-                    } h-9 w-9 sm:h-auto sm:w-auto p-0 sm:px-4 sm:py-2 rounded-lg flex items-center justify-center sm:space-x-2 transition-all`}
+                    } h-9 w-9 sm:h-auto sm:w-auto p-0 sm:px-3 md:px-4 sm:py-2 rounded-lg flex items-center justify-center sm:space-x-2 transition-all shrink-0`}
                   title={!studyId ? "Create a study first to share" : "Share study"}
                 >
                   <Share2 className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline">Share</span>
+                  <span className="hidden sm:inline whitespace-nowrap">Share</span>
                 </Button>
                 {/* <Button
                   onClick={() => canDisposeStudy && setIsDisposeModalOpen(true)}

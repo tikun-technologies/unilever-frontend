@@ -33,6 +33,16 @@ const CREATE_STUDY_STORAGE_KEYS = [
   "cs_step8",
 ] as const
 
+/** True when task generation has completed and preview tasks are stored locally. */
+export function hasGeneratedTasks(): boolean {
+  if (typeof window === "undefined") return false
+  try {
+    return !!localStorage.getItem("cs_step7_tasks")
+  } catch {
+    return false
+  }
+}
+
 /** Clear create-study draft data and mark the next visit as a fresh start. */
 export function prepareFreshCreateStudy() {
   if (typeof window === "undefined") return
