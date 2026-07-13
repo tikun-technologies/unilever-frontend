@@ -109,7 +109,7 @@ export interface CreateStudyPayload {
   study_layers?: StudyLayerPayload[]
   categories?: CategoryPayload[] // NEW: Optional categories for grid studies
   classification_questions?: ClassificationQuestionPayload[] // NEW: Optional classification questions
-  background_image_url?: string // NEW: Optional background image for layer studies
+  background_image_url?: string | null // Layer BG; null clears existing DB value
   phase_order?: ("grid" | "text" | "mix")[] // NEW: Phase order for hybrid studies
   toggle_shuffle?: boolean // NEW: Shuffle classification questions
   project_id?: string
@@ -680,7 +680,10 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
     categories: categories.length > 0 ? categories : undefined, // NEW: Include categories if any
     phase_order: normalizedType === 'hybrid' ? (Array.isArray(phaseOrder) ? phaseOrder : [phaseOrder]) : undefined, // NEW: Include phase_order for hybrid
     classification_questions: classification_questions.length > 0 ? classification_questions : undefined, // NEW: Include classification questions if any
-    ...(normalizedType === 'layer' && layerBackground && (layerBackground.secureUrl || layerBackground.previewUrl) ? { background_image_url: layerBackground.secureUrl || layerBackground.previewUrl } : {}),
+    background_image_url:
+      normalizedType === 'layer'
+        ? (layerBackground?.secureUrl || layerBackground?.previewUrl || null)
+        : null,
     ...(normalizedType === 'layer' ? { design_constraints: designConstraintsToApiPayload(readDesignConstraintsFromLocalStorage()) } : {}),
     ...((() => {
       try {
@@ -805,7 +808,7 @@ export interface TaskGenerationPayload {
     blocked: Array<{ layer_id: string; image_id: string }>
     created_at?: number
   }>
-  background_image_url?: string
+  background_image_url?: string | null
   classification_questions?: Array<{
     question_id: string
     question_text: string
@@ -1140,9 +1143,12 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
     ...((s2.type as StudyType) === 'layer' ? { design_constraints: designConstraintsToApiPayload(readDesignConstraintsFromLocalStorage()) } : {}),
     ...(classification_questions.length > 0 && { classification_questions }),
     ...((s2.type === 'hybrid') && { phase_order: Array.isArray(phaseOrder) ? phaseOrder : [phaseOrder] }),
-    ...(((layerBackground && (layerBackground.secureUrl || layerBackground.previewUrl))) && {
-      background_image_url: String(layerBackground.secureUrl || layerBackground.previewUrl)
-    }),
+    background_image_url:
+      (s2.type as StudyType) === 'layer'
+        ? (layerBackground?.secureUrl || layerBackground?.previewUrl
+          ? String(layerBackground.secureUrl || layerBackground.previewUrl)
+          : null)
+        : null,
     ...((() => {
       try {
         const ar = localStorage.getItem('cs_step5_layer_preview_aspect')
@@ -2021,6 +2027,8 @@ export type UpdateStudyPutPayload = Partial<{
     blocked: Array<{ layer_id: string; image_id: string }>
     created_at?: number
   }>
+  /** Layer BG URL, or null to clear. */
+  background_image_url?: string | null
 }>
 
 // Fetch study details by ID
@@ -2191,16 +2199,14 @@ export async function putUpdateStudy(studyId: string, payload: UpdateStudyPutPay
   const normalizedType = String(effectiveType).toLowerCase()
 
   // Defensive: Strip layer-specific fields for non-layer studies (grid, text)
-  // This prevents backend 400 errors if state is dirty (e.g. switching types)
+  // This prevents backend 400 errors if state is dirty (e.g. switching types).
+  // Always send background_image_url: null for non-layer so a leftover layer BG is cleared in DB.
   if (normalizedType !== 'layer') {
     if (safePayload.hasOwnProperty('study_layers')) {
       delete safePayload.study_layers
       console.log(`[API] Removed study_layers from PUT payload for ${normalizedType} study`)
     }
-    if (safePayload.hasOwnProperty('background_image_url')) {
-      delete safePayload.background_image_url
-      console.log(`[API] Removed background_image_url from PUT payload for ${normalizedType} study`)
-    }
+    safePayload.background_image_url = null
   }
 
 
@@ -3293,6 +3299,8 @@ export interface UpdateStudyPayload {
   last_step?: number
   main_question: string
   orientation_text: string
+  /** Explicit null clears a previously saved layer background when leaving layer studies. */
+  background_image_url?: string | null
 }
 
 export async function updateStudy(studyId: string, payload: UpdateStudyPayload): Promise<any> {

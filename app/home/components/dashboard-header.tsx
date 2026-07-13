@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ChevronDown, Plus, LogOut, PlayCircle, Share2, Trash2, Eye } from "lucide-react"
+import { ChevronDown, Plus, LogOut, PlayCircle, Share2, Trash2, Eye, LayoutTemplate } from "lucide-react"
 import { useAuth } from "@/lib/auth/AuthContext"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -14,6 +14,7 @@ import { deleteStudy } from "@/lib/api/StudyAPI"
 import { requestRestartWalkthrough } from "@/components/onboarding/MindSurveOnboarding"
 import { prepareFreshCreateStudy, hasGeneratedTasks } from "@/lib/utils/createStudyStorage"
 import { JobNotificationBell } from "@/components/notifications/JobNotificationBell"
+import { fetchTemplatePermissions } from "@/lib/api/templateApi"
 
 export function DashboardHeader() {
   const { user, logout } = useAuth()
@@ -25,6 +26,7 @@ export function DashboardHeader() {
   const [studyId, setStudyId] = useState<string | null>(null)
   const [tasksGenerated, setTasksGenerated] = useState(false)
   const [userRole, setUserRole] = useState<string>('viewer')
+  const [canManageTemplates, setCanManageTemplates] = useState(false)
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
@@ -91,6 +93,21 @@ export function DashboardHeader() {
       window.removeEventListener('storage', handleStudyInfoChange)
     }
   }, [projId])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const can = await fetchTemplatePermissions()
+        if (!cancelled) setCanManageTemplates(can)
+      } catch {
+        if (!cancelled) setCanManageTemplates(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.email])
 
   const canViewStudyDetail = !!studyId && tasksGenerated
 
@@ -276,6 +293,18 @@ export function DashboardHeader() {
                       <PlayCircle className="w-4 h-4" />
                       <span>Restart Walkthrough</span>
                     </button>
+                    {canManageTemplates && (
+                      <button
+                        onClick={() => {
+                          setShowDropdown(false)
+                          router.push("/home/templates")
+                        }}
+                        className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center space-x-2 cursor-pointer"
+                      >
+                        <LayoutTemplate className="w-4 h-4" />
+                        <span>Manage Templates</span>
+                      </button>
+                    )}
                     <button
                       onClick={() => {
                         setShowDropdown(false)

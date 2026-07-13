@@ -5,6 +5,10 @@ import { Fragment, useEffect, useMemo, useRef, useState, forwardRef, useCallback
 import { Rnd } from "react-rnd"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { LayerPreview } from "./LayerPreview"
+import { TemplatePickerModal } from "@/components/create-study/TemplatePickerModal"
+import type { LayerTemplate } from "@/lib/templates/layerTemplates"
+import { studyLayersToFrontendLayers } from "@/lib/templates/templateLayerJson"
 import {
   uploadImages,
   putUpdateStudyAsync,
@@ -32,99 +36,6 @@ interface ElementItem {
   file?: File
   previewUrl?: string
   secureUrl?: string
-}
-
-// Simple large preview mirroring background-fit logic
-function LargePreview({ background, layers, aspect, selectedImageIds = {} }: { background: { secureUrl?: string; previewUrl?: string } | null; layers: any[]; aspect: 'portrait' | 'landscape' | 'square'; selectedImageIds?: Record<string, string> }) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const imgRef = useRef<HTMLImageElement>(null)
-  const [fit, setFit] = useState<{ left: number; top: number; width: number; height: number }>({ left: 0, top: 0, width: 0, height: 0 })
-  const aspectClass = aspect === 'portrait' ? 'aspect-[9/16]' : aspect === 'landscape' ? 'aspect-[16/9]' : 'aspect-square'
-
-  useEffect(() => {
-    const compute = () => {
-      const cw = containerRef.current?.offsetWidth || 0
-      const ch = containerRef.current?.offsetHeight || 0
-      if (!cw || !ch) return
-      const iw = imgRef.current?.naturalWidth || cw
-      const ih = imgRef.current?.naturalHeight || ch
-      const scale = Math.min(cw / iw, ch / ih)
-      const w = iw * scale
-      const h = ih * scale
-      const left = (cw - w) / 2
-      const top = (ch - h) / 2
-      setFit({ left, top, width: w, height: h })
-    }
-    compute()
-    const ro = new ResizeObserver(compute)
-    if (containerRef.current) ro.observe(containerRef.current)
-    return () => ro.disconnect()
-  }, [aspect])
-
-  return (
-    <div className={`relative w-full ${aspectClass} max-h-[80vh] max-w-[90vw] mx-auto overflow-hidden bg-slate-50 rounded-lg border`} ref={containerRef}>
-      {background && (background.secureUrl || background.previewUrl) && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          ref={imgRef}
-          src={background.secureUrl || background.previewUrl}
-          alt="Background"
-          className="absolute inset-0 w-full h-full object-contain"
-          style={{ zIndex: 0 }}
-          onLoad={() => {
-            const cw = containerRef.current?.offsetWidth || 0
-            const ch = containerRef.current?.offsetHeight || 0
-            const iw = imgRef.current?.naturalWidth || cw
-            const ih = imgRef.current?.naturalHeight || ch
-            const scale = Math.min(cw / iw, ch / ih)
-            const w = iw * scale
-            const h = ih * scale
-            const left = (cw - w) / 2
-            const top = (ch - h) / 2
-            setFit({ left, top, width: w, height: h })
-          }}
-        />
-      )}
-      <div className="absolute overflow-hidden" style={{ left: fit.left, top: fit.top, width: fit.width || '100%', height: fit.height || '100%', zIndex: 1 }}>
-        {layers.map((l: any) => {
-          if (l.visible === false) return null
-          const selectedImageId = selectedImageIds[l.id]
-          if (!selectedImageId) return null
-          const base = l.images?.find((img: any) => img.id === selectedImageId)
-
-          if (!base) return null
-          const widthPct = Math.max(1, Math.min(100, Number(base.width ?? 100)))
-          const heightPct = Math.max(1, Math.min(100, Number(base.height ?? 100)))
-          const leftPct = Math.max(0, Math.min(100 - widthPct, Number(base.x ?? 0)))
-          const topPct = Math.max(0, Math.min(100 - heightPct, Number(base.y ?? 0)))
-          // Compute displayed pixel size. If the layer image includes captured pixel dimensions, prefer those.
-          const iw = imgRef.current?.naturalWidth || fit.width || 1
-          const ih = imgRef.current?.naturalHeight || fit.height || 1
-          const displayWidth = (widthPct / 100) * fit.width
-          const displayHeight = (heightPct / 100) * fit.height
-          const leftPx = (leftPct / 100) * fit.width
-          const topPx = (topPct / 100) * fit.height
-          return (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={l.id}
-              src={base.secureUrl || base.previewUrl}
-              alt={l.name}
-              className="absolute object-contain"
-              style={{
-                zIndex: l.z ?? 0,
-                position: 'absolute',
-                top: `${topPx}px`,
-                left: `${leftPx}px`,
-                width: `${displayWidth}px`,
-                height: `${displayHeight}px`,
-              }}
-            />
-          )
-        })}
-      </div>
-    </div>
-  )
 }
 
 function ConstraintSelectionPreview({
@@ -313,9 +224,18 @@ interface Step5StudyStructureProps {
   onDataChange?: () => void
   isReadOnly?: boolean
   isActive?: boolean
+  editorVariant?: 'study' | 'template'
+  storagePrefix?: string
+  templateTitle?: string
+  onTemplateTitleChange?: (title: string) => void
+  /** When false (create flow), title is collected in the save popup instead. */
+  showTemplateTitleField?: boolean
+  onSaveDraft?: () => void
+  onPublish?: () => void
+  isSaving?: boolean
 }
 
-export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChange, isReadOnly = false, isActive = true }: Step5StudyStructureProps) {
+export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChange, isReadOnly = false, isActive = true, editorVariant = "study", storagePrefix = "cs_step5", templateTitle, onTemplateTitleChange, showTemplateTitleField = true, onSaveDraft, onPublish, isSaving }: Step5StudyStructureProps) {
   // Dynamic limits from env with sensible defaults
   // const GRID_MIN = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MIN_ELEMENTS || '4') || 4
   const GRID_MAX = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MAX_ELEMENTS || '20') || 20
@@ -1210,7 +1130,21 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
 
   if (mode === "layer") {
     return (
-      <LayerMode onNext={onNext} onBack={onBack} onDataChange={onDataChange} isReadOnly={isReadOnly} isActive={isActive} />
+      <LayerMode
+        onNext={onNext}
+        onBack={onBack}
+        onDataChange={onDataChange}
+        isReadOnly={isReadOnly}
+        isActive={isActive}
+        variant={editorVariant}
+        storagePrefix={storagePrefix}
+        templateTitle={templateTitle}
+        onTemplateTitleChange={onTemplateTitleChange}
+        showTemplateTitleField={showTemplateTitleField}
+        onSaveDraft={onSaveDraft}
+        onPublish={onPublish}
+        isSaving={isSaving}
+      />
     )
   }
 
@@ -1597,7 +1531,21 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
 }
 
 // ---------------- Layer Mode ----------------
-interface LayerModeProps { onNext: () => void; onBack: () => void; onDataChange?: () => void; isReadOnly?: boolean; isActive?: boolean }
+interface LayerModeProps {
+  onNext: () => void
+  onBack: () => void
+  onDataChange?: () => void
+  isReadOnly?: boolean
+  isActive?: boolean
+  variant?: 'study' | 'template'
+  storagePrefix?: string
+  templateTitle?: string
+  onTemplateTitleChange?: (title: string) => void
+  showTemplateTitleField?: boolean
+  onSaveDraft?: () => void
+  onPublish?: () => void
+  isSaving?: boolean
+}
 
 type LayerImage = {
   id: string
@@ -1661,13 +1609,32 @@ type LayerTextModalState =
   | { layerId: string; mode: 'add' }
   | { layerId: string; mode: 'edit'; imageId: string }
 
-function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive = true }: LayerModeProps) {
+function LayerMode({
+  onNext,
+  onBack,
+  onDataChange,
+  isReadOnly = false,
+  isActive = true,
+  variant = 'study',
+  storagePrefix = 'cs_step5',
+  templateTitle = '',
+  onTemplateTitleChange,
+  showTemplateTitleField = true,
+  onSaveDraft,
+  onPublish,
+  isSaving = false,
+}: LayerModeProps) {
+  const layersStorageKey = `${storagePrefix}_layer`
+  const backgroundStorageKey = `${storagePrefix}_layer_background`
+  const aspectStorageKey = `${storagePrefix}_layer_preview_aspect`
+  const isTemplateEditor = variant === 'template'
+
   // Dynamic limits from env with sensible defaults
   const LAYER_MIN = 3
   const ELEMENT_MIN = 3
   const [layers, setLayers] = useState<Layer[]>(() => {
     try {
-      const raw = localStorage.getItem('cs_step5_layer')
+      const raw = localStorage.getItem(layersStorageKey)
       if (raw) {
         const saved = JSON.parse(raw) as Layer[]
         if (Array.isArray(saved)) {
@@ -1746,6 +1713,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
   const [overIndex, setOverIndex] = useState<number | null>(null)
   const [showModal, setShowModal] = useState(false)
   const [showLayerTypeMenu, setShowLayerTypeMenu] = useState(false)
+  const [showTemplateModal, setShowTemplateModal] = useState(false)
   const [draftType, setDraftType] = useState<'image' | 'text'>('image')
   const [draftName, setDraftName] = useState("Layer 1")
   const [draftDescription, setDraftDescription] = useState("")
@@ -1821,7 +1789,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
   // Preview aspect + modal preview
   const [previewAspect, setPreviewAspect] = useState<'portrait' | 'landscape' | 'square'>(() => {
     try {
-      const saved = localStorage.getItem('cs_step5_layer_preview_aspect')
+      const saved = localStorage.getItem(aspectStorageKey)
       if (saved === 'portrait' || saved === 'landscape' || saved === 'square') return saved as any
     } catch { }
     return 'portrait'
@@ -2924,7 +2892,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
   // Optional background image (single image)
   const [background, setBackground] = useState<{ id: string; file?: File; previewUrl?: string; secureUrl?: string; name?: string } | null>(() => {
     try {
-      const raw = localStorage.getItem('cs_step5_layer_background')
+      const raw = localStorage.getItem(backgroundStorageKey)
       if (raw) {
         const parsed = JSON.parse(raw)
         if (parsed && (parsed.secureUrl || parsed.previewUrl)) {
@@ -2994,7 +2962,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
 
   // Persist chosen aspect for Step 7 to use
   useEffect(() => {
-    try { localStorage.setItem('cs_step5_layer_preview_aspect', previewAspect) } catch { }
+    try { localStorage.setItem(aspectStorageKey, previewAspect) } catch { }
   }, [previewAspect])
 
   const addLayer = () => {
@@ -3027,6 +2995,73 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
   const reindexLayers = (list: Layer[]): Layer[] => {
     // Only update z by order; keep user-provided names intact
     return list.map((l, idx) => ({ ...l, z: idx }))
+  }
+
+  const templateToLayers = (t: LayerTemplate, zOffset = 0): Layer[] => {
+    if (t.rawLayerJson && Array.isArray((t.rawLayerJson as any).study_layers)) {
+      return studyLayersToFrontendLayers((t.rawLayerJson as any).study_layers).map((l: Layer, idx: number) => ({
+        ...l,
+        id: crypto.randomUUID(),
+        z: zOffset + idx,
+        images: (l.images || []).map((img) => ({ ...img, id: crypto.randomUUID() })),
+        open: false,
+        visible: true,
+      }))
+    }
+    return t.layers.map((l, idx) => ({
+      id: crypto.randomUUID(),
+      name: l.name,
+      description: "",
+      z: zOffset + idx,
+      images: l.images.map((img) => ({
+        id: crypto.randomUUID(),
+        previewUrl: img.secureUrl,
+        secureUrl: img.secureUrl,
+        name: img.name,
+        x: img.x,
+        y: img.y,
+        width: img.width,
+        height: img.height,
+        sourceType: 'upload' as const,
+      })),
+      open: false,
+      visible: true,
+      layer_type: l.layer_type ?? 'image',
+    }))
+  }
+
+  const applyTemplate = (t: LayerTemplate, mode: 'replace' | 'append') => {
+    if (mode === 'replace') {
+      setLayers(templateToLayers(t))
+      const rawBg = (t.rawLayerJson as any)?.background_image_url
+      const bgUrl =
+        (typeof rawBg === 'string' && rawBg.trim() ? rawBg.trim() : null) ||
+        t.background?.secureUrl ||
+        null
+      // Always replace background so a template without one clears any existing study background
+      setBackground(
+        bgUrl
+          ? { id: crypto.randomUUID(), secureUrl: bgUrl, previewUrl: bgUrl, name: t.background?.name || 'Background' }
+          : null
+      )
+      setPreviewAspect(t.aspect)
+    } else {
+      setLayers((prev) => reindexLayers([...prev, ...templateToLayers(t, prev.length)]))
+      const rawBg = (t.rawLayerJson as any)?.background_image_url
+      const bgUrl =
+        (typeof rawBg === 'string' && rawBg.trim() ? rawBg.trim() : null) ||
+        t.background?.secureUrl ||
+        null
+      if (bgUrl) {
+        setBackground((prev) => prev ?? {
+          id: crypto.randomUUID(),
+          secureUrl: bgUrl,
+          previewUrl: bgUrl,
+          name: t.background?.name || 'Background',
+        })
+      }
+    }
+    setShowTemplateModal(false)
   }
 
   const handleDraftFiles = (files: FileList | null) => {
@@ -4158,9 +4193,9 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
         })
 
         if (mappedLayers.length > 0) updatePayload.study_layers = mappedLayers
-        if (background && (background.secureUrl || background.previewUrl)) {
-          updatePayload.background_image_url = background.secureUrl || background.previewUrl
-        }
+        // Always send the field: URL when set, null when removed — omit would leave stale DB value
+        updatePayload.background_image_url =
+          background?.secureUrl || background?.previewUrl || null
         updatePayload.design_constraints = designConstraintsToApiPayload(readDesignConstraintsFromLocalStorage())
         putUpdateStudyAsync(studyId, updatePayload, 5)
       }
@@ -4564,18 +4599,18 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
           return allText ? 'text' : 'image'
         })()
       }))
-      localStorage.setItem('cs_step5_layer', JSON.stringify(minimal))
+      localStorage.setItem(layersStorageKey, JSON.stringify(minimal))
     })()
     // persist background separately
     if (background && (background.secureUrl || background.previewUrl)) {
-      localStorage.setItem('cs_step5_layer_background', JSON.stringify({
+      localStorage.setItem(backgroundStorageKey, JSON.stringify({
         id: background.id,
         previewUrl: background.previewUrl,
         secureUrl: background.secureUrl,
         name: background.name || 'Background'
       }))
     } else {
-      localStorage.removeItem('cs_step5_layer_background')
+      localStorage.removeItem(backgroundStorageKey)
     }
     onDataChange?.()
     // Dispatch event to refresh stepper
@@ -4613,7 +4648,7 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
 
   // Persist preview aspect to local storage when it changes
   useEffect(() => {
-    localStorage.setItem('cs_step5_layer_preview_aspect', previewAspect)
+    localStorage.setItem(aspectStorageKey, previewAspect)
   }, [previewAspect])
 
   return (
@@ -4633,11 +4668,42 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
       )}
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
-          <h3 className="text-lg font-semibold text-gray-800">Layer Configuration</h3>
-          <p className="text-sm text-gray-600">Configure layers, upload images, and preview your layer study</p>
+          {isTemplateEditor ? (
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-gray-800">Template Editor</h3>
+              <p className="text-sm text-gray-600">Build layers exactly like Layer Study Step 5, then save as a draft or publish.</p>
+              {showTemplateTitleField && (
+                <div className="max-w-xl">
+                  <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500">Template Title</label>
+                  <input
+                    value={templateTitle}
+                    onChange={(e) => onTemplateTitleChange?.(e.target.value)}
+                    placeholder="Enter a unique template title"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                    disabled={isReadOnly || isSaving}
+                  />
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <h3 className="text-lg font-semibold text-gray-800">Layer Configuration</h3>
+              <p className="text-sm text-gray-600">Configure layers, upload images, and preview your layer study</p>
+            </>
+          )}
         </div>
         <div className="relative flex w-full shrink-0 flex-col gap-2 sm:w-auto sm:items-end" data-layer-type-menu>
           <div className="flex flex-wrap gap-2">
+            {!isTemplateEditor && (
+              <Button
+                variant="outline"
+                className="cursor-pointer shrink-0"
+                onClick={() => setShowTemplateModal(true)}
+                disabled={isReadOnly}
+              >
+                Select from Templates
+              </Button>
+            )}
             <Button
               variant="outline"
               className="cursor-pointer shrink-0"
@@ -4654,15 +4720,17 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
               + Add New Layer
             </Button>
           </div>
-          <button
-            type="button"
-            onClick={() => openDesignConstraintModal()}
-            disabled={isReadOnly || constraintElementOptions.length < 2}
-            className="cursor-pointer self-start text-left text-xs font-semibold text-[rgba(38,116,186,1)] hover:text-[rgba(38,116,186,0.8)] disabled:cursor-not-allowed disabled:text-gray-400 sm:self-end"
-            title={constraintElementOptions.length < 2 ? 'Add at least two layer elements before creating constraints' : 'Add design constraint'}
-          >
-            + Design Constraint{designConstraints.length > 0 ? ` (${designConstraints.length})` : ''}
-          </button>
+          {!isTemplateEditor && (
+            <button
+              type="button"
+              onClick={() => openDesignConstraintModal()}
+              disabled={isReadOnly || constraintElementOptions.length < 2}
+              className="cursor-pointer self-start text-left text-xs font-semibold text-[rgba(38,116,186,1)] hover:text-[rgba(38,116,186,0.8)] disabled:cursor-not-allowed disabled:text-gray-400 sm:self-end"
+              title={constraintElementOptions.length < 2 ? 'Add at least two layer elements before creating constraints' : 'Add design constraint'}
+            >
+              + Design Constraint{designConstraints.length > 0 ? ` (${designConstraints.length})` : ''}
+            </button>
+          )}
           {showLayerTypeMenu && (
             <div className="absolute right-0 top-10 mt-2 w-36 rounded-md border border-gray-200 bg-white shadow-lg p-2 space-y-1 z-20">
               <button
@@ -7547,27 +7615,69 @@ function LayerMode({ onNext, onBack, onDataChange, isReadOnly = false, isActive 
                   <Button variant="outline" onClick={() => setShowFullPreview(false)} className="cursor-pointer">Close</Button>
                 </div>
               </div>
-              <LargePreview background={background} layers={layers} aspect={previewAspect} selectedImageIds={effectiveSelectedImageIds} />
+              <LayerPreview background={background} layers={layers} aspect={previewAspect} selectedImageIds={effectiveSelectedImageIds} />
             </div>
           </div>
         )
       }
 
+      {!isTemplateEditor && (
+        <TemplatePickerModal
+          isOpen={showTemplateModal}
+          onClose={() => setShowTemplateModal(false)}
+          hasExistingLayers={layers.length > 0}
+          onApply={applyTemplate}
+        />
+      )}
+
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 mt-2">
-        <Button variant="outline" className="rounded-full cursor-pointer px-6 w-full sm:w-auto" onClick={onBack}>Back</Button>
-        <Button
-          className="rounded-full cursor-pointer px-6 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] w-full sm:w-auto"
-          onClick={handleNext}
-          disabled={nextLoading || layers.length < LAYER_MIN || layers.some(l => l.images.length < ELEMENT_MIN) || isReadOnly}
-        >
-          {nextLoading ? 'Uploading...' : (
-            layers.length < LAYER_MIN
-              ? `Add at least ${LAYER_MIN} layers`
-              : layers.some(l => l.images.length < ELEMENT_MIN)
-                ? `Each layer needs ${ELEMENT_MIN} elements`
-                : 'Save & Next'
-          )}
-        </Button>
+        {isTemplateEditor ? (
+          <>
+            <Button variant="outline" className="rounded-full cursor-pointer px-6 w-full sm:w-auto" onClick={onBack} disabled={isSaving}>
+              Back
+            </Button>
+            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+              <Button
+                variant="outline"
+                className="rounded-full cursor-pointer px-6 w-full sm:w-auto"
+                onClick={() => onSaveDraft?.()}
+                disabled={isSaving || isReadOnly || (showTemplateTitleField && !templateTitle.trim())}
+              >
+                {isSaving ? "Saving..." : "Save Draft"}
+              </Button>
+              <Button
+                className="rounded-full cursor-pointer px-6 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] w-full sm:w-auto"
+                onClick={() => onPublish?.()}
+                disabled={
+                  isSaving ||
+                  isReadOnly ||
+                  (showTemplateTitleField && !templateTitle.trim()) ||
+                  layers.length < LAYER_MIN ||
+                  layers.some((l) => l.images.length < ELEMENT_MIN)
+                }
+              >
+                {isSaving ? "Publishing..." : "Publish Template"}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <Button variant="outline" className="rounded-full cursor-pointer px-6 w-full sm:w-auto" onClick={onBack}>Back</Button>
+            <Button
+              className="rounded-full cursor-pointer px-6 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] w-full sm:w-auto"
+              onClick={handleNext}
+              disabled={nextLoading || layers.length < LAYER_MIN || layers.some(l => l.images.length < ELEMENT_MIN) || isReadOnly}
+            >
+              {nextLoading ? 'Uploading...' : (
+                layers.length < LAYER_MIN
+                  ? `Add at least ${LAYER_MIN} layers`
+                  : layers.some(l => l.images.length < ELEMENT_MIN)
+                    ? `Each layer needs ${ELEMENT_MIN} elements`
+                    : 'Save & Next'
+              )}
+            </Button>
+          </>
+        )}
       </div>
     </div >
   )

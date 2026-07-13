@@ -174,6 +174,15 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
     onDataChange?.()
   }, [type, mainQuestion, orientationText, onDataChange])
 
+  // Leaving layer studies: drop local BG so it cannot leak into grid/text/hybrid.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (type === 'layer' || type == null) return
+    try {
+      localStorage.removeItem('cs_step5_layer_background')
+    } catch { /* ignore */ }
+  }, [type])
+
   return (
     <div>
       <div className={`space-y-6 ${isReadOnly ? "opacity-70 pointer-events-none" : ""}`}>
@@ -287,6 +296,8 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
                   type: type!,
                   main_question: mainQuestion,
                   orientation_text: orientationText,
+                  // Clear DB background when leaving layer (or any non-layer save from Step 2)
+                  ...(type !== 'layer' ? { background_image_url: null } : {}),
                 })
               }
               onNext(type as any, mainQuestion, orientationText)
