@@ -22,6 +22,7 @@ import {
   readDesignConstraintsFromLocalStorage,
 } from "@/lib/utils/designConstraintsStorage"
 import { renderLayersToCanvas } from "@/lib/canvas-export"
+import { useUndoableState, useUndoRedoShortcuts } from "@/lib/hooks/useUndoableState"
 import {
   generateUniqueName as uniqueNameFromBase,
   openFolderPicker,
@@ -1632,7 +1633,14 @@ function LayerMode({
   // Dynamic limits from env with sensible defaults
   const LAYER_MIN = 3
   const ELEMENT_MIN = 3
-  const [layers, setLayers] = useState<Layer[]>(() => {
+  const {
+    state: layers,
+    setState: setLayers,
+    undo: undoLayers,
+    redo: redoLayers,
+    canUndo: canUndoLayers,
+    canRedo: canRedoLayers,
+  } = useUndoableState<Layer[]>(() => {
     try {
       const raw = localStorage.getItem(layersStorageKey)
       if (raw) {
@@ -1820,6 +1828,32 @@ function LayerMode({
   const [constraintExpandedBlockedLayers, setConstraintExpandedBlockedLayers] = useState<Set<string>>(new Set())
   const [overviewExpandedConstraints, setOverviewExpandedConstraints] = useState<Set<string>>(new Set())
   const [constraintSavingId, setConstraintSavingId] = useState<string | null>(null)
+
+  // While a modal owns the screen, its own editing surface should own the shortcut too —
+  // undoing the canvas behind an open dialog is never what the user meant.
+  const isLayerModalOpen =
+    showModal ||
+    showTemplateModal ||
+    showFullPreview ||
+    showDesignConstraintModal ||
+    showConstraintNameDialog ||
+    showLayerTextModal !== null ||
+    constraintImagePreview !== null
+
+  useUndoRedoShortcuts({
+    undo: undoLayers,
+    redo: redoLayers,
+    enabled: isActive && !isReadOnly && !isLayerModalOpen,
+  })
+
+  // Detected after mount rather than during render: this component server-renders, and
+  // reading platform at render time would desync the markup on hydration.
+  const [isMacPlatform, setIsMacPlatform] = useState(false)
+  useEffect(() => {
+    setIsMacPlatform(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent))
+  }, [])
+  const undoShortcutLabel = isMacPlatform ? '⌘Z' : 'Ctrl+Z'
+  const redoShortcutLabel = isMacPlatform ? '⇧⌘Z' : 'Ctrl+Y'
 
   // Comprehensive font options with their CSS font-family values
   const FONT_OPTIONS = [
@@ -4021,7 +4055,7 @@ function LayerMode({
           return img
         })
         return { ...layer, images: updatedImages }
-      }))
+      }), { transient: true, patchHistory: true })
     } catch (e) {
       console.error('ensureLayerUploads error', e)
     }
@@ -4256,7 +4290,7 @@ function LayerMode({
     setLayers(prev => prev.map(layer => {
       if (layer.id !== layerId) return layer
       return { ...layer, images: layer.images.map(img => img.id === imageId ? { ...img, name } : img) }
-    }))
+    }), { coalesceKey: `image-name:${layerId}:${imageId}` })
   }
 
   const duplicateLayerImage = (layerId: string, imageId: string) => {
@@ -4330,7 +4364,7 @@ function LayerMode({
               return img
             })
           }
-        }))
+        }), { transient: true, patchHistory: true })
       }).catch((e) => console.error('Layer batch upload failed', e))
       return
     }
@@ -4353,7 +4387,7 @@ function LayerMode({
               return img
             })
           }
-        }))
+        }), { transient: true, patchHistory: true })
       } catch (e) {
         console.error('Layer debounced upload failed', e)
       }
@@ -4442,7 +4476,7 @@ function LayerMode({
           if (idx === -1) return img
           return { ...img, secureUrl: results[idx]?.secure_url || img.secureUrl }
         }),
-      })))
+      })), { transient: true, patchHistory: true })
     } catch (e) {
       console.error('Folder import upload failed', e)
       setFolderImportNotice('Layers were created but some images failed to upload. Please try again.')
@@ -4956,6 +4990,23 @@ function LayerMode({
                 disabled={isReadOnly}
                 className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs ${isReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${previewAspect === 'square' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
               >1:1</button>
+              <div className="mx-1 h-5 w-px bg-gray-200" />
+              <button
+                type="button"
+                title={`Undo (${undoShortcutLabel})`}
+                aria-label="Undo"
+                onClick={undoLayers}
+                disabled={isReadOnly || !canUndoLayers}
+                className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center text-gray-700 ${isReadOnly || !canUndoLayers ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-gray-50'}`}
+              ><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" /></svg></button>
+              <button
+                type="button"
+                title={`Redo (${redoShortcutLabel})`}
+                aria-label="Redo"
+                onClick={redoLayers}
+                disabled={isReadOnly || !canRedoLayers}
+                className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center text-gray-700 ${isReadOnly || !canRedoLayers ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-gray-50'}`}
+              ><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13" /></svg></button>
             </div>
             <Button variant="outline" className="rounded-full px-4 py-1 cursor-pointer" onClick={() => setShowFullPreview(true)}>Preview</Button>
           </div>
@@ -5074,7 +5125,7 @@ function LayerMode({
                       <button
                         type="button"
                         aria-label="Toggle layer"
-                        onClick={() => setLayers(prev => prev.map(l => l.id === layer.id ? { ...l, open: !l.open } : l))}
+                        onClick={() => setLayers(prev => prev.map(l => l.id === layer.id ? { ...l, open: !l.open } : l), { transient: true })}
                         className="w-7 h-7 border rounded-md flex items-center justify-center cursor-pointer"
                       >
                         <span className={`transition-transform ${layer.open ? 'rotate-180' : ''}`}>﹀</span>
@@ -5086,11 +5137,11 @@ function LayerMode({
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
                           <label className="block text-sm font-semibold text-gray-800 mb-2">Layer Name <span className="text-red-500">*</span></label>
-                          <input value={layer.name} onChange={(e) => setLayers(prev => prev.map(l => l.id === layer.id ? { ...l, name: e.target.value } : l))} className="w-full rounded-lg border border-gray-200 px-3 py-2" disabled={isReadOnly} />
+                          <input value={layer.name} onChange={(e) => setLayers(prev => prev.map(l => l.id === layer.id ? { ...l, name: e.target.value } : l), { coalesceKey: `layer-name:${layer.id}` })} className="w-full rounded-lg border border-gray-200 px-3 py-2" disabled={isReadOnly} />
                         </div>
                         <div>
                           <label className="block text-sm font-semibold text-gray-800 mb-2">Description (Optional)</label>
-                          <input value={layer.description || ''} onChange={(e) => setLayers(prev => prev.map(l => l.id === layer.id ? { ...l, description: e.target.value } : l))} className="w-full rounded-lg border border-gray-200 px-3 py-2" disabled={isReadOnly} />
+                          <input value={layer.description || ''} onChange={(e) => setLayers(prev => prev.map(l => l.id === layer.id ? { ...l, description: e.target.value } : l), { coalesceKey: `layer-desc:${layer.id}` })} className="w-full rounded-lg border border-gray-200 px-3 py-2" disabled={isReadOnly} />
                         </div>
                       </div>
 
