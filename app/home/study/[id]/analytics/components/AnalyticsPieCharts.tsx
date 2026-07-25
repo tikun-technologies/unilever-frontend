@@ -39,7 +39,7 @@ export function AnalyticsPieCharts({ analysisData, rawDataOverride }: AnalyticsP
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8"
+      className="grid grid-cols-1 @3xl/analytics:grid-cols-2 @6xl/analytics:grid-cols-3 gap-6 mb-8"
     >
       {charts.map((chart, idx) => (
         <div key={chart.title} className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">

@@ -44,6 +44,10 @@ import { AnalyticsSettingsModal } from "./components/AnalyticsSettingsModal"
 import { AnalyticsAdvancedFilterModal } from "./components/AnalyticsAdvancedFilterModal"
 import { AnalyticsPrelimCohortModal } from "./components/AnalyticsPrelimCohortModal"
 import { AnalyticsSavedReportsSidebar } from "./components/AnalyticsSavedReportsSidebar"
+import { AnalyticsAssistantPanel } from "./components/AnalyticsAssistantPanel"
+import { useAnalyticsAssistant } from "@/lib/hooks/useAnalyticsAssistant"
+import { createSavedDesign } from "@/lib/api/StudyAPI"
+import type { AssistantAction, AssistantQueryResponse } from "@/lib/types/analyticsAssistant"
 
 export default function StudyAnalyticsPage() {
     const params = useParams()
@@ -428,6 +432,95 @@ export default function StudyAnalyticsPage() {
     const [activeMetric, setActiveMetric] = useState("Top Down")
     const [activeTab, setActiveTab] = useState("Overall")
 
+    const studyTypeForAssistant = useMemo(() => {
+        const raw = study?.study_type || analysisData?.["Information Block"]?.["Study Type"] || "text"
+        return typeof raw === "string" ? raw.toLowerCase() : "text"
+    }, [study?.study_type, analysisData])
+
+    const handleAssistantAction = async (action: AssistantAction, response?: AssistantQueryResponse) => {
+        try {
+            if (action.type === "open_view") {
+                const view = String(action.payload?.view || "overview")
+                if (view === "overview" || view === "configurator" || view === "detail") {
+                    setAnalyticsView(view)
+                }
+                return
+            }
+            if (action.type === "open_configurator") {
+                setAnalyticsView("configurator")
+                return
+            }
+            if (action.type === "set_metric") {
+                const metric = String(action.payload?.metric || "Top Down")
+                setActiveMetric(metric)
+                setAnalyticsView("detail")
+                return
+            }
+            if (action.type === "apply_filter") {
+                const filters = action.payload?.filters
+                if (filters) await runFilteredAnalysis(filters)
+                return
+            }
+            if (action.type === "export_csv") {
+                await buildCsvAndDownload("filtered")
+                return
+            }
+            if (action.type === "save_design") {
+                const design = action.payload?.design
+                if (!design || !studyId) return
+                const metricLabel = String(action.payload?.metric || response?.applied_context?.metric || "Top Down")
+                const elements = Array.isArray(design.elements) ? design.elements : []
+                const selected_by_category: Record<string, string> = design.selected_by_category || {}
+                const configuration = {
+                    metric: metricLabel as "Top Down" | "Bottom Up" | "Response Time",
+                    study_type: studyTypeForAssistant as "grid" | "layer" | "text" | "hybrid",
+                    design_type: "configurator" as const,
+                    segment: {
+                        label: String(action.payload?.segment_label || response?.applied_context?.segment_label || "Overall"),
+                    },
+                    selected_by_category,
+                    selected_elements: elements.map((el: any) => ({
+                        id: el.element_id,
+                        name: el.name,
+                        category: el.category_name,
+                        value: el.value,
+                        imageUrl: el.image_url,
+                        elementType: el.element_type,
+                        zIndex: el.z_index,
+                        layerId: el.layer_id,
+                        imageId: el.image_id,
+                        transform: el.transform,
+                    })),
+                    total_coefficient: design.score,
+                    background_url:
+                        response?.blocks?.find((b) => b.type === "top_k_designs")?.data?.background_url ?? null,
+                    aspect_ratio:
+                        response?.blocks?.find((b) => b.type === "top_k_designs")?.data?.aspect_ratio ?? null,
+                    show_layer_background: true,
+                }
+                const name = `Assistant design #${design.rank} · ${new Date().toLocaleString()}`
+                await createSavedDesign(studyId, name, configuration, "configurator")
+                setAnalyticsView("configurator")
+                alert("Design saved to the configurator.")
+                return
+            }
+            if (action.type === "compare_designs") {
+                setAnalyticsView("configurator")
+            }
+        } catch (e) {
+            console.warn("Assistant action failed:", e)
+            alert((e as Error)?.message || "Assistant action failed")
+        }
+    }
+
+    const assistant = useAnalyticsAssistant({
+        studyId,
+        studyType: studyTypeForAssistant,
+        activeFilters: activeFilters as Record<string, any> | null,
+        isFilterActive,
+        onAction: handleAssistantAction,
+    })
+
     const loadingMessages = useMemo(
         () =>
             isFilterActive || filterRunning
@@ -544,7 +637,7 @@ export default function StudyAnalyticsPage() {
                 downloadingId={downloadingReportId}
             />
 
-            <div ref={scrollContainerRef} className="flex-1 overflow-auto min-w-0">
+            <div ref={scrollContainerRef} className="@container/analytics flex-1 overflow-auto min-w-0">
                 <DashboardHeader />
 
                 {/* Header Section */}
@@ -561,16 +654,16 @@ export default function StudyAnalyticsPage() {
                             </span>
                         </nav>
 
-                        {/* Title and Actions */}
-                        <div className="flex flex-col gap-4 sm:gap-5 lg:flex-row lg:items-start lg:justify-between lg:gap-6">
-                            <h1 className="min-w-0 flex-1 text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold tracking-tight leading-snug break-words">
+                        {/* Title and Actions — stack until content is wide enough; never crush title beside a button row */}
+                        <div className="flex flex-col gap-4 @5xl/analytics:flex-row @5xl/analytics:items-start @5xl/analytics:justify-between @5xl/analytics:gap-6">
+                            <h1 className="w-full min-w-0 text-lg @md/analytics:text-xl @3xl/analytics:text-2xl @5xl/analytics:flex-1 @5xl/analytics:text-3xl font-bold tracking-tight leading-snug break-words">
                                 {pageTitle}
                             </h1>
-                            <div className="grid grid-cols-2 gap-2 sm:gap-3 w-full sm:flex sm:flex-wrap sm:items-center lg:justify-end lg:w-auto lg:max-w-2xl xl:max-w-none shrink-0">
+                            <div className="grid w-full grid-cols-2 gap-2 @5xl/analytics:flex @5xl/analytics:w-auto @5xl/analytics:max-w-none @5xl/analytics:flex-wrap @5xl/analytics:items-center @5xl/analytics:justify-end @5xl/analytics:gap-3">
                                 <button
                                     type="button"
                                     onClick={() => setSettingsOpen(true)}
-                                    className="cursor-pointer w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold shrink-0"
+                                    className="cursor-pointer flex w-full items-center justify-center gap-1.5 px-3 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs @md/analytics:text-sm font-semibold @5xl/analytics:w-auto @5xl/analytics:gap-2 @5xl/analytics:px-4"
                                     style={{ borderColor: 'rgba(255, 255, 255, 0.3)', color: '#FFFFFF' }}
                                 >
                                     <Settings2 className="w-4 h-4 shrink-0" />
@@ -584,7 +677,7 @@ export default function StudyAnalyticsPage() {
                                         setSaveReportError(null)
                                         setAdvancedFilterOpen(true)
                                     }}
-                                    className="cursor-pointer w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold shrink-0"
+                                    className="cursor-pointer flex w-full items-center justify-center gap-1.5 px-3 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs @md/analytics:text-sm font-semibold @5xl/analytics:w-auto @5xl/analytics:gap-2 @5xl/analytics:px-4"
                                     style={{ borderColor: 'rgba(255, 255, 255, 0.3)', color: '#FFFFFF' }}
                                 >
                                     <Filter className="w-4 h-4 shrink-0" />
@@ -593,7 +686,7 @@ export default function StudyAnalyticsPage() {
 
                                 <button
                                     onClick={() => router.push(studyHref)}
-                                    className="cursor-pointer w-full sm:w-auto flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs sm:text-sm font-semibold shrink-0"
+                                    className="cursor-pointer flex w-full items-center justify-center gap-1.5 px-3 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs @md/analytics:text-sm font-semibold @5xl/analytics:w-auto @5xl/analytics:gap-2 @5xl/analytics:px-4"
                                     style={{ borderColor: 'rgba(255, 255, 255, 0.3)', color: '#FFFFFF' }}
                                 >
                                     <ArrowLeft className="w-4 h-4 shrink-0" />
@@ -602,10 +695,10 @@ export default function StudyAnalyticsPage() {
 
                                 <div
                                     ref={exportMenuRef}
-                                    className="relative z-30 w-full sm:w-auto col-span-2 sm:col-span-1 overflow-visible"
+                                    className="relative z-30 col-span-2 w-full overflow-visible @5xl/analytics:col-span-1 @5xl/analytics:w-auto"
                                 >
                                     <div
-                                        className={`flex w-full sm:w-auto items-stretch overflow-hidden rounded-xl bg-white shadow-md ring-1 ring-white/30 transition-all duration-200 hover:shadow-lg ${
+                                        className={`flex w-full items-stretch overflow-hidden rounded-xl bg-white shadow-md ring-1 ring-white/30 transition-all duration-200 hover:shadow-lg ${
                                             exportMenuOpen ? "ring-2 ring-white/50 shadow-lg" : ""
                                         }`}
                                     >
@@ -613,7 +706,7 @@ export default function StudyAnalyticsPage() {
                                             type="button"
                                             onClick={() => void buildCsvAndDownload()}
                                             disabled={exporting || !study}
-                                            className="cursor-pointer min-w-0 flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 transition-all duration-200 active:scale-[0.98] font-bold text-xs sm:text-sm shrink-0 disabled:cursor-not-allowed disabled:opacity-70"
+                                            className="cursor-pointer flex min-w-0 flex-1 items-center justify-center gap-1.5 px-3 py-2.5 transition-all duration-200 active:scale-[0.98] font-bold text-xs @md/analytics:text-sm disabled:cursor-not-allowed disabled:opacity-70 @5xl/analytics:flex-none @5xl/analytics:gap-2 @5xl/analytics:px-4"
                                             style={{ color: '#2674BA' }}
                                         >
                                             {exporting ? (
@@ -705,7 +798,7 @@ export default function StudyAnalyticsPage() {
                     )}
 
                     {isFilterActive && activeFilters && !analysisLoading && (
-                        <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-xl border border-[#2674BA]/25 bg-[#2674BA]/5 px-4 py-3">
+                        <div className="mb-6 flex flex-col @3xl/analytics:flex-row @3xl/analytics:items-center @3xl/analytics:justify-between gap-3 rounded-xl border border-[#2674BA]/25 bg-[#2674BA]/5 px-4 py-3">
                             <div className="flex items-start gap-3 min-w-0">
                                 <div className="shrink-0 w-9 h-9 rounded-lg bg-[#2674BA]/15 flex items-center justify-center">
                                     <Filter className="w-4 h-4 text-[#2674BA]" />
@@ -889,6 +982,22 @@ export default function StudyAnalyticsPage() {
                     )}
                 </div>
             </div>
+
+            <AnalyticsAssistantPanel
+                open={assistant.open}
+                onOpenChange={assistant.setOpen}
+                messages={assistant.messages}
+                input={assistant.input}
+                setInput={assistant.setInput}
+                loading={assistant.loading}
+                error={assistant.error}
+                starters={assistant.starters}
+                studyType={studyType}
+                sendMessage={assistant.sendMessage}
+                retryLast={assistant.retryLast}
+                clearChat={assistant.clearChat}
+                runAction={assistant.runAction}
+            />
             </div>
 
             <AnalyticsSettingsModal

@@ -193,7 +193,7 @@ export function AnalyticsPersonaBlueprints({
               </div>
             </div>
 
-            <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <div className="p-6 grid grid-cols-1 @5xl/analytics:grid-cols-2 gap-8">
               <div className="space-y-4">
                 <div className="flex items-center gap-2">
                   <CheckCircle2 className="w-5 h-5 text-green-600" />

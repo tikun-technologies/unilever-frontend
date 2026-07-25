@@ -58,7 +58,7 @@ export function AnalyticsKPICards({ analysisData, rawDataOverride, studyType }: 
   ]
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div className="grid grid-cols-1 @3xl/analytics:grid-cols-2 @6xl/analytics:grid-cols-4 gap-4 mb-8">
       {cards.map((card, i) => (
         <motion.div
           key={card.title}
@@ -66,9 +66,9 @@ export function AnalyticsKPICards({ analysisData, rawDataOverride, studyType }: 
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, delay: i * 0.05 }}
           whileHover={{ y: -4, boxShadow: "0 12px 40px -12px rgba(0,0,0,0.15)" }}
-          className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden"
+          className="flex min-h-[7.5rem] flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm"
         >
-          <div className="p-5 flex items-start justify-between">
+          <div className="flex flex-1 items-start justify-between p-5">
             <div>
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">{card.title}</p>
               <p className="text-2xl font-bold text-gray-900 tabular-nums">
@@ -90,7 +90,7 @@ export function AnalyticsKPICards({ analysisData, rawDataOverride, studyType }: 
               <card.icon className="w-6 h-6" strokeWidth={2} />
             </div>
           </div>
-          <div className="h-1 w-full" style={{ backgroundColor: `${card.color}40` }} />
+          <div className="mt-auto h-1 w-full shrink-0" style={{ backgroundColor: `${card.color}40` }} />
         </motion.div>
       ))}
     </div>
