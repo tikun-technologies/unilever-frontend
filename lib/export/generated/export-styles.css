@@ -1598,9 +1598,6 @@
   .resize-none {
     resize: none;
   }
-  .resize-y {
-    resize: vertical;
-  }
   .scroll-my-1 {
     scroll-margin-block: var(--spacing);
   }
@@ -3131,6 +3128,9 @@
   }
   .pb-28 {
     padding-bottom: calc(var(--spacing) * 28);
+  }
+  .pb-\[max\(0\.75rem\,env\(safe-area-inset-bottom\)\)\] {
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
   }
   .pl-0 {
     padding-left: 0px;
@@ -4699,17 +4699,26 @@
     .max-lg\:fixed {
       position: fixed;
     }
-    .max-lg\:inset-y-0 {
-      inset-block: 0px;
+    .max-lg\:inset-x-0 {
+      inset-inline: 0px;
     }
     .max-lg\:right-0 {
       right: 0px;
+    }
+    .max-lg\:bottom-0 {
+      bottom: 0px;
     }
     .max-lg\:z-\[103\] {
       z-index: 103;
     }
     .max-lg\:hidden {
       display: none;
+    }
+    .max-lg\:h-\[100dvh\] {
+      height: 100dvh;
+    }
+    .max-lg\:max-h-\[100dvh\] {
+      max-height: 100dvh;
     }
     .max-lg\:w-full {
       width: 100%;
@@ -5530,6 +5539,9 @@
     .lg\:shrink-0 {
       flex-shrink: 0;
     }
+    .lg\:resize-y {
+      resize: vertical;
+    }
     .lg\:grid-cols-2 {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -5646,6 +5658,10 @@
     .lg\:text-lg {
       font-size: var(--text-lg);
       line-height: var(--tw-leading, var(--text-lg--line-height));
+    }
+    .lg\:text-sm {
+      font-size: var(--text-sm);
+      line-height: var(--tw-leading, var(--text-sm--line-height));
     }
     .lg\:text-\[11px\] {
       font-size: 11px;

@@ -17,6 +17,8 @@ interface AnalyticsSavedReportsSidebarProps {
 	loading?: boolean
 	applyingId?: string | null
 	downloadingId?: string | null
+	/** Hide the mobile menu launcher while the analytics assistant is open. */
+	assistantOpen?: boolean
 }
 
 export function AnalyticsSavedReportsSidebar({
@@ -29,6 +31,7 @@ export function AnalyticsSavedReportsSidebar({
 	loading = false,
 	applyingId = null,
 	downloadingId = null,
+	assistantOpen = false,
 }: AnalyticsSavedReportsSidebarProps) {
 	const [isCollapsed, setIsCollapsed] = useState(true)
 	const [isMobile, setIsMobile] = useState(false)
@@ -79,6 +82,12 @@ export function AnalyticsSavedReportsSidebar({
 		onSelectReport(report)
 		if (isMobile) setIsCollapsed(true)
 	}
+
+	useEffect(() => {
+		if (assistantOpen && isMobile) setIsCollapsed(true)
+	}, [assistantOpen, isMobile])
+
+	const showMobileMenuLauncher = isMobile && isCollapsed && !assistantOpen
 
 	const handleDownload = (event: React.MouseEvent<HTMLButtonElement>, report: SavedFilterReport) => {
 		event.stopPropagation()
@@ -317,7 +326,7 @@ export function AnalyticsSavedReportsSidebar({
 			</motion.aside>
 
 			<AnimatePresence>
-				{isMobile && isCollapsed && (
+				{showMobileMenuLauncher && (
 					<motion.button
 						initial={{ scale: 0, opacity: 0 }}
 						animate={{ scale: 1, opacity: 1 }}

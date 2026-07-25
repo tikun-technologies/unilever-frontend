@@ -635,6 +635,7 @@ export default function StudyAnalyticsPage() {
                 loading={savedReportsLoading}
                 applyingId={applyingReportId}
                 downloadingId={downloadingReportId}
+                assistantOpen={assistant.open}
             />
 
             <div ref={scrollContainerRef} className="@container/analytics flex-1 overflow-auto min-w-0">

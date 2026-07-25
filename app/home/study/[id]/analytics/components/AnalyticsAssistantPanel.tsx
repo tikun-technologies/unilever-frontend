@@ -39,6 +39,10 @@ function clampPanelWidth(width: number, viewportWidth = typeof window !== "undef
   return Math.max(MIN_PANEL_WIDTH, Math.min(max, Math.round(width)))
 }
 
+function isMobileAssistantLayout() {
+  return typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches
+}
+
 export function AnalyticsAssistantPanel({
   open,
   onOpenChange,
@@ -71,6 +75,7 @@ export function AnalyticsAssistantPanel({
   const listRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
+  const [mobileViewport, setMobileViewport] = useState<{ top: number; height: number } | null>(null)
 
   useEffect(() => {
     const saved = Number(window.localStorage.getItem(ASSISTANT_WIDTH_STORAGE_KEY))
@@ -87,20 +92,76 @@ export function AnalyticsAssistantPanel({
     return () => window.removeEventListener("resize", syncWidth)
   }, [])
 
+  // Mobile: track visual viewport so the composer stays above the software keyboard.
+  useEffect(() => {
+    if (!open || !isMobileAssistantLayout()) {
+      setMobileViewport(null)
+      return
+    }
+
+    const viewport = window.visualViewport
+    if (!viewport) return
+
+    const syncViewport = () => {
+      setMobileViewport({
+        top: viewport.offsetTop,
+        height: viewport.height,
+      })
+    }
+
+    syncViewport()
+    viewport.addEventListener("resize", syncViewport)
+    viewport.addEventListener("scroll", syncViewport)
+    return () => {
+      viewport.removeEventListener("resize", syncViewport)
+      viewport.removeEventListener("scroll", syncViewport)
+      setMobileViewport(null)
+    }
+  }, [open])
+
+  // Mobile: avoid background page scroll while the sheet is open.
+  useEffect(() => {
+    if (!open || !isMobileAssistantLayout()) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [open])
+
   useEffect(() => {
     if (!open) return
     const node = listRef.current
     if (node) node.scrollTop = node.scrollHeight
   }, [messages, open, loading])
 
+  // Desktop only — auto-focus on phones opens the keyboard and zooms the page.
   useEffect(() => {
-    if (open) inputRef.current?.focus()
+    if (!open || isMobileAssistantLayout()) return
+    inputRef.current?.focus()
   }, [open])
 
   const handleSubmit = () => {
     if (!input.trim() || loading) return
     void sendMessage(input)
   }
+
+  const scrollInputIntoView = () => {
+    if (!isMobileAssistantLayout()) return
+    window.requestAnimationFrame(() => {
+      inputRef.current?.scrollIntoView({ block: "end", behavior: "smooth" })
+      listRef.current && (listRef.current.scrollTop = listRef.current.scrollHeight)
+    })
+  }
+
+  const mobilePanelStyle: CSSProperties | undefined =
+    mobileViewport != null
+      ? {
+          top: mobileViewport.top,
+          height: mobileViewport.height,
+          bottom: "auto",
+        }
+      : undefined
 
   const beginResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
     event.preventDefault()
@@ -164,9 +225,14 @@ export function AnalyticsAssistantPanel({
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 40, opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 32 }}
-            className="relative flex h-full shrink-0 flex-col border-l border-gray-200 bg-white shadow-2xl max-lg:fixed max-lg:inset-y-0 max-lg:right-0 max-lg:z-[103] max-lg:w-full max-lg:max-w-none lg:z-[102] lg:w-[var(--assistant-panel-width)] lg:max-w-[40vw] lg:shadow-none"
+            className="relative flex h-full min-h-0 shrink-0 flex-col border-l border-gray-200 bg-white shadow-2xl max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:right-0 max-lg:z-[103] max-lg:h-[100dvh] max-lg:max-h-[100dvh] max-lg:w-full max-lg:max-w-none lg:z-[102] lg:w-[var(--assistant-panel-width)] lg:max-w-[40vw] lg:shadow-none"
             aria-label="Verified analytics assistant"
-            style={{ "--assistant-panel-width": `${panelWidth}px` } as CSSProperties}
+            style={
+              {
+                "--assistant-panel-width": `${panelWidth}px`,
+                ...mobilePanelStyle,
+              } as CSSProperties
+            }
           >
             <button
               type="button"
@@ -218,7 +284,7 @@ export function AnalyticsAssistantPanel({
               </div>
             </div>
 
-            <div ref={listRef} className="flex-1 space-y-3 overflow-y-auto px-3 py-3 sm:px-4">
+            <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4">
               {messages.length === 0 ? (
                 <div className="rounded-2xl border border-dashed border-[#2674BA]/25 bg-[#2674BA]/5 p-4">
                   <p className="text-sm font-bold text-[#2674BA]">Ask anything about this study</p>
@@ -380,12 +446,13 @@ export function AnalyticsAssistantPanel({
               </div>
             ) : null}
 
-            <div className="border-t border-gray-100 p-3 sm:p-4">
+            <div className="shrink-0 border-t border-gray-100 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4">
               <div className="rounded-2xl border border-gray-200 bg-white p-2 shadow-sm focus-within:ring-2 focus-within:ring-[#2674BA]/25">
                 <textarea
                   ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
+                  onFocus={scrollInputIntoView}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault()
@@ -394,8 +461,11 @@ export function AnalyticsAssistantPanel({
                   }}
                   rows={2}
                   placeholder="Ask about elements, designs, classification counts…"
-                  className="max-h-32 min-h-[56px] w-full resize-y bg-transparent px-2 py-1 text-sm text-gray-900 outline-none placeholder:text-gray-400"
+                  className="max-h-32 min-h-[56px] w-full resize-none bg-transparent px-2 py-1 text-base leading-snug text-gray-900 outline-none placeholder:text-gray-400 touch-manipulation lg:resize-y lg:text-sm"
                   disabled={loading}
+                  enterKeyHint="send"
+                  autoComplete="off"
+                  autoCorrect="off"
                 />
                 <div className="flex items-center justify-between gap-2 px-1 pb-1">
                   <p className="text-[10px] text-gray-400">Enter to send · Shift+Enter for newline</p>
