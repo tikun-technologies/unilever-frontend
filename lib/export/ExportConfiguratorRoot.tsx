@@ -3,6 +3,7 @@
 import { AnalyticsDesignConfigurator } from "@/app/home/study/[id]/analytics/components/AnalyticsDesignConfigurator"
 import type { LocalSavedDesignsStore } from "@/lib/export/savedDesignLocalStorage"
 import type { ApiDesignConstraint } from "@/lib/utils/designConstraintsStorage"
+import { BrandLogo } from "@/components/brand/BrandLogo"
 
 export interface ExportConfiguratorPayload {
   studyId: string
@@ -22,10 +23,7 @@ export function ExportConfiguratorRoot({ payload }: { payload: ExportConfigurato
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-[rgba(209,223,235,1)] bg-white">
         <div className="mx-auto flex h-16 max-w-7xl items-center px-4 sm:px-6 lg:px-8">
-          <div className="text-2xl font-bold">
-            <span className="text-[rgba(38,116,186,1)]">Mind</span>
-            <span className="text-gray-800">Surve</span>
-          </div>
+          <BrandLogo className="text-2xl" />
         </div>
       </header>
 

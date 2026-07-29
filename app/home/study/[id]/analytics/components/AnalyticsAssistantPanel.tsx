@@ -28,6 +28,9 @@ import type {
   AssistantQueryResponse,
   DesignRankItem,
 } from "@/lib/types/analyticsAssistant"
+import { getBrand } from "@/lib/config/brand"
+
+const brand = getBrand()
 
 const ASSISTANT_WIDTH_STORAGE_KEY = "analytics-assistant-width"
 const DEFAULT_PANEL_WIDTH = 420
@@ -334,7 +337,7 @@ export function AnalyticsAssistantPanel({
                     <MessageSquareText className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-gray-900">Mindsurve AI</p>
+                    <p className="truncate text-sm font-bold text-gray-900">{brand.aiName}</p>
                     <p className="truncate text-[11px] text-gray-500">
                       Private chat · {studyType || "study"}
                     </p>

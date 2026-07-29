@@ -7,6 +7,7 @@ import { getPublicProjectStudies, PublicProjectStudiesResponse } from "@/api/pro
 import { Activity, ArrowRight, Check, ChevronDown, Eye, FolderOpen, Plus, Search, X } from "lucide-react"
 import { setParticipateProjectReturnFromCurrentPage } from "@/lib/participate/projectReturnUrl"
 import { addPanelist, searchPanelists } from "@/lib/api/PanelistAPI"
+import { BrandLogo } from "@/components/brand/BrandLogo"
 
 export default function PublicProjectPage() {
   const params = useParams<{ projectId: string }>()
@@ -178,10 +179,7 @@ export default function PublicProjectPage() {
         <div className="max-w-7xl mx-auto flex items-center h-16">
           <Link href="/home" className="inline-flex items-center cursor-pointer">
             <div className="flex items-center">
-              <div className="text-2xl font-bold">
-                <span className="text-[rgba(38,116,186,1)]">Mind</span>
-                <span className="text-gray-800">Surve</span>
-              </div>
+              <BrandLogo className="text-2xl" />
             </div>
           </Link>
         </div>

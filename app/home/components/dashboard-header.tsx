@@ -15,6 +15,7 @@ import { requestRestartWalkthrough } from "@/components/onboarding/MindSurveOnbo
 import { prepareFreshCreateStudy, hasGeneratedTasks } from "@/lib/utils/createStudyStorage"
 import { JobNotificationBell } from "@/components/notifications/JobNotificationBell"
 import { fetchTemplatePermissions } from "@/lib/api/templateApi"
+import { BrandLogo } from "@/components/brand/BrandLogo"
 
 export function DashboardHeader() {
   const { user, logout } = useAuth()
@@ -170,9 +171,8 @@ export function DashboardHeader() {
 
           <Link href={homeHref} className="shrink-0">
             <div className="flex items-center">
-              <motion.div whileHover={{ scale: 1.05 }} className="text-lg sm:text-2xl font-bold whitespace-nowrap">
-                <span className="text-[rgba(38,116,186,1)]">Mind</span>
-                <span className="text-gray-800">Surve</span>
+              <motion.div whileHover={{ scale: 1.05 }} className="whitespace-nowrap">
+                <BrandLogo className="text-lg sm:text-2xl" />
               </motion.div>
             </div>
           </Link>

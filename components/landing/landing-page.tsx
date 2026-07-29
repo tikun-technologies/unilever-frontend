@@ -3,6 +3,8 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useState } from "react"
+import { BrandLogo } from "@/components/brand/BrandLogo"
+import { getBrandId } from "@/lib/config/brand"
 import {
   ArrowRight,
   BookOpen,
@@ -19,6 +21,7 @@ import {
 
 /** App theme blue (matches dashboard / participate headers) */
 const LOGIN_HREF = "/login"
+const brandId = getBrandId()
 
 function Logo() {
   return (
@@ -29,8 +32,7 @@ function Logo() {
     >
     
       <span className="text-xl font-bold tracking-tight sm:text-2xl">
-        <span className="text-[rgba(38,116,186,1)]">Mind</span>
-        <span className="text-gray-800">Surve</span>
+        <BrandLogo />
       </span>
     </button>
   )
@@ -340,9 +342,11 @@ export function LandingPage() {
         </div>
       </section>
 
-      <footer className="border-t border-gray-800 bg-[#1A1A1A] py-8 text-center">
-        <p className="text-sm text-gray-500">&copy; 2026 TikunTech. All Rights Reserved.</p>
-      </footer>
+      {brandId !== "mindsurf" && (
+        <footer className="border-t border-gray-800 bg-[#1A1A1A] py-8 text-center">
+          <p className="text-sm text-gray-500">&copy; 2026 TikunTech. All Rights Reserved.</p>
+        </footer>
+      )}
     </div>
   )
 }

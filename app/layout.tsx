@@ -2,6 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
+import { getBrand } from "@/lib/config/brand";
+
+const brand = getBrand();
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -14,8 +17,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mindsurve",
-  description: "Mindsurve",
+  title: brand.displayName,
+  description: brand.displayName,
 };
 
 export default function RootLayout({

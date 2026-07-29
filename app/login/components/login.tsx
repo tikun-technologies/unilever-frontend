@@ -9,6 +9,7 @@ import { Eye, EyeOff } from "lucide-react"
 import { login as loginApi, forgotPassword } from "@/lib/api/LoginApi"
 import { useAuth } from "@/lib/auth/AuthContext"
 import { signIn } from "next-auth/react"
+import { BrandLogo } from "@/components/brand/BrandLogo"
 
 interface LoginFormProps {
   onSwitchToRegister: () => void
@@ -146,7 +147,7 @@ export function LoginForm({ onSwitchToRegister }: LoginFormProps) {
           Secure Login
         </div>
         <h2 className="text-3xl font-bold text-gray-900">
-          Welcome to <span className="text-blue-600">Mindsurve</span>
+          Welcome to <BrandLogo className="inline text-3xl" />
         </h2>
         <p className="text-gray-500 text-sm mt-1">Sign in to your account to continue</p>
       </div>

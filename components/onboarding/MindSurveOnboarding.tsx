@@ -8,6 +8,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { useAuth } from "@/lib/auth/AuthContext"
 import { prepareFreshCreateStudy } from "@/lib/utils/createStudyStorage"
+import { BrandLogo } from "@/components/brand/BrandLogo"
 import {
   completeDashboardOnboarding,
   clearLegacyOnboardingPendingFlags,
@@ -342,10 +343,7 @@ export function MindSurveOnboarding({
 
               <div className="relative p-6 sm:p-8">
                 <h2 className="text-center text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-                  Welcome to{" "}
-                  <span className="text-[rgba(38,116,186,1)]">Mind</span>
-                  <span className="text-gray-800">Surve</span>{" "}
-                  👋
+                  Welcome to <BrandLogo className="inline text-2xl sm:text-3xl" /> 👋
                 </h2>
                 <p className="mt-4 text-center text-sm leading-6 text-slate-600">
                   Let&apos;s take a quick tour so you know where to create studies and organize them
