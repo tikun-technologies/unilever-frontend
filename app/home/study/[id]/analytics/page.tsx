@@ -419,6 +419,13 @@ export default function StudyAnalyticsPage() {
     }
 
     const [analyticsView, setAnalyticsView] = useState<"overview" | "configurator" | "detail">("overview")
+    const [pendingAssistantDesign, setPendingAssistantDesign] = useState<{
+        elements?: any[]
+        selected_by_category?: Record<string, string>
+        metric?: string | null
+        segment_label?: string | null
+        requestId?: string | number | null
+    } | null>(null)
     const [activeView, setActiveView] = useState("table")
 
     // Smooth scroll to top when switching tabs to prevent jarring layout shift.
@@ -447,6 +454,22 @@ export default function StudyAnalyticsPage() {
                 return
             }
             if (action.type === "open_configurator") {
+                const design = action.payload?.design
+                if (design) {
+                    setPendingAssistantDesign({
+                        elements: Array.isArray(design.elements) ? design.elements : [],
+                        selected_by_category: design.selected_by_category || {},
+                        metric:
+                            action.payload?.metric ||
+                            response?.applied_context?.metric ||
+                            null,
+                        segment_label:
+                            action.payload?.segment_label ||
+                            response?.applied_context?.segment_label ||
+                            null,
+                        requestId: `${Date.now()}-${design.fact_id || design.rank || "design"}`,
+                    })
+                }
                 setAnalyticsView("configurator")
                 return
             }
@@ -493,9 +516,13 @@ export default function StudyAnalyticsPage() {
                     })),
                     total_coefficient: design.score,
                     background_url:
-                        response?.blocks?.find((b) => b.type === "top_k_designs")?.data?.background_url ?? null,
+                        response?.blocks?.find((b) =>
+                          ["top_k_designs", "side_by_side_compare", "design_explanation"].includes(b.type)
+                        )?.data?.background_url ?? null,
                     aspect_ratio:
-                        response?.blocks?.find((b) => b.type === "top_k_designs")?.data?.aspect_ratio ?? null,
+                        response?.blocks?.find((b) =>
+                          ["top_k_designs", "side_by_side_compare", "design_explanation"].includes(b.type)
+                        )?.data?.aspect_ratio ?? null,
                     show_layer_background: true,
                 }
                 const name = `Assistant design #${design.rank} · ${new Date().toLocaleString()}`
@@ -973,6 +1000,8 @@ export default function StudyAnalyticsPage() {
                                     studyType={studyType}
                                     designConstraints={study?.design_constraints || []}
                                     studyLayers={study?.study_layers || []}
+                                    pendingAssistantDesign={pendingAssistantDesign}
+                                    onPendingAssistantDesignConsumed={() => setPendingAssistantDesign(null)}
                                     onExportHtml={() => void buildHtmlExport()}
                                     isExportingHtml={exportingHtml}
                                     exportHtmlStage={exportHtmlStage}
@@ -991,10 +1020,15 @@ export default function StudyAnalyticsPage() {
                 input={assistant.input}
                 setInput={assistant.setInput}
                 loading={assistant.loading}
+                historyLoading={assistant.historyLoading}
+                loadingOlder={assistant.loadingOlder}
+                hasMoreOlder={assistant.hasMoreOlder}
+                showWelcome={assistant.showWelcome}
                 error={assistant.error}
                 starters={assistant.starters}
                 studyType={studyType}
                 sendMessage={assistant.sendMessage}
+                loadOlderMessages={assistant.loadOlderMessages}
                 retryLast={assistant.retryLast}
                 clearChat={assistant.clearChat}
                 runAction={assistant.runAction}

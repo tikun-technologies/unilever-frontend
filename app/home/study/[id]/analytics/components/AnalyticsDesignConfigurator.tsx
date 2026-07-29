@@ -1736,6 +1736,90 @@ function SavedDesignCompareOverlay({
   )
 }
 
+export type AssistantPendingDesignSelection = {
+  elements?: Array<{
+    name?: string
+    category_name?: string
+    category_key?: string
+    element_id?: string
+    layer_id?: string | null
+    image_id?: string | null
+  }>
+  selected_by_category?: Record<string, string>
+  metric?: string | null
+  segment_label?: string | null
+  /** Changes every open so the same design can be re-applied. */
+  requestId?: string | number | null
+}
+
+function resolveMetricLabel(raw?: string | null): Metric | null {
+  const value = String(raw || "").trim().toLowerCase()
+  if (!value) return null
+  if (value === "t" || value.includes("top")) return "Top Down"
+  if (value === "b" || value.includes("bottom")) return "Bottom Up"
+  if (value === "r" || value.includes("response")) return "Response Time"
+  return null
+}
+
+function mapAssistantDesignToSelection(
+  categories: ConfiguratorCategory[],
+  design: AssistantPendingDesignSelection
+): Record<string, string> {
+  const mapped: Record<string, string> = {}
+  const elements = Array.isArray(design.elements) ? design.elements : []
+
+  for (const el of elements) {
+    const elName = normalizeText(el?.name)
+    const catName = normalizeText(el?.category_name)
+    const layerId = normalizeText(el?.layer_id)
+    const imageId = normalizeText(el?.image_id)
+
+    let category =
+      (layerId
+        ? categories.find((item) =>
+            item.elements.some((element) => normalizeText(element.layerId) === layerId)
+          )
+        : undefined) ||
+      (catName
+        ? categories.find((item) => normalizeText(item.name) === catName)
+        : undefined)
+    if (!category && catName) {
+      category = categories.find(
+        (item) =>
+          normalizeText(item.name).includes(catName) ||
+          catName.includes(normalizeText(item.name))
+      )
+    }
+    if (!category) continue
+
+    let element =
+      (imageId
+        ? category.elements.find((item) => normalizeText(item.imageId) === imageId)
+        : undefined) ||
+      (elName
+        ? category.elements.find((item) => normalizeText(item.name) === elName)
+        : undefined)
+
+    if (!element && elName) {
+      element = category.elements.find((item) => {
+        const name = normalizeText(item.name)
+        return name.includes(elName) || elName.includes(name)
+      })
+    }
+    if (!element && el?.element_id) {
+      const wanted = String(el.element_id)
+      element = category.elements.find(
+        (item) => item.id === wanted || item.id.endsWith(`::${elName}`)
+      )
+    }
+    if (element) {
+      mapped[category.key] = element.id
+    }
+  }
+
+  return mapped
+}
+
 interface AnalyticsDesignConfiguratorProps {
   analysisData: any
   studyId: string
@@ -1744,6 +1828,8 @@ interface AnalyticsDesignConfiguratorProps {
   studyLayers?: any[]
   persistence?: "api" | "local"
   initialSavedDesigns?: LocalSavedDesignsStore
+  pendingAssistantDesign?: AssistantPendingDesignSelection | null
+  onPendingAssistantDesignConsumed?: () => void
   onExportHtml?: () => void
   isExportingHtml?: boolean
   exportHtmlStage?: "preparing" | "embedding" | "generating" | "done"
@@ -1757,6 +1843,8 @@ export function AnalyticsDesignConfigurator({
   studyLayers = [],
   persistence = "api",
   initialSavedDesigns,
+  pendingAssistantDesign = null,
+  onPendingAssistantDesignConsumed,
   onExportHtml,
   isExportingHtml = false,
   exportHtmlStage = "preparing",
@@ -1791,6 +1879,9 @@ export function AnalyticsDesignConfigurator({
   const backgroundUrl = useMemo(() => getBackgroundUrl(analysisData || {}), [analysisData])
   const layerAspectRatio = useMemo(() => getLayerAspectRatio(analysisData || {}), [analysisData])
   const [selectedByCategory, setSelectedByCategory] = useState<Record<string, string>>({})
+  const [assistantLoadNotice, setAssistantLoadNotice] = useState<string | null>(null)
+  const [queuedAssistantDesign, setQueuedAssistantDesign] =
+    useState<AssistantPendingDesignSelection | null>(null)
   const [showLayerBackground, setShowLayerBackground] = useState(
     () => isLayerStudy && Boolean(getBackgroundUrl(analysisData || {}))
   )
@@ -1900,6 +1991,62 @@ export function AnalyticsDesignConfigurator({
       }, {})
     )
   }, [categories])
+
+  // Phase 1: accept pending design from assistant chat and sync metric/segment first.
+  useEffect(() => {
+    if (!pendingAssistantDesign) return
+    const nextMetric = resolveMetricLabel(pendingAssistantDesign.metric)
+    if (nextMetric && nextMetric !== activeMetric) {
+      setActiveMetric(nextMetric)
+    }
+    const segmentLabel = normalizeText(pendingAssistantDesign.segment_label)
+    if (segmentLabel && segmentOptions.length) {
+      const match = segmentOptions.find((segment) => {
+        const label = normalizeText(segment.label || segment.id)
+        return label === segmentLabel || label.includes(segmentLabel) || segmentLabel.includes(label)
+      })
+      if (match && match.id !== activeSegmentId) {
+        setActiveSegmentId(match.id)
+      }
+    }
+    setQueuedAssistantDesign(pendingAssistantDesign)
+    onPendingAssistantDesignConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingAssistantDesign?.requestId, pendingAssistantDesign])
+
+  // Phase 2: map assistant elements onto live configurator category/element keys.
+  useEffect(() => {
+    if (!queuedAssistantDesign || categories.length === 0) return
+    const mapped = mapAssistantDesignToSelection(categories, queuedAssistantDesign)
+    if (Object.keys(mapped).length === 0) {
+      setAssistantLoadNotice("Could not map that design onto this configurator. Try Best Mix, then re-open from chat.")
+      setQueuedAssistantDesign(null)
+      return
+    }
+    setSelectedByCategory(mapped)
+    setOpenCategoryNames((current) => {
+      const next = { ...current }
+      Object.keys(mapped).forEach((key) => {
+        next[key] = true
+      })
+      return next
+    })
+    setIsSelectionOpen(true)
+    setIsInputDesignMode(false)
+    if (isLayerStudy && backgroundUrl) setShowLayerBackground(true)
+    setAssistantLoadNotice(
+      `Loaded design from assistant · ${Object.keys(mapped).length} layer${
+        Object.keys(mapped).length === 1 ? "" : "s"
+      } selected`
+    )
+    setQueuedAssistantDesign(null)
+  }, [queuedAssistantDesign, categories, isLayerStudy, backgroundUrl])
+
+  useEffect(() => {
+    if (!assistantLoadNotice) return
+    const timer = window.setTimeout(() => setAssistantLoadNotice(null), 4500)
+    return () => window.clearTimeout(timer)
+  }, [assistantLoadNotice])
 
   const selectedElements = useMemo(
     () =>
@@ -2313,6 +2460,12 @@ export function AnalyticsDesignConfigurator({
           <p className="ml-4 text-sm text-gray-500">
             Combine winning {isLayerStudy ? "layer assets" : "elements"} and preview the total coefficient.
           </p>
+          {assistantLoadNotice ? (
+            <div className="ml-4 mt-3 inline-flex max-w-xl items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 shadow-sm">
+              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{assistantLoadNotice}</span>
+            </div>
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:pt-0.5">

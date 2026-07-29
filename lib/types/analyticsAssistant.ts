@@ -11,7 +11,9 @@ export type AssistantToolName =
   | "rank_elements"
   | "rank_designs"
   | "explain_design"
+  | "compare"
   | "compare_segments"
+  | "executive_summary"
   | "use_avoid_elements"
   | "response_time_summary"
   | "fatigue_summary"
@@ -19,6 +21,8 @@ export type AssistantToolName =
   | "list_saved_designs"
   | "clarify"
   | "unsupported"
+
+export type AssistantCompareMode = "segment" | "design" | "classification"
 
 export interface AssistantFollowUpContext {
   metric?: AssistantMetricCode | null
@@ -42,6 +46,8 @@ export interface AssistantQueryRequest {
   segment_key?: string | null
   follow_up?: AssistantFollowUpContext | null
   conversation_id?: string | null
+  /** Stable client UUID for optimistic UI + idempotent retries. */
+  client_message_id?: string | null
 }
 
 export interface EvidenceFact {
@@ -100,6 +106,9 @@ export interface AssistantQueryResponse {
   follow_up_context?: AssistantFollowUpContext | null
   usage?: Record<string, any>
   error?: string | null
+  user_message_id?: string | null
+  assistant_message_id?: string | null
+  conversation_id?: string | null
 }
 
 export interface AssistantChatMessage {
@@ -110,6 +119,43 @@ export interface AssistantChatMessage {
   response?: AssistantQueryResponse
   pending?: boolean
   error?: string | null
+  /** Stable client UUID used for send/retry reconciliation. */
+  clientMessageId?: string | null
+  /** Server-assigned UUID once persisted. */
+  serverId?: string | null
+  parentMessageId?: string | null
+  status?: "sending" | "sent" | "complete" | "error" | "failed"
+  /** Local-only synthetic welcome bubble (not persisted). */
+  localOnly?: boolean
+}
+
+export interface AssistantHistoryItem {
+  id: string
+  role: "user" | "assistant"
+  content: string
+  created_at: string
+  client_message_id?: string | null
+  parent_message_id?: string | null
+  status?: string
+  response?: AssistantQueryResponse | null
+}
+
+export interface AssistantHistoryMeta {
+  limit: number
+  has_more: boolean
+  next_cursor?: string | null
+  conversation_id?: string | null
+}
+
+export interface AssistantHistoryPage {
+  items: AssistantHistoryItem[]
+  meta: AssistantHistoryMeta
+  follow_up_context?: AssistantFollowUpContext | null
+}
+
+export interface AssistantClearHistoryResponse {
+  deleted: number
+  conversation_id?: string | null
 }
 
 export interface DesignElementSnapshot {

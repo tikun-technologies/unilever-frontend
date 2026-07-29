@@ -1,11 +1,13 @@
 "use client"
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
+  type UIEvent,
 } from "react"
 import { AnimatePresence, motion } from "framer-motion"
 import {
@@ -20,7 +22,12 @@ import {
   X,
 } from "lucide-react"
 import { AssistantAnswerCard } from "./assistant/AssistantAnswerCard"
-import type { AssistantAction, AssistantChatMessage, AssistantQueryResponse } from "@/lib/types/analyticsAssistant"
+import type {
+  AssistantAction,
+  AssistantChatMessage,
+  AssistantQueryResponse,
+  DesignRankItem,
+} from "@/lib/types/analyticsAssistant"
 
 const ASSISTANT_WIDTH_STORAGE_KEY = "analytics-assistant-width"
 const DEFAULT_PANEL_WIDTH = 420
@@ -29,6 +36,8 @@ const MIN_PANEL_WIDTH = 320
 const MIN_MAIN_CONTENT_WIDTH = 280
 /** Hard cap: assistant panel may not exceed 40% of the viewport. */
 const MAX_PANEL_WIDTH_RATIO = 0.4
+const NEAR_BOTTOM_PX = 80
+const LOAD_OLDER_TOP_PX = 72
 
 function clampPanelWidth(width: number, viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1280) {
   const maxByRatio = Math.floor(viewportWidth * MAX_PANEL_WIDTH_RATIO)
@@ -50,10 +59,15 @@ export function AnalyticsAssistantPanel({
   input,
   setInput,
   loading,
+  historyLoading = false,
+  loadingOlder = false,
+  hasMoreOlder = false,
+  showWelcome = false,
   error,
   starters,
   studyType,
   sendMessage,
+  loadOlderMessages,
   retryLast,
   clearChat,
   runAction,
@@ -64,18 +78,26 @@ export function AnalyticsAssistantPanel({
   input: string
   setInput: (value: string) => void
   loading: boolean
+  historyLoading?: boolean
+  loadingOlder?: boolean
+  hasMoreOlder?: boolean
+  showWelcome?: boolean
   error: string | null
   starters: string[]
   studyType?: string
   sendMessage: (message: string) => void | Promise<void>
+  loadOlderMessages?: () => Promise<boolean> | boolean | void
   retryLast: () => void
-  clearChat: () => void
+  clearChat: () => void | Promise<void>
   runAction: (action: AssistantAction, response?: AssistantQueryResponse) => void | Promise<void>
 }) {
   const listRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
+  const stickToBottomRef = useRef(true)
+  const pendingPrependAdjustRef = useRef<{ prevHeight: number; prevTop: number } | null>(null)
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH)
   const [mobileViewport, setMobileViewport] = useState<{ top: number; height: number } | null>(null)
+  const [confirmClear, setConfirmClear] = useState(false)
 
   useEffect(() => {
     const saved = Number(window.localStorage.getItem(ASSISTANT_WIDTH_STORAGE_KEY))
@@ -129,11 +151,26 @@ export function AnalyticsAssistantPanel({
     }
   }, [open])
 
+  // Preserve scroll anchor after older messages are prepended.
+  useEffect(() => {
+    const node = listRef.current
+    const pending = pendingPrependAdjustRef.current
+    if (!node || !pending) return
+    const delta = node.scrollHeight - pending.prevHeight
+    node.scrollTop = pending.prevTop + delta
+    pendingPrependAdjustRef.current = null
+  }, [messages])
+
+  // Auto-scroll only when the user is already near the bottom (or sending).
   useEffect(() => {
     if (!open) return
     const node = listRef.current
-    if (node) node.scrollTop = node.scrollHeight
-  }, [messages, open, loading])
+    if (!node) return
+    if (pendingPrependAdjustRef.current) return
+    if (stickToBottomRef.current) {
+      node.scrollTop = node.scrollHeight
+    }
+  }, [messages, open, loading, historyLoading])
 
   // Desktop only — auto-focus on phones opens the keyboard and zooms the page.
   useEffect(() => {
@@ -141,8 +178,13 @@ export function AnalyticsAssistantPanel({
     inputRef.current?.focus()
   }, [open])
 
+  useEffect(() => {
+    if (!open) setConfirmClear(false)
+  }, [open])
+
   const handleSubmit = () => {
     if (!input.trim() || loading) return
+    stickToBottomRef.current = true
     void sendMessage(input)
   }
 
@@ -150,8 +192,33 @@ export function AnalyticsAssistantPanel({
     if (!isMobileAssistantLayout()) return
     window.requestAnimationFrame(() => {
       inputRef.current?.scrollIntoView({ block: "end", behavior: "smooth" })
-      listRef.current && (listRef.current.scrollTop = listRef.current.scrollHeight)
+      if (listRef.current && stickToBottomRef.current) {
+        listRef.current.scrollTop = listRef.current.scrollHeight
+      }
     })
+  }
+
+  const maybeLoadOlder = useCallback(async () => {
+    if (!loadOlderMessages || !hasMoreOlder || loadingOlder || historyLoading) return
+    const node = listRef.current
+    if (!node) return
+    pendingPrependAdjustRef.current = {
+      prevHeight: node.scrollHeight,
+      prevTop: node.scrollTop,
+    }
+    const loaded = await loadOlderMessages()
+    if (!loaded) {
+      pendingPrependAdjustRef.current = null
+    }
+  }, [loadOlderMessages, hasMoreOlder, loadingOlder, historyLoading])
+
+  const onListScroll = (event: UIEvent<HTMLDivElement>) => {
+    const node = event.currentTarget
+    const distanceFromBottom = node.scrollHeight - node.scrollTop - node.clientHeight
+    stickToBottomRef.current = distanceFromBottom < NEAR_BOTTOM_PX
+    if (node.scrollTop <= LOAD_OLDER_TOP_PX) {
+      void maybeLoadOlder()
+    }
   }
 
   const mobilePanelStyle: CSSProperties | undefined =
@@ -188,6 +255,16 @@ export function AnalyticsAssistantPanel({
     document.addEventListener("pointerup", stop)
   }
 
+  const handleClear = () => {
+    if (!confirmClear) {
+      setConfirmClear(true)
+      return
+    }
+    setConfirmClear(false)
+    stickToBottomRef.current = true
+    void clearChat()
+  }
+
   return (
     <>
       {/* Floating launcher — always visible, responsive */}
@@ -195,7 +272,7 @@ export function AnalyticsAssistantPanel({
         <button
           type="button"
           onClick={() => onOpenChange(true)}
-          className="fixed bottom-4 right-4 z-[102] inline-flex items-center gap-2 rounded-full bg-[#2674BA] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-[#2674BA]/30 transition hover:bg-[#1f5f99] active:scale-95 sm:bottom-6 sm:right-6"
+          className="fixed bottom-4 right-4 z-[102] inline-flex items-center gap-2 rounded-full bg-[#2674BA] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-[#2674BA]/30 transition hover:bg-[#2674BA]/90 active:scale-95 sm:bottom-6 sm:right-6"
           aria-label="Open analytics assistant"
         >
           <Sparkles className="h-4 w-4" />
@@ -257,9 +334,9 @@ export function AnalyticsAssistantPanel({
                     <MessageSquareText className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold text-gray-900">Analytics Copilot</p>
+                    <p className="truncate text-sm font-bold text-gray-900">Mindsurve AI</p>
                     <p className="truncate text-[11px] text-gray-500">
-                      Verified study intelligence · {studyType || "study"}
+                      Private chat · {studyType || "study"}
                     </p>
                   </div>
                 </div>
@@ -267,9 +344,11 @@ export function AnalyticsAssistantPanel({
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={clearChat}
-                  className="rounded-lg p-2 text-gray-500 hover:bg-gray-100"
-                  title="Clear chat"
+                  onClick={handleClear}
+                  className={`rounded-lg p-2 hover:bg-gray-100 ${
+                    confirmClear ? "bg-rose-50 text-rose-600" : "text-gray-500"
+                  }`}
+                  title={confirmClear ? "Click again to clear your chat" : "Clear chat"}
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -284,20 +363,87 @@ export function AnalyticsAssistantPanel({
               </div>
             </div>
 
-            <div ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4">
-              {messages.length === 0 ? (
+            {confirmClear ? (
+              <div className="flex items-center justify-between gap-2 border-b border-rose-100 bg-rose-50 px-4 py-2 text-[11px] text-rose-700">
+                <span>Clear only your chat for this study?</span>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmClear(false)}
+                    className="rounded-md bg-white px-2 py-1 font-semibold ring-1 ring-rose-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleClear}
+                    className="rounded-md bg-rose-600 px-2 py-1 font-semibold text-white"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            <div
+              ref={listRef}
+              onScroll={onListScroll}
+              className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4"
+            >
+              {historyLoading ? (
+                <div className="space-y-3">
+                  {[0, 1, 2].map((idx) => (
+                    <div
+                      key={idx}
+                      className={`h-16 animate-pulse rounded-2xl ${
+                        idx % 2 === 0 ? "ml-8 bg-gray-100" : "mr-8 bg-[#2674BA]/10"
+                      }`}
+                    />
+                  ))}
+                </div>
+              ) : null}
+
+              {!historyLoading && hasMoreOlder ? (
+                <div className="flex justify-center py-1">
+                  {loadingOlder ? (
+                    <span className="inline-flex items-center gap-1.5 text-[11px] text-gray-500">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Loading earlier messages…
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void maybeLoadOlder()}
+                      className="rounded-full bg-white px-3 py-1 text-[11px] font-semibold text-[#2674BA] ring-1 ring-[#2674BA]/20 hover:bg-[#2674BA]/5"
+                    >
+                      Load earlier messages
+                    </button>
+                  )}
+                </div>
+              ) : null}
+
+              {!historyLoading && !hasMoreOlder && messages.length > 0 ? (
+                <p className="py-1 text-center text-[10px] font-medium uppercase tracking-wide text-gray-400">
+                  Beginning of conversation
+                </p>
+              ) : null}
+
+              {showWelcome || (!historyLoading && messages.length === 0) ? (
                 <div className="rounded-2xl border border-dashed border-[#2674BA]/25 bg-[#2674BA]/5 p-4">
                   <p className="text-sm font-bold text-[#2674BA]">Ask anything about this study</p>
                   <p className="mt-1 text-xs text-gray-600">
-                    I compute rankings, designs, and counts from your analysis. Ambiguous questions get
-                    clarification — never guessed numbers.
+                    Your chat is private to you. Rankings, designs, and counts come from verified
+                    analysis — ambiguous questions get clarification, never guessed numbers.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {starters.map((prompt) => (
                       <button
                         key={prompt}
                         type="button"
-                        onClick={() => void sendMessage(prompt)}
+                        onClick={() => {
+                          stickToBottomRef.current = true
+                          void sendMessage(prompt)
+                        }}
                         className="rounded-full border border-[#2674BA]/20 bg-white px-3 py-1.5 text-left text-[11px] font-semibold text-[#2674BA] hover:bg-[#2674BA]/5"
                       >
                         {prompt}
@@ -320,6 +466,10 @@ export function AnalyticsAssistantPanel({
                     }`}
                   >
                     <p className="whitespace-pre-wrap break-words leading-relaxed">{message.text}</p>
+
+                    {message.status === "sending" && message.role === "user" ? (
+                      <div className="mt-1 text-[10px] text-white/70">Sending…</div>
+                    ) : null}
 
                     {message.pending ? (
                       <div className="mt-2 inline-flex items-center gap-2 text-xs text-gray-500">
@@ -362,7 +512,35 @@ export function AnalyticsAssistantPanel({
                         </div>
 
                         {(message.response.blocks || []).map((block, idx) => (
-                          <AssistantAnswerCard key={`${message.id}-block-${idx}`} block={block} />
+                          <AssistantAnswerCard
+                            key={`${message.id}-block-${idx}`}
+                            block={block}
+                            onOpenInConfigurator={(design: DesignRankItem, meta) => {
+                              void runAction(
+                                {
+                                  type: "open_configurator",
+                                  label: "Open in Design Configurator",
+                                  payload: {
+                                    view: "configurator",
+                                    design,
+                                    metric:
+                                      meta?.metric ||
+                                      message.response?.applied_context?.metric ||
+                                      null,
+                                    segment_label:
+                                      message.response?.applied_context?.segment_label || null,
+                                    background_url: meta?.background_url,
+                                    aspect_ratio: meta?.aspect_ratio,
+                                  },
+                                },
+                                message.response
+                              )
+                              // Close mobile fullscreen assistant so the configurator is visible.
+                              if (isMobileAssistantLayout()) {
+                                onOpenChange(false)
+                              }
+                            }}
+                          />
                         ))}
 
                         {message.response.status === "needs_clarification" &&
@@ -372,7 +550,10 @@ export function AnalyticsAssistantPanel({
                               <button
                                 key={option}
                                 type="button"
-                                onClick={() => void sendMessage(option)}
+                                onClick={() => {
+                                  stickToBottomRef.current = true
+                                  void sendMessage(option)
+                                }}
                                 className="rounded-full bg-white px-3 py-1.5 text-[11px] font-semibold text-[#2674BA] ring-1 ring-[#2674BA]/25 hover:bg-[#2674BA]/5"
                               >
                                 {option}
@@ -383,16 +564,23 @@ export function AnalyticsAssistantPanel({
 
                         {message.response.actions?.length ? (
                           <div className="flex flex-wrap gap-2">
-                            {message.response.actions.map((action, idx) => (
-                              <button
-                                key={`${action.type}-${idx}`}
-                                type="button"
-                                onClick={() => void runAction(action, message.response)}
-                                className="rounded-lg bg-[#2674BA] px-3 py-1.5 text-[11px] font-bold text-white hover:bg-[#1f5f99]"
-                              >
-                                {action.label}
-                              </button>
-                            ))}
+                            {message.response.actions.map((action, idx) => {
+                              const isFilter = action.type === "apply_filter"
+                              return (
+                                <button
+                                  key={`${action.type}-${idx}`}
+                                  type="button"
+                                  onClick={() => void runAction(action, message.response)}
+                                  className={
+                                    isFilter
+                                      ? "rounded-lg bg-emerald-600 px-3 py-1.5 text-[11px] font-bold text-white hover:bg-emerald-700"
+                                      : "rounded-lg bg-[#2674BA] px-3 py-1.5 text-[11px] font-bold text-white hover:bg-[#1f5f99]"
+                                  }
+                                >
+                                  {action.label}
+                                </button>
+                              )
+                            })}
                           </div>
                         ) : null}
 
@@ -402,7 +590,10 @@ export function AnalyticsAssistantPanel({
                               <button
                                 key={followUp}
                                 type="button"
-                                onClick={() => void sendMessage(followUp)}
+                                onClick={() => {
+                                  stickToBottomRef.current = true
+                                  void sendMessage(followUp)
+                                }}
                                 className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-gray-600 ring-1 ring-gray-200 hover:bg-gray-50"
                               >
                                 {followUp}

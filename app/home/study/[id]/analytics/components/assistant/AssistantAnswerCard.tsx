@@ -13,9 +13,11 @@ import {
   YAxis,
 } from "recharts"
 import { useState } from "react"
-import { Download, Expand, Loader2, X } from "lucide-react"
+import { Download, Expand, LayoutTemplate, Loader2, X } from "lucide-react"
 import { ProgressiveImage } from "@/components/shared/ProgressiveImage"
 import { DesignPreviewComposite } from "./DesignPreviewComposite"
+import { ExecutiveSummaryCard } from "./ExecutiveSummaryCard"
+import { SideBySideCompareCard } from "./SideBySideCompareCard"
 import type { AssistantBlock, DesignRankItem } from "@/lib/types/analyticsAssistant"
 import {
   getConfiguratorExportProxyUrl,
@@ -323,7 +325,15 @@ function ClassificationCard({ title, data }: { title?: string | null; data: any 
   )
 }
 
-function DesignsCard({ title, data }: { title?: string | null; data: any }) {
+function DesignsCard({
+  title,
+  data,
+  onOpenInConfigurator,
+}: {
+  title?: string | null
+  data: any
+  onOpenInConfigurator?: (design: DesignRankItem, meta?: Record<string, any>) => void
+}) {
   const designs = (Array.isArray(data?.designs) ? data.designs : []) as DesignRankItem[]
   const studyType = data?.study_type || "grid"
   const [previewDesign, setPreviewDesign] = useState<DesignRankItem | null>(null)
@@ -406,6 +416,22 @@ function DesignsCard({ title, data }: { title?: string | null; data: any }) {
             <p className="mt-2 line-clamp-2 text-[11px] text-gray-600">
               {(design.elements || []).map((el) => el.name).join(" · ")}
             </p>
+            {onOpenInConfigurator ? (
+              <button
+                type="button"
+                onClick={() =>
+                  onOpenInConfigurator(design, {
+                    metric: data?.metric,
+                    background_url: data?.background_url,
+                    aspect_ratio: data?.aspect_ratio,
+                  })
+                }
+                className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#2674BA] px-3 py-2 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#1f5f99]"
+              >
+                <LayoutTemplate className="h-3.5 w-3.5" />
+                Open in Design Configurator
+              </button>
+            ) : null}
           </div>
         ))}
       </div>
@@ -468,7 +494,15 @@ function DesignsCard({ title, data }: { title?: string | null; data: any }) {
   )
 }
 
-function DesignExplanationCard({ title, data }: { title?: string | null; data: any }) {
+function DesignExplanationCard({
+  title,
+  data,
+  onOpenInConfigurator,
+}: {
+  title?: string | null
+  data: any
+  onOpenInConfigurator?: (design: DesignRankItem, meta?: Record<string, any>) => void
+}) {
   const best = data?.best as DesignRankItem | undefined
   const runnerUp = data?.runner_up as DesignRankItem | undefined
   const contributions = Array.isArray(data?.contributions) ? data.contributions : []
@@ -487,6 +521,22 @@ function DesignExplanationCard({ title, data }: { title?: string | null; data: a
           compact
         />
       </div>
+      {onOpenInConfigurator ? (
+        <button
+          type="button"
+          onClick={() =>
+            onOpenInConfigurator(best, {
+              metric: data?.metric,
+              background_url: data?.background_url,
+              aspect_ratio: data?.aspect_ratio,
+            })
+          }
+          className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#2674BA] px-3 py-2 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#1f5f99]"
+        >
+          <LayoutTemplate className="h-3.5 w-3.5" />
+          Open in Design Configurator
+        </button>
+      ) : null}
       <div className="mt-3 grid grid-cols-2 gap-2">
         <div className="rounded-lg bg-[#2674BA]/5 px-2.5 py-2">
           <p className="text-[10px] font-semibold uppercase text-[#2674BA]">Best score</p>
@@ -563,7 +613,13 @@ function UseAvoidCard({ title, data }: { title?: string | null; data: any }) {
   )
 }
 
-export function AssistantAnswerCard({ block }: { block: AssistantBlock }) {
+export function AssistantAnswerCard({
+  block,
+  onOpenInConfigurator,
+}: {
+  block: AssistantBlock
+  onOpenInConfigurator?: (design: DesignRankItem, meta?: Record<string, any>) => void
+}) {
   const type = block.type
   const title = block.title
   const data = block.data || {}
@@ -572,8 +628,20 @@ export function AssistantAnswerCard({ block }: { block: AssistantBlock }) {
   if (type === "chart") return <ChartCard title={title} data={data} />
   if (type === "top_bottom_elements") return <ElementsCard title={title} data={data} />
   if (type === "classification_distribution") return <ClassificationCard title={title} data={data} />
-  if (type === "top_k_designs") return <DesignsCard title={title} data={data} />
-  if (type === "design_explanation") return <DesignExplanationCard title={title} data={data} />
+  if (type === "top_k_designs") {
+    return <DesignsCard title={title} data={data} onOpenInConfigurator={onOpenInConfigurator} />
+  }
+  if (type === "design_explanation") {
+    return (
+      <DesignExplanationCard title={title} data={data} onOpenInConfigurator={onOpenInConfigurator} />
+    )
+  }
+  if (type === "side_by_side_compare") {
+    return (
+      <SideBySideCompareCard title={title} data={data} onOpenInConfigurator={onOpenInConfigurator} />
+    )
+  }
+  if (type === "executive_summary") return <ExecutiveSummaryCard title={title} data={data} />
   if (type === "use_avoid") return <UseAvoidCard title={title} data={data} />
   if (type === "segment_comparison") {
     return (

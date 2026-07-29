@@ -26,6 +26,7 @@ export function DesignPreviewComposite({
   aspectRatio,
   className = "",
   compact = false,
+  mini = false,
   fullscreen = false,
 }: {
   studyType: string
@@ -34,6 +35,8 @@ export function DesignPreviewComposite({
   aspectRatio?: string | null
   className?: string
   compact?: boolean
+  /** Extra-small preview for side-by-side compare columns in the chat panel. */
+  mini?: boolean
   fullscreen?: boolean
 }) {
   const isLayer = (studyType || "").toLowerCase() === "layer"
@@ -45,13 +48,19 @@ export function DesignPreviewComposite({
   // forces scrolling on phones. Cap height and let width follow aspect ratio.
   const frameClass = fullscreen
     ? `relative mx-auto w-full max-w-[min(90vw,420px)] overflow-hidden rounded-xl border border-gray-200 bg-slate-50 ${aspectClass} max-h-[min(72vh,560px)]`
-    : compact
+    : mini
       ? aspect === "landscape"
-        ? `relative mx-auto h-[140px] w-auto max-w-full overflow-hidden rounded-xl border border-gray-200 bg-slate-50 ${aspectClass}`
+        ? `relative mx-auto h-[88px] w-auto max-w-full overflow-hidden rounded-lg border border-gray-200 bg-slate-50 ${aspectClass}`
         : aspect === "square"
-          ? `relative mx-auto h-[168px] w-[168px] max-w-full overflow-hidden rounded-xl border border-gray-200 bg-slate-50 ${aspectClass}`
-          : `relative mx-auto h-[220px] w-auto max-w-[min(100%,148px)] overflow-hidden rounded-xl border border-gray-200 bg-slate-50 ${aspectClass}`
-      : `relative mx-auto w-full max-w-[220px] overflow-hidden rounded-xl border border-gray-200 bg-slate-50 ${aspectClass}`
+          ? `relative mx-auto h-[112px] w-[112px] max-w-full overflow-hidden rounded-lg border border-gray-200 bg-slate-50 ${aspectClass}`
+          : `relative mx-auto h-[148px] w-auto max-w-[min(100%,96px)] overflow-hidden rounded-lg border border-gray-200 bg-slate-50 ${aspectClass}`
+      : compact
+        ? aspect === "landscape"
+          ? `relative mx-auto h-[140px] w-auto max-w-full overflow-hidden rounded-xl border border-gray-200 bg-slate-50 ${aspectClass}`
+          : aspect === "square"
+            ? `relative mx-auto h-[168px] w-[168px] max-w-full overflow-hidden rounded-xl border border-gray-200 bg-slate-50 ${aspectClass}`
+            : `relative mx-auto h-[220px] w-auto max-w-[min(100%,148px)] overflow-hidden rounded-xl border border-gray-200 bg-slate-50 ${aspectClass}`
+        : `relative mx-auto w-full max-w-[220px] overflow-hidden rounded-xl border border-gray-200 bg-slate-50 ${aspectClass}`
 
   const sorted = useMemo(
     () =>

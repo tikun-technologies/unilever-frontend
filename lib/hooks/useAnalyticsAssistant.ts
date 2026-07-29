@@ -2,13 +2,20 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { useCallback, useEffect, useRef, useState } from "react"
-import { postAnalyticsAssistantQuery } from "@/lib/api/AnalyticsAssistantAPI"
+import {
+  clearAnalyticsAssistantHistory,
+  getAnalyticsAssistantHistory,
+  postAnalyticsAssistantQuery,
+} from "@/lib/api/AnalyticsAssistantAPI"
 import type {
   AssistantAction,
   AssistantChatMessage,
   AssistantFollowUpContext,
+  AssistantHistoryItem,
   AssistantQueryResponse,
 } from "@/lib/types/analyticsAssistant"
+
+const HISTORY_PAGE_SIZE = 20
 
 function newId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID()
@@ -17,13 +24,14 @@ function newId() {
 
 const STARTER_PROMPTS = [
   "Show study overview",
+  "Give me the 5 most important findings from this study",
+  "Compare Male vs Female",
+  "Compare best vs worst design",
   "Show the best design overall",
-  "Show the best elements overall",
   "Why is the best design better?",
+  "Design #1 vs Design #2",
   "How many answered each classification question?",
   "What should we use or avoid?",
-  "Explain Mindset 1",
-  "Show response time summary",
 ]
 
 function welcomeMessage(): AssistantChatMessage {
@@ -32,7 +40,67 @@ function welcomeMessage(): AssistantChatMessage {
     role: "assistant",
     text: "Welcome! Ask me anything about this study’s analytics, designs, elements, segments, or responses.",
     createdAt: new Date().toISOString(),
+    localOnly: true,
+    status: "complete",
   }
+}
+
+function historyItemToChatMessage(item: AssistantHistoryItem): AssistantChatMessage {
+  return {
+    id: item.id,
+    serverId: item.id,
+    role: item.role,
+    text: item.content,
+    createdAt: item.created_at,
+    clientMessageId: item.client_message_id || null,
+    parentMessageId: item.parent_message_id || null,
+    status: (item.status as AssistantChatMessage["status"]) || "complete",
+    response: item.response || undefined,
+    pending: false,
+    error: item.response?.error || null,
+  }
+}
+
+function mergeById(
+  existing: AssistantChatMessage[],
+  incoming: AssistantChatMessage[],
+  mode: "prepend" | "replace" | "append"
+): AssistantChatMessage[] {
+  const seen = new Set<string>()
+  const out: AssistantChatMessage[] = []
+
+  const push = (msg: AssistantChatMessage) => {
+    const key = msg.serverId || msg.id
+    if (seen.has(key)) return
+    // Also skip if clientMessageId already present (optimistic vs server).
+    if (msg.clientMessageId) {
+      const dup = out.find(
+        (m) => m.clientMessageId && m.clientMessageId === msg.clientMessageId && m.role === msg.role
+      )
+      if (dup) {
+        // Prefer server-backed version.
+        if (msg.serverId && !dup.serverId) {
+          Object.assign(dup, msg)
+        }
+        return
+      }
+    }
+    seen.add(key)
+    out.push(msg)
+  }
+
+  if (mode === "replace") {
+    incoming.forEach(push)
+    return out
+  }
+  if (mode === "prepend") {
+    incoming.forEach(push)
+    existing.forEach(push)
+    return out
+  }
+  existing.forEach(push)
+  incoming.forEach(push)
+  return out
 }
 
 export function useAnalyticsAssistant(options: {
@@ -50,24 +118,128 @@ export function useAnalyticsAssistant(options: {
   } = options
 
   const [open, setOpen] = useState(false)
-  const [messages, setMessages] = useState<AssistantChatMessage[]>(() => [welcomeMessage()])
+  const [messages, setMessages] = useState<AssistantChatMessage[]>([])
   const [input, setInput] = useState("")
   const [loading, setLoading] = useState(false)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [historyLoaded, setHistoryLoaded] = useState(false)
+  const [hasMoreOlder, setHasMoreOlder] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [followUp, setFollowUp] = useState<AssistantFollowUpContext | null>(null)
   const abortRef = useRef<AbortController | null>(null)
-  const conversationIdRef = useRef<string>(newId())
+  const historyAbortRef = useRef<AbortController | null>(null)
+  const conversationIdRef = useRef<string | null>(null)
+  const nextCursorRef = useRef<string | null>(null)
+  const loadingOlderRef = useRef(false)
+  const historyLoadedForStudyRef = useRef<string | null>(null)
+
+  const starters = STARTER_PROMPTS
+  const showWelcome = historyLoaded && messages.length === 0
+
+  // Reset when study changes.
+  useEffect(() => {
+    abortRef.current?.abort()
+    historyAbortRef.current?.abort()
+    setMessages([])
+    setFollowUp(null)
+    setError(null)
+    setHistoryLoaded(false)
+    setHasMoreOlder(false)
+    setHistoryLoading(false)
+    setLoadingOlder(false)
+    nextCursorRef.current = null
+    conversationIdRef.current = null
+    historyLoadedForStudyRef.current = null
+    loadingOlderRef.current = false
+  }, [studyId])
+
+  const loadLatestHistory = useCallback(async () => {
+    if (!studyId) return
+    if (historyLoadedForStudyRef.current === studyId) return
+
+    historyAbortRef.current?.abort()
+    const controller = new AbortController()
+    historyAbortRef.current = controller
+    setHistoryLoading(true)
+    setError(null)
+
+    try {
+      const page = await getAnalyticsAssistantHistory(studyId, {
+        limit: HISTORY_PAGE_SIZE,
+        signal: controller.signal,
+      })
+      if (controller.signal.aborted) return
+
+      const mapped = (page.items || []).map(historyItemToChatMessage)
+      setMessages(mapped)
+      setHasMoreOlder(Boolean(page.meta?.has_more))
+      nextCursorRef.current = page.meta?.next_cursor || null
+      conversationIdRef.current = page.meta?.conversation_id || null
+      if (page.follow_up_context) {
+        setFollowUp(page.follow_up_context)
+      } else {
+        setFollowUp(null)
+      }
+      historyLoadedForStudyRef.current = studyId
+      setHistoryLoaded(true)
+    } catch (e: any) {
+      if (e?.name === "AbortError") return
+      setError(e?.message || "Failed to load chat history")
+      setMessages([])
+      setHistoryLoaded(true)
+      historyLoadedForStudyRef.current = studyId
+    } finally {
+      setHistoryLoading(false)
+    }
+  }, [studyId])
+
+  // Load latest page when the panel opens (not on every analytics page mount).
+  useEffect(() => {
+    if (!open || !studyId) return
+    void loadLatestHistory()
+  }, [open, studyId, loadLatestHistory])
 
   useEffect(() => {
     return () => {
       abortRef.current?.abort()
+      historyAbortRef.current?.abort()
     }
   }, [])
 
-  const starters = STARTER_PROMPTS
+  const loadOlderMessages = useCallback(async () => {
+    if (!studyId || !hasMoreOlder || loadingOlderRef.current) return false
+    const cursor = nextCursorRef.current
+    if (!cursor) {
+      setHasMoreOlder(false)
+      return false
+    }
+
+    loadingOlderRef.current = true
+    setLoadingOlder(true)
+    try {
+      const page = await getAnalyticsAssistantHistory(studyId, {
+        limit: HISTORY_PAGE_SIZE,
+        before: cursor,
+      })
+      const mapped = (page.items || []).map(historyItemToChatMessage)
+      setMessages((prev) => mergeById(prev, mapped, "prepend"))
+      setHasMoreOlder(Boolean(page.meta?.has_more))
+      nextCursorRef.current = page.meta?.next_cursor || null
+      return mapped.length > 0
+    } catch (e: any) {
+      if (e?.name !== "AbortError") {
+        setError(e?.message || "Failed to load older messages")
+      }
+      return false
+    } finally {
+      loadingOlderRef.current = false
+      setLoadingOlder(false)
+    }
+  }, [studyId, hasMoreOlder])
 
   const sendMessage = useCallback(
-    async (rawMessage: string) => {
+    async (rawMessage: string, options?: { clientMessageId?: string; replaceFailed?: boolean }) => {
       const message = rawMessage.trim()
       if (!message || !studyId || loading) return
 
@@ -77,24 +249,43 @@ export function useAnalyticsAssistant(options: {
       const controller = new AbortController()
       abortRef.current = controller
 
+      const clientMessageId = options?.clientMessageId || newId()
       const userMsg: AssistantChatMessage = {
-        id: newId(),
+        id: clientMessageId,
+        clientMessageId,
         role: "user",
         text: message,
         createdAt: new Date().toISOString(),
+        status: "sending",
       }
       const pendingId = newId()
-      setMessages((prev) => [
-        ...prev,
-        userMsg,
-        {
-          id: pendingId,
-          role: "assistant",
-          text: "Computing a verified answer…",
-          createdAt: new Date().toISOString(),
-          pending: true,
-        },
-      ])
+      setMessages((prev) => {
+        let base = prev.filter((m) => !m.localOnly)
+        if (options?.replaceFailed && options.clientMessageId) {
+          // Drop previous failed pair for this client id before retrying.
+          base = base.filter((m) => {
+            if (m.clientMessageId === options.clientMessageId && m.role === "user") return false
+            if (m.parentMessageId === options.clientMessageId && m.role === "assistant") return false
+            if (m.status === "failed" && m.role === "assistant" && m.parentMessageId === options.clientMessageId) {
+              return false
+            }
+            return true
+          })
+        }
+        return [
+          ...base,
+          userMsg,
+          {
+            id: pendingId,
+            role: "assistant",
+            text: "Computing a verified answer…",
+            createdAt: new Date().toISOString(),
+            pending: true,
+            status: "sending",
+            parentMessageId: clientMessageId,
+          },
+        ]
+      })
       setInput("")
 
       try {
@@ -106,6 +297,7 @@ export function useAnalyticsAssistant(options: {
             filters: isFilterActive ? activeFilters : null,
             follow_up: followUp,
             conversation_id: conversationIdRef.current,
+            client_message_id: clientMessageId,
           },
           controller.signal
         )
@@ -113,36 +305,58 @@ export function useAnalyticsAssistant(options: {
         if (response.follow_up_context) {
           setFollowUp(response.follow_up_context)
         }
+        if (response.conversation_id) {
+          conversationIdRef.current = response.conversation_id
+        }
 
         setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === pendingId
-              ? {
-                  id: pendingId,
-                  role: "assistant",
-                  text: response.answer_text,
-                  createdAt: new Date().toISOString(),
-                  response,
-                  pending: false,
-                }
-              : msg
-          )
+          prev.map((msg) => {
+            if (msg.clientMessageId === clientMessageId && msg.role === "user") {
+              return {
+                ...msg,
+                id: response.user_message_id || msg.id,
+                serverId: response.user_message_id || msg.serverId,
+                status: "sent",
+                error: null,
+              }
+            }
+            if (msg.id === pendingId) {
+              return {
+                id: response.assistant_message_id || pendingId,
+                serverId: response.assistant_message_id || null,
+                role: "assistant",
+                text: response.answer_text,
+                createdAt: new Date().toISOString(),
+                response,
+                pending: false,
+                status: response.status === "error" ? "error" : "complete",
+                parentMessageId: response.user_message_id || clientMessageId,
+                error: response.error || null,
+              }
+            }
+            return msg
+          })
         )
       } catch (e: any) {
         if (e?.name === "AbortError") return
         const errText = e?.message || "Assistant request failed"
         setError(errText)
         setMessages((prev) =>
-          prev.map((msg) =>
-            msg.id === pendingId
-              ? {
-                  ...msg,
-                  pending: false,
-                  text: "I could not complete that verified query.",
-                  error: errText,
-                }
-              : msg
-          )
+          prev.map((msg) => {
+            if (msg.clientMessageId === clientMessageId && msg.role === "user") {
+              return { ...msg, status: "failed", error: errText }
+            }
+            if (msg.id === pendingId) {
+              return {
+                ...msg,
+                pending: false,
+                status: "failed",
+                text: "I could not complete that verified query.",
+                error: errText,
+              }
+            }
+            return msg
+          })
         )
       } finally {
         setLoading(false)
@@ -153,16 +367,43 @@ export function useAnalyticsAssistant(options: {
 
   const retryLast = useCallback(() => {
     const lastUser = [...messages].reverse().find((m) => m.role === "user")
-    if (lastUser) void sendMessage(lastUser.text)
+    if (!lastUser) return
+    void sendMessage(lastUser.text, {
+      clientMessageId: lastUser.clientMessageId || undefined,
+      replaceFailed: true,
+    })
   }, [messages, sendMessage])
 
-  const clearChat = useCallback(() => {
+  const clearChat = useCallback(async () => {
+    if (!studyId) return
     abortRef.current?.abort()
-    setMessages([welcomeMessage()])
+    const previous = messages
+    const previousFollowUp = followUp
+    const previousCursor = nextCursorRef.current
+    const previousHasMore = hasMoreOlder
+    const previousConversation = conversationIdRef.current
+
+    // Optimistic clear.
+    setMessages([])
     setFollowUp(null)
     setError(null)
-    conversationIdRef.current = newId()
-  }, [])
+    setHasMoreOlder(false)
+    nextCursorRef.current = null
+
+    try {
+      await clearAnalyticsAssistantHistory(studyId)
+      conversationIdRef.current = null
+      historyLoadedForStudyRef.current = studyId
+      setHistoryLoaded(true)
+    } catch (e: any) {
+      setMessages(previous)
+      setFollowUp(previousFollowUp)
+      nextCursorRef.current = previousCursor
+      setHasMoreOlder(previousHasMore)
+      conversationIdRef.current = previousConversation
+      setError(e?.message || "Failed to clear chat")
+    }
+  }, [studyId, messages, followUp, hasMoreOlder])
 
   const runAction = useCallback(
     async (action: AssistantAction, response?: AssistantQueryResponse) => {
@@ -178,10 +419,16 @@ export function useAnalyticsAssistant(options: {
     input,
     setInput,
     loading,
+    historyLoading,
+    loadingOlder,
+    historyLoaded,
+    hasMoreOlder,
+    showWelcome,
     error,
     starters,
     followUp,
     sendMessage,
+    loadOlderMessages,
     retryLast,
     clearChat,
     runAction,
