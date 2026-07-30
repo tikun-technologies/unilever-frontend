@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { createStudyFromLocalStorage, fetchWithAuth, buildStudyPayloadFromLocalStorage, putUpdateStudyAsync, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
+import { formatAgeSplitForDisplay, validateAudienceSegmentation } from "@/lib/utils/audienceSegmentationValidation"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
 
 function get<T>(key: string, fallback: T): T {
@@ -344,6 +345,10 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
             }
             if (!updatePayload.audience_segmentation?.number_of_respondents || updatePayload.audience_segmentation.number_of_respondents <= 0) {
               validationErrors.push('Number of respondents is missing or invalid')
+            }
+            const audienceValidation = validateAudienceSegmentation(step6)
+            if (!audienceValidation.valid && audienceValidation.error) {
+              validationErrors.push(audienceValidation.error)
             }
             if (!updatePayload.rating_scale?.min_value || !updatePayload.rating_scale?.max_value) {
               validationErrors.push('Rating scale values are missing')
@@ -873,10 +878,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
             <div>
               <div className="text-gray-500">Age Split</div>
               <div className="font-medium capitalize">
-                {Object.entries(step6.ageSelections || {})
-                  .filter(([_, v]: any) => v.checked)
-                  .map(([label, v]: any) => `${label} (${v.percent}%)`)
-                  .join(', ') || '-'}
+                {formatAgeSplitForDisplay(step6.ageSelections || {}) || '-'}
               </div>
             </div>
           </div>

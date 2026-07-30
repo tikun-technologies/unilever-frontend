@@ -4,6 +4,7 @@ import {
   designConstraintsToApiPayload,
   readDesignConstraintsFromLocalStorage,
 } from "@/lib/utils/designConstraintsStorage"
+import { buildAgeDistributionPayload } from "@/lib/utils/audienceSegmentationValidation"
 import { API_BASE_URL } from "./LoginApi"
 
 // Types that mirror backend contract
@@ -611,14 +612,7 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
     female: Number(s6.genderFemale || 0),
   }
 
-  // Convert age selections map into numeric percentages
-  const age_distribution: AgeDistributionPayload = {}
-  const ageSel = s6.ageSelections || {}
-  Object.keys(ageSel).forEach((label) => {
-    const val = ageSel[label]?.percent
-    const num = typeof val === "string" ? Number(val.replace(/[^0-9.-]/g, "")) : Number(val || 0)
-    age_distribution[label] = isNaN(num) ? 0 : num
-  })
+  const age_distribution = buildAgeDistributionPayload(s6.ageSelections || {})
 
   const countries: string[] = Array.isArray(s6.countries) ? s6.countries : []
   const aspectRatioFromLS = (() => {
@@ -911,14 +905,7 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
     female: Number(s6.genderFemale || 0),
   }
 
-  // Convert age selections map into numeric percentages
-  const age_distribution: Record<string, number> = {}
-  const ageSel = s6.ageSelections || {}
-  Object.keys(ageSel).forEach((label) => {
-    const val = ageSel[label]?.percent
-    const num = typeof val === "string" ? Number(val.replace(/[^0-9.-]/g, "")) : Number(val || 0)
-    age_distribution[label] = isNaN(num) ? 0 : num
-  })
+  const age_distribution = buildAgeDistributionPayload(s6.ageSelections || {})
 
   const countries: string[] = Array.isArray(s6.countries) ? s6.countries : []
 
@@ -2385,17 +2372,7 @@ export function saveStudyStepOnNavigate(stepNumber: number, isSpecialCreator = f
         genderFemale?: number
         ageSelections?: Record<string, { checked?: boolean; percent?: string | number }>
       }
-      const age_distribution: Record<string, number> = {}
-      const ageSel = s6.ageSelections || {}
-      Object.keys(ageSel).forEach((label) => {
-        const v = ageSel[label]
-        if (v?.checked) {
-          const num = typeof v?.percent === 'string'
-            ? Number(v.percent.replace(/[^0-9.-]/g, ''))
-            : Number(v?.percent || 0)
-          age_distribution[label] = isNaN(num) ? 0 : num
-        }
-      })
+      const age_distribution = buildAgeDistributionPayload(s6.ageSelections || {})
       putUpdateStudyAsync(studyId, {
         last_step: 7,
         audience_segmentation: {

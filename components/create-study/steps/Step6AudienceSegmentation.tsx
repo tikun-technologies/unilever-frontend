@@ -4,6 +4,10 @@ import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { putUpdateStudyAsync } from "@/lib/api/StudyAPI"
+import {
+	buildAgeDistributionPayload,
+	validateAudienceSegmentation,
+} from "@/lib/utils/audienceSegmentationValidation"
 
 const COUNTRIES = [
 	"Afghanistan", "Albania", "Algeria", "Andorra", "Angola", "Argentina", "Armenia", "Australia", "Austria", "Azerbaijan",
@@ -104,70 +108,36 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 		}
 	}
 
-	// Helper function to balance age percentages
-	const handleAgeChange = (label: string, checked: boolean, percent: string) => {
-		const newAgeSelections = { ...ageSelections, [label]: { checked, percent } }
-
-		if (checked) {
-			// If this is the only selected age group, set it to 100%
-			const selectedCount = Object.values(newAgeSelections).filter(v => v.checked).length
-			if (selectedCount === 1) {
-				newAgeSelections[label] = { checked, percent: "100" }
-			} else {
-				// If multiple age groups are selected, distribute equally
-				const selectedGroups = Object.entries(newAgeSelections).filter(([_, v]) => v.checked)
-				const equalPercent = Math.floor(100 / selectedGroups.length)
-				const remainder = 100 - (equalPercent * selectedGroups.length)
-
-				selectedGroups.forEach(([ageLabel, _], index) => {
-					const percentValue = equalPercent + (index < remainder ? 1 : 0)
-					newAgeSelections[ageLabel] = { ...newAgeSelections[ageLabel], percent: percentValue.toString() }
-				})
-			}
-		} else {
-			// If unchecking, redistribute percentages among remaining selected groups
-			const remainingSelected = Object.entries(newAgeSelections).filter(([_, v]) => v.checked)
-			if (remainingSelected.length > 0) {
-				const equalPercent = Math.floor(100 / remainingSelected.length)
-				const remainder = 100 - (equalPercent * remainingSelected.length)
-
-				remainingSelected.forEach(([ageLabel, _], index) => {
-					const percentValue = equalPercent + (index < remainder ? 1 : 0)
-					newAgeSelections[ageLabel] = { ...newAgeSelections[ageLabel], percent: percentValue.toString() }
-				})
-			}
-		}
-
-		setAgeSelections(newAgeSelections)
+	const handleAgeChange = (label: string, checked: boolean) => {
+		setAgeSelections(prev => ({
+			...prev,
+			[label]: { ...prev[label], checked },
+		}))
 	}
 
-	// Helper function to handle manual percentage changes in age groups
 	const handleAgePercentChange = (label: string, percent: string) => {
-		// Validate percentage range (0-100)
-		const percentValue = parseInt(percent) || 0
-		if (percentValue < 0 || percentValue > 100) {
-			return // Don't update if invalid
-		}
+		if (percent !== '' && !/^\d+$/.test(percent)) return
+		const percentValue = percent === '' ? null : Number(percent)
+		if (percentValue !== null && (percentValue < 0 || percentValue > 100)) return
 
-		const newAgeSelections = { ...ageSelections, [label]: { ...ageSelections[label], percent } }
-
-		// Calculate remaining percentage to distribute among other selected groups
-		const currentPercent = percentValue
-		const otherSelected = Object.entries(newAgeSelections).filter(([ageLabel, v]) => v.checked && ageLabel !== label)
-
-		if (otherSelected.length > 0) {
-			const remainingPercent = 100 - currentPercent
-			const equalPercent = Math.floor(remainingPercent / otherSelected.length)
-			const remainder = remainingPercent - (equalPercent * otherSelected.length)
-
-			otherSelected.forEach(([ageLabel, _], index) => {
-				const percentValue = equalPercent + (index < remainder ? 1 : 0)
-				newAgeSelections[ageLabel] = { ...newAgeSelections[ageLabel], percent: percentValue.toString() }
-			})
-		}
-
-		setAgeSelections(newAgeSelections)
+		setAgeSelections(prev => ({
+			...prev,
+			[label]: { ...prev[label], checked: true, percent },
+		}))
 	}
+
+	const handleAgePercentFocus = (label: string) => {
+		if (!ageSelections[label]?.checked) {
+			handleAgeChange(label, true)
+		}
+	}
+
+	const audienceValidation = useMemo(
+		() => validateAudienceSegmentation({ respondents, countries, genderMale, genderFemale, ageSelections }),
+		[respondents, countries, genderMale, genderFemale, ageSelections]
+	)
+
+	const ageDistributionError = audienceValidation.error
 
 	const addCountry = (name: string) => {
 		if (!countries.includes(name)) {
@@ -180,7 +150,7 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 		setCountries(prev => prev.filter(c => c !== name))
 	}
 
-	const canProceed = typeof respondents === 'number' && respondents >= 1 && countries.length > 0
+	const canProceed = audienceValidation.valid
 
 	useEffect(() => {
 		if (typeof window === 'undefined') return
@@ -286,13 +256,13 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 					<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
 						{Object.entries(ageSelections).map(([label, v]) => (
 							<div key={label} className="flex items-center gap-2 border rounded-md p-2">
-								<input type="checkbox" checked={v.checked} onChange={(e) => handleAgeChange(label, e.target.checked, v.percent)} />
+								<input type="checkbox" checked={v.checked} onChange={(e) => handleAgeChange(label, e.target.checked)} />
 								<div className="flex-1 text-sm">{label}</div>
 								<Input
 									value={v.percent}
 									onChange={(e) => handleAgePercentChange(label, e.target.value)}
+									onFocus={() => handleAgePercentFocus(label)}
 									className="w-16 text-center"
-									disabled={!v.checked}
 									type="number"
 									min="0"
 									max="100"
@@ -301,6 +271,12 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 							</div>
 						))}
 					</div>
+					{ageDistributionError && (
+						<p className="mt-2 text-sm text-red-600">{ageDistributionError}</p>
+					)}
+					{audienceValidation.checkedCount > 0 && !ageDistributionError && (
+						<p className="mt-2 text-sm text-green-600">Age distribution total: 100%</p>
+					)}
 				</div>
 			</div>
 
@@ -324,15 +300,7 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 							} catch { }
 
 							// Build audience_segmentation payload from current local state
-							const age_distribution: Record<string, number> = {}
-							Object.keys(ageSelections).forEach((label) => {
-								const v = ageSelections[label]
-								// Only include checked age groups
-								if (v.checked) {
-									const num = typeof v?.percent === 'string' ? Number(v.percent.replace(/[^0-9.-]/g, '')) : Number(v?.percent || 0)
-									age_distribution[label] = isNaN(num) ? 0 : num
-								}
-							})
+							const age_distribution = buildAgeDistributionPayload(ageSelections)
 
 							const payload = {
 								last_step: lastStepNumber,

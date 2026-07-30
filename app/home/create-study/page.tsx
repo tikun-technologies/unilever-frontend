@@ -18,6 +18,7 @@ import { Step8LaunchPreview } from "@/components/create-study/steps/Step8LaunchP
 import { getStudyPreview, normalizeClassificationId, saveStudyStepOnNavigate, StudyType } from "@/lib/api/StudyAPI"
 import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
+import { validateAudienceSegmentation, getAudienceSegmentationFromLocalStorage } from "@/lib/utils/audienceSegmentationValidation"
 
 import { CreateStudyOnboarding } from "@/components/onboarding/CreateStudyOnboarding"
 import { shouldShowCreateStudyWalkthrough } from "@/lib/api/onboardingApi"
@@ -755,10 +756,7 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
             } catch { return false }
           }
           case 7: {
-            const data = localStorage.getItem('cs_step6')
-            if (!data) return false
-            const parsed = JSON.parse(data)
-            return !!(parsed.respondents && parsed.respondents > 0)
+            return validateAudienceSegmentation(getAudienceSegmentationFromLocalStorage()).valid
           }
           case 8: {
             if (!isSpecialCreator) {
@@ -865,6 +863,7 @@ export default function CreateStudyPage() {
     }
   })
   const [draftLoadError, setDraftLoadError] = useState<string | null>(null)
+  const [navigationError, setNavigationError] = useState<string | null>(null)
   const [userRole, setUserRole] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('user_role') || 'admin'
@@ -875,6 +874,17 @@ export default function CreateStudyPage() {
 
   const navigateToStep = (newStep: number, options?: { skipSave?: boolean }) => {
     if (newStep === currentStep) return
+
+    const audienceStep = 7
+    if (newStep > audienceStep && userRole !== 'viewer') {
+      const audienceValidation = validateAudienceSegmentation(getAudienceSegmentationFromLocalStorage())
+      if (!audienceValidation.valid) {
+        setNavigationError(audienceValidation.error || 'Complete audience segmentation before continuing.')
+        return
+      }
+    }
+
+    setNavigationError(null)
     if (!options?.skipSave && userRole !== 'viewer') {
       saveStudyStepOnNavigate(currentStep, isSpecialCreator)
     }
@@ -897,6 +907,16 @@ export default function CreateStudyPage() {
     } catch { /* ignore malformed step2 cache */ }
     setCurrentStep(newStep)
   }
+
+  useEffect(() => {
+    const handleStepDataChanged = () => {
+      if (navigationError && validateAudienceSegmentation(getAudienceSegmentationFromLocalStorage()).valid) {
+        setNavigationError(null)
+      }
+    }
+    window.addEventListener('stepDataChanged', handleStepDataChanged)
+    return () => window.removeEventListener('stepDataChanged', handleStepDataChanged)
+  }, [navigationError])
 
   useEffect(() => {
     // Listen for storage changes in case it updates in another tab/component
@@ -1226,6 +1246,11 @@ export default function CreateStudyPage() {
               {draftLoadError && (
                 <div className="mb-3 rounded-md px-3 py-2 text-sm bg-red-50 text-red-700 border border-red-200">
                   <strong>Error loading draft:</strong> {draftLoadError}
+                </div>
+              )}
+              {navigationError && (
+                <div className="mb-3 rounded-md px-3 py-2 text-sm bg-red-50 text-red-700 border border-red-200">
+                  {navigationError}
                 </div>
               )}
               {/* Flash message from step redirects */}

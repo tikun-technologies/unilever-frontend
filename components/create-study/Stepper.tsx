@@ -2,6 +2,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useRef } from 'react'
+import { isAudienceSegmentationStepValid } from '@/lib/utils/audienceSegmentationValidation'
 
 interface StepperProps {
   currentStep?: number
@@ -234,10 +235,7 @@ function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
         }
       }
       case 7: {
-        const data = localStorage.getItem('cs_step6')
-        if (!data) return false
-        const parsed = JSON.parse(data)
-        return !!(parsed.respondents && parsed.respondents > 0)
+        return isAudienceSegmentationStepValid()
       }
       case 8: {
         if (!isSpecialCreator) {
@@ -346,6 +344,8 @@ export default function Stepper({ currentStep = 5, className = "", onStepChange,
     return isStepCompleted(stepId, isSpecialCreator)
   }
 
+  const audienceStepValid = isAudienceSegmentationStepValid()
+
   // Auto-scroll to current step on mobile
   useEffect(() => {
     if (!stepsContainerRef.current) return
@@ -389,7 +389,7 @@ export default function Stepper({ currentStep = 5, className = "", onStepChange,
             let isCompleted = isStepCompletedWithRefresh(step.id)
             const isCurrent = step.id === currentStep
             const isUpcoming = step.id > currentStep
-            const isClickable = isCompleted || isCurrent || step.id < currentStep
+            const isClickable = (isCompleted || isCurrent || step.id < currentStep) && (step.id <= 7 || audienceStepValid)
             return (
               <div
                 key={step.id}

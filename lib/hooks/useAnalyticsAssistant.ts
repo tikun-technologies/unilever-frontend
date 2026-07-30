@@ -22,23 +22,24 @@ function newId() {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 }
 
+// Phrased as real questions rather than canned commands: the assistant composes
+// its own lookups, so these are examples of freedom, not the menu of what works.
 const STARTER_PROMPTS = [
-  "Show study overview",
+  "Which element should I show the client, and why?",
   "Give me the 5 most important findings from this study",
-  "Compare Male vs Female",
-  "Compare best vs worst design",
-  "Show the best design overall",
-  "Why is the best design better?",
-  "Design #1 vs Design #2",
-  "How many answered each classification question?",
-  "What should we use or avoid?",
+  "Where do men and women disagree most?",
+  "Is the top design meaningfully better than the runner-up?",
+  "Which claims are strong enough to build a campaign on?",
+  "Do younger respondents want something different?",
+  "What should we drop from the pack?",
+  "Summarise this study for a client in three lines",
 ]
 
 function welcomeMessage(): AssistantChatMessage {
   return {
     id: newId(),
     role: "assistant",
-    text: "Welcome! Ask me anything about this study’s analytics, designs, elements, segments, or responses.",
+    text: "Welcome! Ask me anything about this study — in your own words. I read the verified analysis to answer, so you can ask follow-ups too.",
     createdAt: new Date().toISOString(),
     localOnly: true,
     status: "complete",

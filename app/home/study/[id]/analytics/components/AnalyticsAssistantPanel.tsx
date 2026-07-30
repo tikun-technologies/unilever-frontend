@@ -55,6 +55,101 @@ function isMobileAssistantLayout() {
   return typeof window !== "undefined" && window.matchMedia("(max-width: 1023px)").matches
 }
 
+interface TraceEntry {
+  tool?: string
+  args?: Record<string, unknown>
+  status?: string
+  error?: string
+}
+
+const TRACE_TOOL_LABELS: Record<string, string> = {
+  rank_elements: "Ranked elements",
+  rank_designs: "Ranked designs",
+  compare_two: "Compared two sides",
+  compare_all_segments: "Compared all segments",
+  lookup_element_scores: "Looked up element scores",
+  segment_base_sizes: "Read segment base sizes",
+  classification_counts: "Counted classification answers",
+  study_overview: "Read study overview",
+  executive_summary: "Built executive summary",
+  use_or_avoid_elements: "Split elements by significance",
+  response_time_summary: "Read response times",
+  fatigue_summary: "Checked respondent fatigue",
+  explain_mindset: "Explained mindset",
+  explain_design: "Explained design",
+  list_saved_designs: "Listed saved designs",
+}
+
+/** Args worth surfacing, in the order they read most naturally. */
+const TRACE_ARG_KEYS = [
+  "segment_key",
+  "segment_section",
+  "metric",
+  "direction",
+  "limit",
+  "mode",
+  "left",
+  "right",
+  "must_include",
+  "elements",
+  "question",
+  "options",
+  "mindset_key",
+] as const
+
+function describeTraceEntry(entry: TraceEntry): string {
+  const label = TRACE_TOOL_LABELS[entry.tool || ""] || entry.tool || "Calculation"
+  const args = entry.args || {}
+  const parts: string[] = []
+  for (const key of TRACE_ARG_KEYS) {
+    const value = args[key]
+    if (value === undefined || value === null || value === "") continue
+    if (Array.isArray(value)) {
+      if (value.length) parts.push(value.join(", "))
+    } else {
+      parts.push(String(value))
+    }
+    if (parts.length >= 3) break
+  }
+  return parts.length ? `${label} — ${parts.join(" · ")}` : label
+}
+
+/**
+ * Shows which verified calculations produced the answer. Only rendered for
+ * agent-composed answers, which are the ones that can combine several lookups.
+ */
+function ComputationTrace({ usage }: { usage?: Record<string, unknown> }) {
+  const trace = (usage?.trace as TraceEntry[] | undefined) || []
+  if (!trace.length) return null
+
+  const fellBack = usage?.grounding_fallback === true
+
+  return (
+    <details className="rounded-lg bg-white/70 px-2 py-1.5 text-[11px] text-gray-500">
+      <summary className="cursor-pointer font-semibold">
+        How this was computed ({trace.length} {trace.length === 1 ? "step" : "steps"})
+      </summary>
+      <ol className="mt-1 space-y-1">
+        {trace.map((entry, idx) => (
+          <li key={`${entry.tool}-${idx}`} className="flex gap-1.5">
+            <span className="font-bold text-gray-700">{idx + 1}.</span>
+            <span className={entry.error ? "text-rose-600" : undefined}>
+              {describeTraceEntry(entry)}
+              {entry.error ? " (skipped)" : ""}
+            </span>
+          </li>
+        ))}
+      </ol>
+      {fellBack ? (
+        <p className="mt-1.5 text-[10px] text-amber-700">
+          The wording was replaced with the verified summary because a figure in the drafted
+          answer could not be traced to these steps.
+        </p>
+      ) : null}
+    </details>
+  )
+}
+
 export function AnalyticsAssistantPanel({
   open,
   onOpenChange,
@@ -435,8 +530,9 @@ export function AnalyticsAssistantPanel({
                 <div className="rounded-2xl border border-dashed border-[#2674BA]/25 bg-[#2674BA]/5 p-4">
                   <p className="text-sm font-bold text-[#2674BA]">Ask anything about this study</p>
                   <p className="mt-1 text-xs text-gray-600">
-                    Your chat is private to you. Rankings, designs, and counts come from verified
-                    analysis — ambiguous questions get clarification, never guessed numbers.
+                    Ask in your own words — no set phrasing needed. Every number is read from the
+                    verified analysis, never estimated, and you can check which calculations were
+                    used under any answer. Your chat is private to you.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {starters.map((prompt) => (
@@ -619,6 +715,8 @@ export function AnalyticsAssistantPanel({
                             </ul>
                           </details>
                         ) : null}
+
+                        <ComputationTrace usage={message.response.usage} />
                       </div>
                     ) : null}
                   </div>
