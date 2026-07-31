@@ -112,7 +112,14 @@ export default function ThankYouPage() {
 
 
     // Background: attempt to flush any remaining task submissions (non-blocking)
+    let isFlushing = false
     const flushOnce = async () => {
+      // The interval below fires every 3s, but a flush can take longer than that.
+      // Without this guard the flushes stack up, and since they all target the same
+      // session they pile onto the same backend row lock - which is how a slow
+      // submission turns into a storm of duplicate in-flight requests.
+      if (isFlushing) return
+      isFlushing = true
       try {
         const queueRaw = localStorage.getItem(PENDING_TASKS_STORAGE_KEY)
         if (!queueRaw) return
@@ -146,7 +153,9 @@ export default function ThankYouPage() {
         if (status.is_completed) {
           localStorage.removeItem(PENDING_TASKS_STORAGE_KEY)
         }
-      } catch { }
+      } catch { } finally {
+        isFlushing = false
+      }
     }
 
     // Run one flush immediately and a few retries for a short window

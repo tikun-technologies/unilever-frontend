@@ -100,10 +100,21 @@ export async function submitTasksBulk(sessionId: string, tasks: SubmitTaskPayloa
 			chunks.push(tasks.slice(i, i + CHUNK_SIZE))
 		}
 
-		// Send chunks in parallel
-		return Promise.all(chunks.map(chunk => submitTasksBulk(sessionId, chunk)))
-			.then(results => ({ ok: results.every((r: any) => r?.ok !== false) }))
-			.catch(() => ({ ok: false }))
+		// Send chunks sequentially, never in parallel. Every chunk targets the same
+		// session, and the backend takes a row lock on that session row, so parallel
+		// chunks cannot actually overlap in the database - they just queue up, each
+		// holding a DB connection while it waits. That drains the connection pool and
+		// cascades into timeouts, dropped submissions and abandoned sessions.
+		// Sequential costs no throughput and keeps exactly one writer per session.
+		const results: any[] = []
+		for (const chunk of chunks) {
+			try {
+				results.push(await submitTasksBulk(sessionId, chunk))
+			} catch {
+				results.push({ ok: false })
+			}
+		}
+		return { ok: results.every((r: any) => r?.ok !== false) }
 	}
 
 	const q = encodeURIComponent(sessionId)
