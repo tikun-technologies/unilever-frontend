@@ -2,6 +2,9 @@
   "name": "unilever-frontend",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev",
     "clean": "node -e \"require('fs').rmSync('.next',{recursive:true,force:true})\"",
@@ -9,7 +12,7 @@
     "build:clean": "npm run clean && npm run build",
     "dev:turbo": "next dev --turbopack",
     "build:export-assets": "node scripts/build-export-configurator.mjs",
-    "build": "npm run build:export-assets && next build --turbopack",
+    "build": "npm run build:export-assets && next build",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
@@ -67,5 +70,8 @@
     "tw-animate-css": "^1.3.8",
     "typescript": "^5",
     "vitest": "^3.2.7"
+  },
+  "optionalDependencies": {
+    "@img/sharp-linux-x64": "0.35.3"
   }
 }

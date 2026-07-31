@@ -1,5 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
-import sharp from 'sharp';
+import type { Sharp } from 'sharp';
+
+type SharpConstructor = typeof import('sharp').default;
+
+let sharpModulePromise: Promise<SharpConstructor> | null = null;
+
+async function loadSharp(): Promise<SharpConstructor> {
+    if (!sharpModulePromise) {
+        sharpModulePromise = import('sharp').then((mod) => mod.default);
+    }
+    return sharpModulePromise;
+}
 
 /**
  * Backend proxy for external images (CORS + optional resize for UI).
@@ -100,7 +111,8 @@ async function processImage(
     // Only the CPU-heavy transcode is gated by the concurrency cap.
     await acquireTranscodeSlot();
     try {
-        const pipeline = sharp(sourceBuffer, { failOn: 'none' }).rotate().resize({
+        const sharp = await loadSharp();
+        const pipeline: Sharp = sharp(sourceBuffer, { failOn: 'none' }).rotate().resize({
             width: requestedWidth,
             withoutEnlargement: true,
         });
