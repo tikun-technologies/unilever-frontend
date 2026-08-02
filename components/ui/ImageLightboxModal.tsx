@@ -49,7 +49,7 @@ export function ImageLightboxModal({
     >
       {/* Dark overlay - click to close */}
       <div
-        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        className="absolute inset-0 cursor-pointer bg-black/80 backdrop-blur-sm"
         aria-hidden="true"
         onClick={onClose}
       />
@@ -57,7 +57,7 @@ export function ImageLightboxModal({
       <button
         type="button"
         onClick={onClose}
-        className="absolute right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
+        className="absolute right-4 top-4 z-20 flex h-10 w-10 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white/50"
         aria-label="Close image preview"
       >
         <X className="h-6 w-6" />

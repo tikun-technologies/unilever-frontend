@@ -370,7 +370,7 @@ export function AnalyticsAssistantPanel({
         <button
           type="button"
           onClick={() => onOpenChange(true)}
-          className="fixed bottom-4 right-4 z-[102] inline-flex items-center gap-2 rounded-full bg-[#2674BA] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-[#2674BA]/30 transition hover:bg-[#2674BA]/90 active:scale-95 sm:bottom-6 sm:right-6"
+          className="fixed bottom-4 right-4 z-[102] inline-flex cursor-pointer items-center gap-2 rounded-full bg-[#2674BA] px-4 py-3 text-sm font-bold text-white shadow-lg shadow-[#2674BA]/30 transition hover:bg-[#2674BA]/90 active:scale-95 sm:bottom-6 sm:right-6"
           aria-label="Open analytics assistant"
         >
           <Sparkles className="h-4 w-4" />
@@ -384,7 +384,7 @@ export function AnalyticsAssistantPanel({
           <motion.button
             type="button"
             aria-label="Close assistant backdrop"
-            className="fixed inset-0 z-[102] bg-black/30 lg:hidden"
+            className="fixed inset-0 z-[102] cursor-pointer bg-black/30 lg:hidden"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -400,7 +400,7 @@ export function AnalyticsAssistantPanel({
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 40, opacity: 0 }}
             transition={{ type: "spring", stiffness: 320, damping: 32 }}
-            className="relative flex h-full min-h-0 shrink-0 flex-col border-l border-gray-200 bg-white shadow-2xl max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:right-0 max-lg:z-[103] max-lg:h-[100dvh] max-lg:max-h-[100dvh] max-lg:w-full max-lg:max-w-none lg:z-[102] lg:w-[var(--assistant-panel-width)] lg:max-w-[40vw] lg:shadow-none"
+            className="relative flex h-full min-h-0 shrink-0 flex-col border-l border-gray-200 bg-white shadow-2xl max-lg:fixed max-lg:inset-x-0 max-lg:bottom-0 max-lg:right-0 max-lg:z-[103] max-lg:h-[100dvh] max-lg:max-h-[100dvh] max-lg:w-full max-lg:max-w-none lg:z-[102] lg:w-[var(--assistant-panel-width)] lg:max-w-[40vw] lg:shadow-none [&_button]:cursor-pointer [&_button:disabled]:cursor-not-allowed [&_summary]:cursor-pointer"
             aria-label="Verified analytics assistant"
             style={
               {

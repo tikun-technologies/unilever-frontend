@@ -116,7 +116,7 @@ function CompareSidePanel({
             <button
               type="button"
               onClick={() => onPreview(design)}
-              className="group relative mx-auto w-full rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2674BA]"
+              className="group relative mx-auto w-full cursor-pointer rounded-xl focus:outline-none focus-visible:ring-2 focus-visible:ring-[#2674BA]"
               aria-label={`Preview ${side?.label || "design"}`}
             >
               <DesignPreviewComposite
@@ -160,7 +160,7 @@ function CompareSidePanel({
             <button
               type="button"
               onClick={() => onOpenInConfigurator(design)}
-              className="mt-2 inline-flex w-full items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-bold text-white shadow-sm transition hover:opacity-90"
+              className="mt-2 inline-flex w-full cursor-pointer items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[10px] font-bold text-white shadow-sm transition hover:opacity-90"
               style={{ backgroundColor: accent }}
             >
               <LayoutTemplate className="h-3 w-3" />
@@ -321,7 +321,7 @@ export function SideBySideCompareCard({
               <button
                 type="button"
                 onClick={() => setPreviewDesign(null)}
-                className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-600"
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200"
                 aria-label="Close preview"
               >
                 <X className="h-5 w-5" />

@@ -12,9 +12,10 @@ import {
   XAxis,
   YAxis,
 } from "recharts"
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import { Download, Expand, LayoutTemplate, Loader2, X } from "lucide-react"
 import { ProgressiveImage } from "@/components/shared/ProgressiveImage"
+import { ImageLightboxModal } from "@/components/ui/ImageLightboxModal"
 import { DesignPreviewComposite } from "./DesignPreviewComposite"
 import { ExecutiveSummaryCard } from "./ExecutiveSummaryCard"
 import { SideBySideCompareCard } from "./SideBySideCompareCard"
@@ -238,6 +239,20 @@ function KpiCard({ title, data }: { title?: string | null; data: any }) {
 
 function ElementsCard({ title, data }: { title?: string | null; data: any }) {
   const items = Array.isArray(data?.items) ? data.items : []
+  const [lightbox, setLightbox] = useState<{ isOpen: boolean; src: string | null; alt: string }>({
+    isOpen: false,
+    src: null,
+    alt: "",
+  })
+
+  const openLightbox = useCallback((imageUrl: string, name: string) => {
+    setLightbox({
+      isOpen: true,
+      src: getConfiguratorResponsivePreviewUrl(imageUrl, true),
+      alt: name || "Element",
+    })
+  }, [])
+
   return (
     <div className="rounded-xl border border-gray-100 bg-white p-3 shadow-sm">
       {title ? <p className="mb-2 text-xs font-bold text-gray-800 sm:text-sm">{title}</p> : null}
@@ -248,13 +263,24 @@ function ElementsCard({ title, data }: { title?: string | null; data: any }) {
             className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-2 py-2"
           >
             {item.image_url ? (
-              <ProgressiveImage
-                thumbUrl={getConfiguratorThumbnailUrl(item.image_url)}
-                fullUrl={getConfiguratorResponsivePreviewUrl(item.image_url)}
-                alt={item.name}
-                wrapperClassName="relative h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white"
-                imgClassName="h-full w-full object-contain p-1"
-              />
+              <button
+                type="button"
+                onClick={() => openLightbox(item.image_url, item.name)}
+                className="group relative shrink-0 cursor-pointer rounded-lg outline-none ring-[#2674BA]/0 transition hover:ring-2 hover:ring-[#2674BA]/40 focus-visible:ring-2 focus-visible:ring-[#2674BA]"
+                aria-label={`View ${item.name} fullscreen`}
+                title="Click to view larger"
+              >
+                <ProgressiveImage
+                  thumbUrl={getConfiguratorThumbnailUrl(item.image_url)}
+                  fullUrl={getConfiguratorResponsivePreviewUrl(item.image_url)}
+                  alt={item.name}
+                  wrapperClassName="relative h-12 w-12 overflow-hidden rounded-lg bg-white"
+                  imgClassName="h-full w-full object-contain p-1"
+                />
+                <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg bg-black/0 transition group-hover:bg-black/25">
+                  <Expand className="h-3.5 w-3.5 text-white opacity-0 drop-shadow transition group-hover:opacity-100" />
+                </span>
+              </button>
             ) : (
               <div className="flex h-10 w-10 items-center justify-center rounded bg-white text-[10px] font-bold text-[#2674BA]">
                 #{item.rank}
@@ -270,6 +296,12 @@ function ElementsCard({ title, data }: { title?: string | null; data: any }) {
           </div>
         ))}
       </div>
+      <ImageLightboxModal
+        src={lightbox.src}
+        alt={lightbox.alt}
+        isOpen={lightbox.isOpen}
+        onClose={() => setLightbox((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   )
 }
@@ -380,7 +412,7 @@ function DesignsCard({
                 <button
                   type="button"
                   onClick={() => setPreviewDesign(design)}
-                  className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-gray-500 ring-1 ring-gray-200 hover:text-[#2674BA]"
+                  className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white text-gray-500 ring-1 ring-gray-200 hover:text-[#2674BA]"
                   aria-label={`Preview design ${design.rank}`}
                   title="Fullscreen preview"
                 >
@@ -391,7 +423,7 @@ function DesignsCard({
                     type="button"
                     onClick={() => void handleDownload(design)}
                     disabled={Boolean(downloadingId)}
-                    className="flex h-8 w-8 items-center justify-center rounded-full bg-[#2674BA] text-white hover:bg-[#1f5f99] disabled:opacity-60"
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-[#2674BA] text-white hover:bg-[#1f5f99] disabled:cursor-not-allowed disabled:opacity-60"
                     aria-label={`Download design ${design.rank}`}
                     title="Download full-quality PNG"
                   >
@@ -404,7 +436,13 @@ function DesignsCard({
                 ) : null}
               </div>
             </div>
-            <div className="flex justify-center">
+            <button
+              type="button"
+              onClick={() => setPreviewDesign(design)}
+              className="group relative mx-auto flex w-full max-w-[220px] cursor-pointer justify-center rounded-xl outline-none ring-[#2674BA]/0 transition hover:ring-2 hover:ring-[#2674BA]/35 focus-visible:ring-2 focus-visible:ring-[#2674BA]"
+              aria-label={`View design ${design.rank} fullscreen`}
+              title="Click to view larger"
+            >
               <DesignPreviewComposite
                 studyType={studyType}
                 elements={design.elements || []}
@@ -412,7 +450,10 @@ function DesignsCard({
                 aspectRatio={data?.aspect_ratio}
                 compact
               />
-            </div>
+              <span className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-xl bg-black/0 transition group-hover:bg-black/20">
+                <Expand className="h-5 w-5 text-white opacity-0 drop-shadow transition group-hover:opacity-100" />
+              </span>
+            </button>
             <p className="mt-2 line-clamp-2 text-[11px] text-gray-600">
               {(design.elements || []).map((el) => el.name).join(" · ")}
             </p>
@@ -426,7 +467,7 @@ function DesignsCard({
                     aspect_ratio: data?.aspect_ratio,
                   })
                 }
-                className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#2674BA] px-3 py-2 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#1f5f99]"
+                className="mt-2.5 inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-[#2674BA] px-3 py-2 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#1f5f99]"
               >
                 <LayoutTemplate className="h-3.5 w-3.5" />
                 Open in Design Configurator
@@ -458,7 +499,7 @@ function DesignsCard({
                     type="button"
                     onClick={() => void handleDownload(previewDesign)}
                     disabled={Boolean(downloadingId)}
-                    className="inline-flex items-center gap-2 rounded-lg bg-[#2674BA] px-3 py-2 text-xs font-bold text-white disabled:opacity-60"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-[#2674BA] px-3 py-2 text-xs font-bold text-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {downloadingId ? (
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -471,7 +512,7 @@ function DesignsCard({
                 <button
                   type="button"
                   onClick={() => setPreviewDesign(null)}
-                  className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-100 text-gray-600"
+                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full bg-gray-100 text-gray-600 hover:bg-gray-200"
                   aria-label="Close preview"
                 >
                   <X className="h-5 w-5" />
@@ -531,7 +572,7 @@ function DesignExplanationCard({
               aspect_ratio: data?.aspect_ratio,
             })
           }
-          className="mt-2.5 inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#2674BA] px-3 py-2 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#1f5f99]"
+          className="mt-2.5 inline-flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-[#2674BA] px-3 py-2 text-[11px] font-bold text-white shadow-sm transition hover:bg-[#1f5f99]"
         >
           <LayoutTemplate className="h-3.5 w-3.5" />
           Open in Design Configurator
@@ -582,33 +623,70 @@ function DesignExplanationCard({
 }
 
 function UseAvoidCard({ title, data }: { title?: string | null; data: any }) {
+  const [lightbox, setLightbox] = useState<{ isOpen: boolean; src: string | null; alt: string }>({
+    isOpen: false,
+    src: null,
+    alt: "",
+  })
+
+  const openLightbox = useCallback((imageUrl: string, name: string) => {
+    setLightbox({
+      isOpen: true,
+      src: getConfiguratorResponsivePreviewUrl(imageUrl, true),
+      alt: name || "Element",
+    })
+  }, [])
+
+  const renderRow = (item: any, tone: "use" | "avoid") => (
+    <div
+      key={item.fact_id || item.name}
+      className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs ${
+        tone === "use" ? "bg-emerald-50" : "bg-rose-50"
+      }`}
+    >
+      {item.image_url ? (
+        <button
+          type="button"
+          onClick={() => openLightbox(item.image_url, item.name)}
+          className="group relative shrink-0 cursor-pointer rounded-md outline-none ring-[#2674BA]/0 transition hover:ring-2 hover:ring-[#2674BA]/40 focus-visible:ring-2 focus-visible:ring-[#2674BA]"
+          aria-label={`View ${item.name} fullscreen`}
+          title="Click to view larger"
+        >
+          <ProgressiveImage
+            thumbUrl={getConfiguratorThumbnailUrl(item.image_url)}
+            fullUrl={getConfiguratorResponsivePreviewUrl(item.image_url)}
+            alt={item.name}
+            wrapperClassName="relative h-9 w-9 overflow-hidden rounded-md bg-white"
+            imgClassName="h-full w-full object-contain p-0.5"
+          />
+        </button>
+      ) : null}
+      <div className="min-w-0 flex-1">
+        <span className="font-semibold text-gray-900">{item.name}</span>
+        <span className="ml-1 text-gray-500">({item.value})</span>
+      </div>
+    </div>
+  )
+
   return (
     <div className="rounded-xl border border-gray-100 bg-white p-3 shadow-sm">
       {title ? <p className="mb-2 text-xs font-bold text-gray-800 sm:text-sm">{title}</p> : null}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div>
           <p className="mb-1 text-[11px] font-bold uppercase text-emerald-700">Use</p>
-          <div className="space-y-1">
-            {(data?.use || []).map((item: any) => (
-              <div key={item.fact_id} className="rounded-lg bg-emerald-50 px-2 py-1.5 text-xs">
-                <span className="font-semibold text-gray-900">{item.name}</span>
-                <span className="ml-1 text-gray-500">({item.value})</span>
-              </div>
-            ))}
-          </div>
+          <div className="space-y-1">{(data?.use || []).map((item: any) => renderRow(item, "use"))}</div>
         </div>
         <div>
           <p className="mb-1 text-[11px] font-bold uppercase text-rose-700">Avoid</p>
-          <div className="space-y-1">
-            {(data?.avoid || []).map((item: any) => (
-              <div key={item.fact_id} className="rounded-lg bg-rose-50 px-2 py-1.5 text-xs">
-                <span className="font-semibold text-gray-900">{item.name}</span>
-                <span className="ml-1 text-gray-500">({item.value})</span>
-              </div>
-            ))}
-          </div>
+          <div className="space-y-1">{(data?.avoid || []).map((item: any) => renderRow(item, "avoid"))}</div>
         </div>
       </div>
+      <ImageLightboxModal
+        src={lightbox.src}
+        alt={lightbox.alt}
+        isOpen={lightbox.isOpen}
+        onClose={() => setLightbox((prev) => ({ ...prev, isOpen: false }))}
+      />
     </div>
   )
 }
@@ -641,7 +719,15 @@ export function AssistantAnswerCard({
       <SideBySideCompareCard title={title} data={data} onOpenInConfigurator={onOpenInConfigurator} />
     )
   }
-  if (type === "executive_summary") return <ExecutiveSummaryCard title={title} data={data} />
+  if (type === "executive_summary") {
+    return (
+      <ExecutiveSummaryCard
+        title={title}
+        data={data}
+        onOpenInConfigurator={onOpenInConfigurator}
+      />
+    )
+  }
   if (type === "use_avoid") return <UseAvoidCard title={title} data={data} />
   if (type === "segment_comparison") {
     return (
