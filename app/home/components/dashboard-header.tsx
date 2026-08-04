@@ -14,8 +14,8 @@ import { deleteStudy } from "@/lib/api/StudyAPI"
 import { requestRestartWalkthrough } from "@/components/onboarding/MindSurveOnboarding"
 import { prepareFreshCreateStudy, hasGeneratedTasks } from "@/lib/utils/createStudyStorage"
 import { JobNotificationBell } from "@/components/notifications/JobNotificationBell"
-import { fetchTemplatePermissions } from "@/lib/api/templateApi"
 import { BrandLogo } from "@/components/brand/BrandLogo"
+import { checkIsTemplateManager } from "@/lib/config/specialCreators"
 
 export function DashboardHeader() {
   const { user, logout } = useAuth()
@@ -27,7 +27,7 @@ export function DashboardHeader() {
   const [studyId, setStudyId] = useState<string | null>(null)
   const [tasksGenerated, setTasksGenerated] = useState(false)
   const [userRole, setUserRole] = useState<string>('viewer')
-  const [canManageTemplates, setCanManageTemplates] = useState(false)
+  const canManageTemplates = checkIsTemplateManager(user?.email)
 
   const dropdownRef = useRef<HTMLDivElement>(null)
   const pathname = usePathname()
@@ -94,21 +94,6 @@ export function DashboardHeader() {
       window.removeEventListener('storage', handleStudyInfoChange)
     }
   }, [projId])
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const can = await fetchTemplatePermissions()
-        if (!cancelled) setCanManageTemplates(can)
-      } catch {
-        if (!cancelled) setCanManageTemplates(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [user?.email])
 
   const canViewStudyDetail = !!studyId && tasksGenerated
 

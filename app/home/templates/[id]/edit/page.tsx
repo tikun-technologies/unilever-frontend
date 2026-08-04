@@ -7,7 +7,6 @@ import { Step5StudyStructure } from "@/components/create-study/steps/Step5StudyS
 import { Button } from "@/components/ui/button"
 import {
   createTemplate,
-  fetchTemplatePermissions,
   getTemplate,
   updateTemplate,
   type TemplateAspectRatio,
@@ -18,16 +17,19 @@ import {
   readTemplateEditorLayerJson,
   seedTemplateEditorStorage,
 } from "@/lib/templates/templateLayerJson"
+import { checkIsTemplateManager } from "@/lib/config/specialCreators"
+import { useAuth } from "@/lib/auth/AuthContext"
 
 type ConfirmKind = "draft" | "publish" | null
 
 function TemplateEditorContent() {
   const router = useRouter()
+  const { user, isLoading: authLoading } = useAuth()
   const params = useParams<{ id?: string }>()
   const isNew = !params?.id || params.id === "new"
   const templateId = isNew ? null : String(params.id)
 
-  const [allowed, setAllowed] = useState<boolean | null>(null)
+  const allowed = authLoading ? null : checkIsTemplateManager(user?.email)
   const [ready, setReady] = useState(false)
   const [title, setTitle] = useState("")
   const [saving, setSaving] = useState(false)
@@ -38,10 +40,11 @@ function TemplateEditorContent() {
     let cancelled = false
     ;(async () => {
       try {
-        const can = await fetchTemplatePermissions()
-        if (cancelled) return
-        setAllowed(can)
-        if (!can) return
+        if (authLoading) return
+        if (!checkIsTemplateManager(user?.email)) {
+          setReady(false)
+          return
+        }
 
         clearTemplateEditorStorage()
         if (templateId) {
@@ -53,7 +56,7 @@ function TemplateEditorContent() {
           localStorage.setItem(`${TEMPLATE_STORAGE_PREFIX}_layer`, JSON.stringify([]))
           localStorage.setItem(`${TEMPLATE_STORAGE_PREFIX}_layer_preview_aspect`, "portrait")
         }
-        setReady(true)
+        if (!cancelled) setReady(true)
       } catch (e: any) {
         if (!cancelled) setError(e?.message || "Failed to open editor")
       }
@@ -61,7 +64,7 @@ function TemplateEditorContent() {
     return () => {
       cancelled = true
     }
-  }, [templateId])
+  }, [templateId, user?.email, authLoading])
 
   const persist = useCallback(
     async (status: "draft" | "published") => {
@@ -138,6 +141,14 @@ function TemplateEditorContent() {
     },
     [router, templateId, title]
   )
+
+  if (allowed === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+      </div>
+    )
+  }
 
   if (allowed === false) {
     return (

@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button"
 import { LayerPreview } from "@/components/create-study/steps/LayerPreview"
 import {
   deleteTemplate,
-  fetchTemplatePermissions,
   listManagedTemplates,
   moveTemplateToDraft,
   publishTemplate,
@@ -18,6 +17,8 @@ import {
 } from "@/lib/api/templateApi"
 import { templateToPreviewModel } from "@/lib/templates/layerTemplates"
 import { apiTemplateToLayerTemplate } from "@/lib/templates/templateLayerJson"
+import { checkIsTemplateManager } from "@/lib/config/specialCreators"
+import { useAuth } from "@/lib/auth/AuthContext"
 
 function formatDate(value?: string | null) {
   if (!value) return "—"
@@ -30,7 +31,8 @@ function formatDate(value?: string | null) {
 
 function ManageTemplatesContent() {
   const router = useRouter()
-  const [allowed, setAllowed] = useState<boolean | null>(null)
+  const { user, isLoading: authLoading } = useAuth()
+  const allowed = authLoading ? null : checkIsTemplateManager(user?.email)
   const [items, setItems] = useState<TemplateRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -42,12 +44,11 @@ function ManageTemplatesContent() {
   const [confirmDelete, setConfirmDelete] = useState<TemplateRecord | null>(null)
 
   const load = useCallback(async () => {
+    if (authLoading) return
     setLoading(true)
     setError(null)
     try {
-      const can = await fetchTemplatePermissions()
-      setAllowed(can)
-      if (!can) {
+      if (!checkIsTemplateManager(user?.email)) {
         setItems([])
         return
       }
@@ -63,7 +64,7 @@ function ManageTemplatesContent() {
     } finally {
       setLoading(false)
     }
-  }, [search, status, sort])
+  }, [search, status, sort, user?.email, authLoading])
 
   useEffect(() => {
     void load()
@@ -88,6 +89,14 @@ function ManageTemplatesContent() {
     } finally {
       setBusyId(null)
     }
+  }
+
+  if (allowed === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600" />
+      </div>
+    )
   }
 
   if (allowed === false) {

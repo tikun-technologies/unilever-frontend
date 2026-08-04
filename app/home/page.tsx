@@ -19,7 +19,6 @@ import {
   createProject as createProjectApi,
   updateProject as updateProjectApi,
   getProjectStudies as getProjectStudiesApi,
-  getProjectMembers as getProjectMembersApi,
   downloadProjectCsv,
   startProjectZipExport,
   exportCompletedPanelists,
@@ -234,6 +233,12 @@ function DashboardContent() {
           if (Array.isArray(parsed)) {
             setProjects(parsed)
             setProjectsLoading(false)
+            // Keep role gates (copy/delete/create) working before network refresh
+            parsed.forEach((project: Project) => {
+              if (project?.id && project.role) {
+                localStorage.setItem(`ps_role_${project.id}`, project.role)
+              }
+            })
           }
         }
       } catch { }
@@ -245,20 +250,13 @@ function DashboardContent() {
         // Cache for next time
         try { localStorage.setItem('home_projects_cache', JSON.stringify(data)) } catch { }
 
-        // Pre-fetch members and store role for each project
-        data.forEach(async (project) => {
-          try {
-            // Store user role for this project
-            if (project.role) {
-              localStorage.setItem(`ps_role_${project.id}`, project.role);
-            }
-
-            const members = await getProjectMembersApi(project.id);
-            localStorage.setItem(`ps_members_${project.id}`, JSON.stringify(members));
-          } catch (err) {
-            console.error(`Failed to pre-fetch members/role for project ${project.id}:`, err);
+        // Persist per-project role from list payload (no members N+1).
+        // Share modal fetches members on open; UI gates use ps_role_*.
+        data.forEach((project) => {
+          if (project.role) {
+            localStorage.setItem(`ps_role_${project.id}`, project.role)
           }
-        });
+        })
       } catch (err) {
         if (isAuthRelatedError(err)) {
           redirectToLoginOnAuthError()

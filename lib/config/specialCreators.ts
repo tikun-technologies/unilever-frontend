@@ -11,6 +11,18 @@ export const SPECIAL_CREATOR_EMAILS = [
 export const SPECIAL_CREATOR_DOMAINS = ['unilever.com']
 
 /**
+ * Emails allowed to manage layer templates (UI gate only).
+ * Must stay in sync with backend TEMPLATE_MANAGER_EMAILS in app/core/config.py.
+ * Backend still enforces require_template_manager on all mutate endpoints.
+ */
+export const TEMPLATE_MANAGER_EMAILS = [
+    'tusharpareenja@gmail.com',
+    'dlovej009@gmail.com',
+    'j.b.fitterman@gmail.com',
+    'kabircsecu@gmail.com',
+]
+
+/**
  * Helper to check if a creator email belongs to a special account.
  * Returns true if the email is in SPECIAL_CREATOR_EMAILS or its domain is in SPECIAL_CREATOR_DOMAINS.
  * @param email The creator's email address
@@ -22,4 +34,10 @@ export function checkIsSpecialCreator(email?: string | null): boolean {
     if (SPECIAL_CREATOR_EMAILS.includes(normalized)) return true
     const domain = normalized.split('@')[1]
     return domain != null && SPECIAL_CREATOR_DOMAINS.includes(domain)
+}
+
+/** Whether the user may see template-management UI (create/edit/publish). */
+export function checkIsTemplateManager(email?: string | null): boolean {
+    if (!email) return false
+    return TEMPLATE_MANAGER_EMAILS.includes(email.toLowerCase().trim())
 }

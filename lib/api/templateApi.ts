@@ -62,6 +62,7 @@ async function parseError(res: Response): Promise<string> {
   }
 }
 
+/** @deprecated Prefer checkIsTemplateManager from specialCreators — UI no longer calls this on home. */
 export async function fetchTemplatePermissions(): Promise<boolean> {
   const res = await fetchWithAuth(`${API_BASE_URL}/templates/permissions`)
   if (!res.ok) return false

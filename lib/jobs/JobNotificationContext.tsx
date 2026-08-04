@@ -408,6 +408,8 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
 
   const startPollingFallback = useCallback(() => {
     if (pollTimerRef.current) return
+    // Immediate hydrate so the bell isn't empty until the first interval tick
+    void pollActiveJobs()
     pollTimerRef.current = setInterval(() => {
       void pollActiveJobs()
     }, 10000)
@@ -531,15 +533,9 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
       }
     }
 
-    void (async () => {
-      try {
-        const { jobs } = await listNotifications(true)
-        applySnapshot(jobs)
-      } catch {
-        /* ignore hydrate errors */
-      }
-      void connectWebSocket()
-    })()
+    // Hydrate from WS snapshot on connect (same DB source as REST notifications).
+    // REST is only used as fallback when the socket is down / reconnect fails.
+    void connectWebSocket()
 
     const onVisible = () => {
       if (document.visibilityState === 'visible') {
@@ -566,7 +562,6 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
       }
     }
   }, [
-    applySnapshot,
     connectWebSocket,
     isAuthenticated,
     isLoading,
