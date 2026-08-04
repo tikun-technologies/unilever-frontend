@@ -21,10 +21,14 @@ export async function listActiveJobs(includeRecent = false): Promise<TrackedJob[
     .filter((j: TrackedJob | null): j is TrackedJob => j !== null)
 }
 
-export async function listNotifications(includeRecent = true): Promise<{
-  jobs: TrackedJob[]
-  unreadCount: number
-}> {
+type NotificationsResult = { jobs: TrackedJob[]; unreadCount: number }
+
+// Share a single in-flight request across concurrent callers (e.g. a StrictMode
+// double-mount or several components hydrating at once fired this 3x on page load).
+// Keyed by includeRecent so the two variants don't collide.
+const inflightNotifications: Record<string, Promise<NotificationsResult> | undefined> = {}
+
+async function fetchNotifications(includeRecent: boolean): Promise<NotificationsResult> {
   const url = `${API_BASE_URL}/auth/me/notifications?include_recent=${includeRecent ? 'true' : 'false'}`
   const res = await fetchWithAuth(url, {
     method: 'GET',
@@ -49,6 +53,18 @@ export async function listNotifications(includeRecent = true): Promise<{
     jobs,
     unreadCount: typeof data.unread_count === 'number' ? data.unread_count : 0,
   }
+}
+
+export async function listNotifications(includeRecent = true): Promise<NotificationsResult> {
+  const key = includeRecent ? 'true' : 'false'
+  const existing = inflightNotifications[key]
+  if (existing) return existing
+
+  const promise = fetchNotifications(includeRecent).finally(() => {
+    inflightNotifications[key] = undefined
+  })
+  inflightNotifications[key] = promise
+  return promise
 }
 
 export async function markNotificationRead(jobId: string): Promise<void> {

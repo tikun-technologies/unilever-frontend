@@ -48,6 +48,7 @@ import { AnalyticsAssistantPanel } from "./components/AnalyticsAssistantPanel"
 import { useAnalyticsAssistant } from "@/lib/hooks/useAnalyticsAssistant"
 import { createSavedDesign } from "@/lib/api/StudyAPI"
 import type { AssistantAction, AssistantQueryResponse } from "@/lib/types/analyticsAssistant"
+import { downloadAnalyticsAssistantPpt } from "@/lib/api/AnalyticsAssistantAPI"
 
 export default function StudyAnalyticsPage() {
     const params = useParams()
@@ -486,6 +487,25 @@ export default function StudyAnalyticsPage() {
             }
             if (action.type === "export_csv") {
                 await buildCsvAndDownload("filtered")
+                return
+            }
+            if (action.type === "download_ppt") {
+                const payloadFilters =
+                    (action.payload?.filters as StudyFilterPayload["filters"] | undefined) ||
+                    (isFilterActive ? activeFilters : undefined)
+                const { blob, filename } = await downloadAnalyticsAssistantPpt(studyId, {
+                    filters: payloadFilters || null,
+                    use_active_filters: Boolean(isFilterActive) && !action.payload?.filters,
+                    metric: String(action.payload?.metric || "T"),
+                    segment_section: action.payload?.segment_section || null,
+                    segment_key: action.payload?.segment_key || null,
+                })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement("a")
+                a.href = url
+                a.download = filename || `${safeFileNamePart(study?.title, "study")}-MindSurve-analytics.pptx`
+                a.click()
+                URL.revokeObjectURL(url)
                 return
             }
             if (action.type === "save_design") {

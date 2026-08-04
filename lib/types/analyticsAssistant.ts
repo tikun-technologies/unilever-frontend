@@ -19,6 +19,7 @@ export type AssistantToolName =
   | "fatigue_summary"
   | "explain_mindset"
   | "list_saved_designs"
+  | "generate_ppt"
   | "clarify"
   | "unsupported"
 
@@ -86,6 +87,7 @@ export interface AssistantAction {
     | "save_design"
     | "compare_designs"
     | "export_csv"
+    | "download_ppt"
     | "set_metric"
     | "set_segment"
   label: string

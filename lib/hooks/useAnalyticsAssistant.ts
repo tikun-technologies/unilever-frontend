@@ -27,6 +27,7 @@ function newId() {
 const STARTER_PROMPTS = [
   "Which element should I show the client, and why?",
   "Give me the 5 most important findings from this study",
+  "Generate a PowerPoint for this study",
   "Where do men and women disagree most?",
   "Is the top design meaningfully better than the runner-up?",
   "Which claims are strong enough to build a campaign on?",
@@ -338,6 +339,12 @@ export function useAnalyticsAssistant(options: {
             return msg
           })
         )
+
+        // Auto-start PPT download when the assistant prepares a deck.
+        const pptAction = response.actions?.find((action) => action.type === "download_ppt")
+        if (pptAction && onAction) {
+          void onAction(pptAction, response)
+        }
       } catch (e: any) {
         if (e?.name === "AbortError") return
         const errText = e?.message || "Assistant request failed"
@@ -363,7 +370,7 @@ export function useAnalyticsAssistant(options: {
         setLoading(false)
       }
     },
-    [studyId, loading, isFilterActive, activeFilters, followUp]
+    [studyId, loading, isFilterActive, activeFilters, followUp, onAction]
   )
 
   const retryLast = useCallback(() => {

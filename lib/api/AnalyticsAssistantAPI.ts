@@ -88,6 +88,52 @@ export async function getAnalyticsAssistantHistory(
   return data as AssistantHistoryPage
 }
 
+export async function downloadAnalyticsAssistantPpt(
+  studyId: string,
+  payload?: {
+    filters?: Record<string, any> | null
+    use_active_filters?: boolean
+    metric?: string | null
+    segment_section?: string | null
+    segment_key?: string | null
+  },
+  signal?: AbortSignal
+): Promise<{ blob: Blob; filename: string }> {
+  const cleanId = normalizeStudyId(studyId)
+  if (!cleanId) throw new Error("Study ID is required")
+
+  const response = await fetchWithAuth(
+    `${API_BASE_URL}/studies/${encodeURIComponent(cleanId)}/assistant/export-ppt`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept:
+          "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      },
+      body: JSON.stringify({
+        filters: payload?.filters ?? null,
+        use_active_filters: payload?.use_active_filters ?? true,
+        metric: payload?.metric ?? "T",
+        segment_section: payload?.segment_section ?? null,
+        segment_key: payload?.segment_key ?? null,
+      }),
+      signal,
+    }
+  )
+
+  if (!response.ok) {
+    const { data, text } = await parseJsonResponse(response)
+    throwApiError(response, data, text, "Failed to generate PowerPoint")
+  }
+
+  const blob = await response.blob()
+  const disposition = response.headers.get("Content-Disposition") || ""
+  const match = /filename=\"?([^\";]+)\"?/i.exec(disposition)
+  const filename = match?.[1] || "MindSurve-analytics.pptx"
+  return { blob, filename }
+}
+
 export async function clearAnalyticsAssistantHistory(
   studyId: string,
   signal?: AbortSignal
