@@ -93,7 +93,7 @@ function isJobStateActive(): boolean {
 }
 
 export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, userRole = 'viewer', lastStepNumber = 8, isSpecialCreator = false }: { onBack: () => void; onDataChange?: () => void; isReadOnly?: boolean; userRole?: string; /** When Keys step exists (special creator), Launch is step 9; otherwise 8 */ lastStepNumber?: number; /** Show Keys section only for special creators */ isSpecialCreator?: boolean }) {
-  const canLaunch = userRole === 'admin'
+  const canLaunch = userRole === 'admin' || userRole === 'editor' || userRole === 'owner'
   const [isLaunching, setIsLaunching] = useState(false)
   const [launchStage, setLaunchStage] = useState(0)
   const [launchError, setLaunchError] = useState<string | null>(null)
@@ -981,7 +981,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
             )}
             {!canLaunch && !isGeneratingTasks && (
               <p className="text-xs text-center text-amber-600 font-medium">
-                Only study owners can launch. You have {userRole || 'viewer'} access.
+                Only admins and editors can launch. You have {userRole || 'viewer'} access.
               </p>
             )}
           </div>

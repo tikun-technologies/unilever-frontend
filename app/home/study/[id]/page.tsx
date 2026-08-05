@@ -571,6 +571,11 @@ export default function StudyManagementPage() {
     return "admin"
   })()
 
+  const canChangeStatus =
+    studyUserRole === "admin" ||
+    studyUserRole === "editor" ||
+    studyUserRole === "owner"
+
   return (
     <AuthGuard requireAuth={true}>
       <div className="min-h-screen bg-gray-50">
@@ -639,15 +644,17 @@ export default function StudyManagementPage() {
                   )}
                 </button>
 
-                {getActionButton()}
-                <button
-                  onClick={() => handleStatusUpdate("completed")}
-                  disabled={updating || study.status === "completed"}
-                  className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-md bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 shrink-0"
-                >
-                  <CheckCircle className="w-3.5 h-3.5 shrink-0" />
-                  Complete Study
-                </button>
+                {canChangeStatus && getActionButton()}
+                {canChangeStatus && (
+                  <button
+                    onClick={() => handleStatusUpdate("completed")}
+                    disabled={updating || study.status === "completed"}
+                    className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-md bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 shrink-0"
+                  >
+                    <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                    Complete Study
+                  </button>
+                )}
               </div>
             </div>
           </div>
