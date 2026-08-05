@@ -468,6 +468,9 @@
   .right-4 {
     right: calc(var(--spacing) * 4);
   }
+  .right-\[5\.5rem\] {
+    right: 5.5rem;
+  }
   .-bottom-2 {
     bottom: calc(var(--spacing) * -2);
   }
@@ -1754,6 +1757,9 @@
   .flex-row {
     flex-direction: row;
   }
+  .flex-nowrap {
+    flex-wrap: nowrap;
+  }
   .flex-wrap {
     flex-wrap: wrap;
   }
@@ -1786,6 +1792,9 @@
   }
   .justify-start {
     justify-content: flex-start;
+  }
+  .gap-0\.5 {
+    gap: calc(var(--spacing) * 0.5);
   }
   .gap-1 {
     gap: var(--spacing);
@@ -3320,6 +3329,9 @@
   }
   .pr-12 {
     padding-right: calc(var(--spacing) * 12);
+  }
+  .pr-20 {
+    padding-right: calc(var(--spacing) * 20);
   }
   .pr-24 {
     padding-right: calc(var(--spacing) * 24);
@@ -5145,6 +5157,9 @@
     .sm\:right-6 {
       right: calc(var(--spacing) * 6);
     }
+    .sm\:right-28 {
+      right: calc(var(--spacing) * 28);
+    }
     .sm\:-bottom-4 {
       bottom: calc(var(--spacing) * -4);
     }
@@ -5310,6 +5325,9 @@
     .sm\:min-w-0 {
       min-width: 0px;
     }
+    .sm\:min-w-9 {
+      min-width: calc(var(--spacing) * 9);
+    }
     .sm\:min-w-\[5\.5rem\] {
       min-width: 5.5rem;
     }
@@ -5358,6 +5376,9 @@
     }
     .sm\:justify-end {
       justify-content: flex-end;
+    }
+    .sm\:gap-1 {
+      gap: var(--spacing);
     }
     .sm\:gap-1\.5 {
       gap: calc(var(--spacing) * 1.5);
@@ -5521,8 +5542,8 @@
     .sm\:pr-6 {
       padding-right: calc(var(--spacing) * 6);
     }
-    .sm\:pr-28 {
-      padding-right: calc(var(--spacing) * 28);
+    .sm\:pr-32 {
+      padding-right: calc(var(--spacing) * 32);
     }
     .sm\:pb-0 {
       padding-bottom: 0px;

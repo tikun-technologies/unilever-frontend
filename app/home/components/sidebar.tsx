@@ -104,8 +104,8 @@ export function Sidebar({
 
     const fetchStudiesForProjectIfNeeded = useCallback(
         async (projectId: string) => {
-            const fromMain = studiesByProjectId[projectId] ?? [];
-            if (fromMain.length > 0) return;
+            // Always load via project API when expanded. The main studies list is paginated,
+            // so grouping by project_id would otherwise show an incomplete subset.
             if (fallbackStudiesByProject[projectId] != null) return;
             if (!fetchProjectStudies) return;
             setLoadingProjectIds((p) => new Set(p).add(projectId));
@@ -120,21 +120,19 @@ export function Sidebar({
                 });
             }
         },
-        [studiesByProjectId, fetchProjectStudies, fallbackStudiesByProject]
+        [fetchProjectStudies, fallbackStudiesByProject]
     );
 
     useEffect(() => {
         expandedProjectIds.forEach((projectId) => {
-            const fromMain = studiesByProjectId[projectId] ?? [];
-            if (fromMain.length > 0) return;
             if (fallbackStudiesByProject[projectId] != null) return;
             fetchStudiesForProjectIfNeeded(projectId);
         });
-    }, [expandedProjectIds, studiesByProjectId, fallbackStudiesByProject, fetchStudiesForProjectIfNeeded]);
+    }, [expandedProjectIds, fallbackStudiesByProject, fetchStudiesForProjectIfNeeded]);
 
     const getStudiesForProjectDisplay = useCallback(
         (projectId: string): StudyListItem[] => {
-            return studiesByProjectId[projectId] ?? fallbackStudiesByProject[projectId] ?? [];
+            return fallbackStudiesByProject[projectId] ?? studiesByProjectId[projectId] ?? [];
         },
         [studiesByProjectId, fallbackStudiesByProject]
     );

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, Suspense } from "react"
+import { useState, useEffect, useRef, Suspense, useCallback, useMemo } from "react"
 import { motion } from "framer-motion"
 import { useSearchParams, useRouter } from "next/navigation"
 import { DashboardHeader } from "./components/dashboard-header"
@@ -8,12 +8,20 @@ import { OverviewCards } from "./components/overview-cards"
 import { StudyFilters } from "./components/study-filters"
 import { StudyGrid } from "./components/study-grid"
 import { AuthGuardDebug as AuthGuard } from "@/components/auth/AuthGuardDebug"
-import { getStudies, StudyListItem, fetchWithAuth } from "@/lib/api/StudyAPI"
+import {
+  getStudies,
+  StudyListItem,
+  StudyStatusFilter,
+  StudyTimeRange,
+  StudyType,
+  StudiesResponse,
+} from "@/lib/api/StudyAPI"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
 import { Sidebar } from "./components/sidebar"
 import { CreateProjectModal } from "./components/create-project-modal"
 import { EditProjectModal } from "./components/edit-project-modal"
 import { ShareProjectModal } from "@/components/home/ShareProjectModal"
+import { Pagination } from "@/components/ui/pagination"
 import {
   getProjects as getProjectsApi,
   createProject as createProjectApi,
@@ -54,15 +62,73 @@ function isAuthRelatedError(err: unknown): boolean {
   return authTerms.some((term) => msg.includes(term))
 }
 
+const PAGE_SIZE = 10
+
+const TAB_TO_STATUS: Record<string, StudyStatusFilter | "all"> = {
+  "All Studies": "all",
+  "Active Studies": "active",
+  "Draft Studies": "draft",
+  Complete: "completed",
+}
+
+const STATUS_TO_TAB: Record<string, string> = {
+  all: "All Studies",
+  active: "Active Studies",
+  draft: "Draft Studies",
+  completed: "Complete",
+}
+
+const TYPE_LABEL_TO_API: Record<string, StudyType | "all"> = {
+  "All Types": "all",
+  Grid: "grid",
+  Layer: "layer",
+  Hybrid: "hybrid",
+  Text: "text",
+}
+
+const TYPE_API_TO_LABEL: Record<string, string> = {
+  all: "All Types",
+  grid: "Grid",
+  layer: "Layer",
+  hybrid: "Hybrid",
+  text: "Text",
+}
+
+const TIME_LABEL_TO_API: Record<string, StudyTimeRange> = {
+  "All Time": "all",
+  "Last 7 days": "7d",
+  "Last 30 days": "30d",
+  "Last 3 months": "90d",
+  "Last year": "365d",
+}
+
+const TIME_API_TO_LABEL: Record<string, string> = {
+  all: "All Time",
+  "7d": "Last 7 days",
+  "30d": "Last 30 days",
+  "90d": "Last 3 months",
+  "365d": "Last year",
+}
+
 function DashboardContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const urlProjId = searchParams.get('proj_id')
 
-  const [activeTab, setActiveTab] = useState("All Studies")
-  const [searchQuery, setSearchQuery] = useState("")
-  const [selectedType, setSelectedType] = useState("All Types")
-  const [selectedTime, setSelectedTime] = useState("All Time")
+  const initialStatus = searchParams.get("status") || "all"
+  const initialType = searchParams.get("type") || "all"
+  const initialTime = searchParams.get("time") || "all"
+  const initialPage = Math.max(1, Number(searchParams.get("page") || 1) || 1)
+  const initialSearch = searchParams.get("q") || ""
+
+  const [activeTab, setActiveTab] = useState(STATUS_TO_TAB[initialStatus] || "All Studies")
+  const [searchQuery, setSearchQuery] = useState(initialSearch)
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch)
+  const [selectedType, setSelectedType] = useState(TYPE_API_TO_LABEL[initialType] || "All Types")
+  const [selectedTime, setSelectedTime] = useState(TIME_API_TO_LABEL[initialTime] || "All Time")
+  const [page, setPage] = useState(initialPage)
+  const [total, setTotal] = useState(0)
+  const [totalPages, setTotalPages] = useState(0)
   const [studies, setStudies] = useState<StudyListItem[]>([])
   const [loading, setLoading] = useState(true)
   const [cardsLoading, setCardsLoading] = useState(true)
@@ -75,10 +141,11 @@ function DashboardContent() {
     draft: 0,
     completed: 0
   })
+  const [projectHasStudies, setProjectHasStudies] = useState(false)
 
   // Project state
   const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(urlProjId)
   const [studyProjectMapping, setStudyProjectMapping] = useState<Record<string, string>>({})
   const [projectStudies, setProjectStudies] = useState<StudyListItem[]>([])
   const [isProjectModalOpen, setIsProjectModalOpen] = useState(false)
@@ -90,7 +157,7 @@ function DashboardContent() {
   const [projectStudiesLoading, setProjectStudiesLoading] = useState(false)
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
   const [sharingProjectId, setSharingProjectId] = useState<string | null>(null)
-  const latestProjectRequestId = useRef<string | null>(null)
+  const latestListRequestId = useRef(0)
   const [exportingProjectCsv, setExportingProjectCsv] = useState(false)
   const [exportCsvStatus, setExportCsvStatus] = useState("Getting data...")
   const [exportingProjectZip, setExportingProjectZip] = useState(false)
@@ -161,29 +228,8 @@ function DashboardContent() {
           } catch { /* ignore */ }
         }
 
-        // 2. Fetch studies to confirm auth works - redirect if 204/401/403 (auth failed)
-        const studiesRes = await fetchWithAuth(`${API_BASE_URL}/studies?page=1&per_page=200`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        })
-        if (studiesRes.status === 204 || studiesRes.status === 401 || studiesRes.status === 403) {
-          redirectToLoginOnAuthError()
-          return
-        }
-        if (!studiesRes.ok) {
-          const errData = await studiesRes.json().catch(() => ({}))
-          throw new Error((errData as { detail?: string })?.detail || `Failed to load studies: ${studiesRes.status}`)
-        }
-        const studiesText = await studiesRes.text().catch(() => '')
-        let studiesData: unknown = []
-        try { studiesData = studiesText?.trim() ? JSON.parse(studiesText) : [] } catch { }
-        const safeStudiesArray = Array.isArray(studiesData) ? studiesData as StudyListItem[]
-          : (studiesData && typeof studiesData === 'object' && 'studies' in studiesData && Array.isArray((studiesData as { studies: unknown }).studies))
-            ? ((studiesData as { studies: StudyListItem[] }).studies) : []
-        setStudies(safeStudiesArray)
-        try { localStorage.setItem('home_studies_cache', JSON.stringify(safeStudiesArray)) } catch { }
-        setCardsLoading(false)
-
+        // Auth is confirmed by validate-token above. The real studies list fetch
+        // (page/per_page=10) runs next and handles 401/403 via fetchWithAuth.
         setIsValidatingToken(false)
         setIsInitialDataLoading(false)
       } catch (err) {
@@ -304,10 +350,178 @@ function DashboardContent() {
     } catch { }
   }, [isValidatingToken])
 
+  const statusFilter = TAB_TO_STATUS[activeTab] || "all"
+  const studyTypeFilter = TYPE_LABEL_TO_API[selectedType] || "all"
+  const timeRangeFilter = TIME_LABEL_TO_API[selectedTime] || "all"
+  const hasActiveFilters =
+    Boolean(debouncedSearch.trim()) ||
+    statusFilter !== "all" ||
+    studyTypeFilter !== "all" ||
+    timeRangeFilter !== "all"
+
+  const listQueryParams = useMemo(
+    () => ({
+      page,
+      per_page: PAGE_SIZE,
+      search: debouncedSearch.trim() || undefined,
+      status: statusFilter,
+      study_type: studyTypeFilter,
+      time_range: timeRangeFilter,
+    }),
+    [page, debouncedSearch, statusFilter, studyTypeFilter, timeRangeFilter]
+  )
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery)
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+
+  // Reset to page 1 when filters/search/project change (skip first mount to keep URL page)
+  const isFirstFilterEffect = useRef(true)
+  useEffect(() => {
+    if (isFirstFilterEffect.current) {
+      isFirstFilterEffect.current = false
+      return
+    }
+    setPage(1)
+  }, [debouncedSearch, activeTab, selectedType, selectedTime, selectedProjectId])
+
+  const syncListParamsToUrl = useCallback(
+    (next: {
+      page: number
+      q: string
+      status: string
+      type: string
+      time: string
+      projId: string | null
+    }) => {
+      const params = new URLSearchParams()
+      if (next.projId) params.set("proj_id", next.projId)
+      if (next.page > 1) params.set("page", String(next.page))
+      if (next.q.trim()) params.set("q", next.q.trim())
+      if (next.status !== "all") params.set("status", next.status)
+      if (next.type !== "all") params.set("type", next.type)
+      if (next.time !== "all") params.set("time", next.time)
+      const qs = params.toString()
+      router.replace(qs ? `/home?${qs}` : "/home", { scroll: false })
+    },
+    [router]
+  )
+
+  useEffect(() => {
+    if (isValidatingToken) return
+    syncListParamsToUrl({
+      page,
+      q: debouncedSearch,
+      status: statusFilter,
+      type: studyTypeFilter,
+      time: timeRangeFilter,
+      projId: selectedProjectId,
+    })
+  }, [
+    isValidatingToken,
+    page,
+    debouncedSearch,
+    statusFilter,
+    studyTypeFilter,
+    timeRangeFilter,
+    selectedProjectId,
+    syncListParamsToUrl,
+  ])
+
+  const applyListResponse = useCallback((data: StudiesResponse) => {
+    const items = Array.isArray(data.items) ? data.items : []
+    setTotal(data.total || 0)
+    setTotalPages(data.total_pages || 0)
+    setProjectHasStudies((data.status_counts?.total || data.total || 0) > 0)
+    setStats({
+      total: Number(data.status_counts?.total || 0),
+      active: Number(data.status_counts?.active || 0),
+      draft: Number(data.status_counts?.draft || 0),
+      completed: Number(data.status_counts?.completed || 0),
+    })
+    setCardsLoading(false)
+    if (selectedProjectId) {
+      setProjectStudies(items)
+      try {
+        localStorage.setItem(`ps_cache_${selectedProjectId}`, JSON.stringify(items))
+      } catch { /* ignore */ }
+    } else {
+      setStudies(items)
+      try {
+        localStorage.setItem("home_studies_cache", JSON.stringify(items))
+        localStorage.setItem(
+          "home_stats_cache",
+          JSON.stringify({
+            total: Number(data.status_counts?.total || 0),
+            active: Number(data.status_counts?.active || 0),
+            draft: Number(data.status_counts?.draft || 0),
+            completed: Number(data.status_counts?.completed || 0),
+          })
+        )
+      } catch { /* ignore */ }
+    }
+  }, [selectedProjectId])
+
+  const fetchStudiesList = useCallback(async () => {
+    if (isValidatingToken) return
+    const requestId = ++latestListRequestId.current
+    setLoading(true)
+    if (selectedProjectId) setProjectStudiesLoading(true)
+    setError(null)
+
+    try {
+      const data = selectedProjectId
+        ? await getProjectStudiesApi(selectedProjectId, listQueryParams)
+        : await getStudies(listQueryParams)
+
+      if (requestId !== latestListRequestId.current) return
+
+      // Clamp out-of-range page (e.g. after deletes/filters)
+      if (data.total_pages > 0 && page > data.total_pages) {
+        setPage(data.total_pages)
+        return
+      }
+
+      applyListResponse(data as StudiesResponse)
+    } catch (err) {
+      if (requestId !== latestListRequestId.current) return
+      if (isAuthRelatedError(err)) {
+        redirectToLoginOnAuthError()
+        return
+      }
+      console.error("Failed to fetch studies:", err)
+      setError(err instanceof Error ? err.message : "Failed to load studies")
+      setStudies([])
+      setProjectStudies([])
+      setTotal(0)
+      setTotalPages(0)
+    } finally {
+      if (requestId === latestListRequestId.current) {
+        setLoading(false)
+        setProjectStudiesLoading(false)
+      }
+    }
+  }, [isValidatingToken, selectedProjectId, listQueryParams, page, applyListResponse])
+
+  useEffect(() => {
+    fetchStudiesList()
+  }, [fetchStudiesList])
+
   const handleClearFilters = () => {
     setSearchQuery("")
+    setDebouncedSearch("")
     setSelectedType("All Types")
     setSelectedTime("All Time")
+    setActiveTab("All Studies")
+    setPage(1)
+  }
+
+  const handlePageChange = (nextPage: number) => {
+    setPage(Math.max(1, nextPage))
   }
 
   useEffect(() => {
@@ -445,43 +659,13 @@ function DashboardContent() {
   }
 
   const refetchStudies = async () => {
-    try {
-      const studiesArray = await getStudies(1, 200)
-      const safeStudiesArray = Array.isArray(studiesArray) ? studiesArray : []
-      setStudies(safeStudiesArray)
-      try { localStorage.setItem('home_studies_cache', JSON.stringify(safeStudiesArray)) } catch { }
-    } catch (err) {
-      if (isAuthRelatedError(err)) { redirectToLoginOnAuthError(); return }
-      console.error("Failed to refetch studies:", err)
-    }
-    if (selectedProjectId) {
-      try {
-        const data = await getProjectStudiesApi(selectedProjectId)
-        setProjectStudies(data)
-        try { localStorage.setItem(`ps_cache_${selectedProjectId}`, JSON.stringify(data)) } catch { }
-      } catch (err) {
-        if (isAuthRelatedError(err)) { redirectToLoginOnAuthError(); return }
-        console.error("Failed to refetch project studies:", err)
-      }
-    }
+    await fetchStudiesList()
   }
 
   const handleStudyDeleted = async (studyId: string) => {
-    setStudies((prev) => {
-      const next = prev.filter((study) => study.id !== studyId)
-      try { localStorage.setItem('home_studies_cache', JSON.stringify(next)) } catch { }
-      return next
-    })
-
-    setProjectStudies((prev) => {
-      const next = prev.filter((study) => study.id !== studyId)
-      if (selectedProjectId) {
-        try { localStorage.setItem(`ps_cache_${selectedProjectId}`, JSON.stringify(next)) } catch { }
-      }
-      return next
-    })
-
-    await refetchStudies()
+    setStudies((prev) => prev.filter((study) => study.id !== studyId))
+    setProjectStudies((prev) => prev.filter((study) => study.id !== studyId))
+    await fetchStudiesList()
   }
 
   const handleCreateProject = async (name: string, description: string) => {
@@ -564,88 +748,7 @@ function DashboardContent() {
     router.replace(`/home?${params.toString()}`)
   }
 
-  // Fetch project studies when project changes
-  useEffect(() => {
-    if (selectedProjectId) {
-      const currentProjectId = selectedProjectId
-      latestProjectRequestId.current = currentProjectId
-
-      let isHydrated = false
-      // Try to hydrate from cache first
-      try {
-        const cached = localStorage.getItem(`ps_cache_${currentProjectId}`)
-        if (cached) {
-          const parsed = JSON.parse(cached)
-          if (Array.isArray(parsed)) {
-            // Ignore stale cache if user has already switched projects
-            if (latestProjectRequestId.current !== currentProjectId) return
-            setProjectStudies(parsed)
-            isHydrated = true
-            // If we have cached studies, we can set loading to false early
-            setProjectStudiesLoading(false)
-          }
-        }
-      } catch { }
-
-      // If not hydrated, clear current project studies and show loading
-      if (!isHydrated) {
-        setProjectStudies([])
-        setProjectStudiesLoading(true)
-      }
-
-      const fetchProjectStudies = async () => {
-        try {
-          const data = await getProjectStudiesApi(currentProjectId);
-          // If while we were fetching the user switched to another project,
-          // don't override the studies for the new selection.
-          if (latestProjectRequestId.current !== currentProjectId) return
-          setProjectStudies(data);
-          // Cache for next time
-          try {
-            localStorage.setItem(`ps_cache_${currentProjectId}`, JSON.stringify(data))
-          } catch { }
-        } catch (err) {
-          if (isAuthRelatedError(err)) {
-            redirectToLoginOnAuthError()
-            return
-          }
-          console.error("Failed to fetch project studies:", err);
-          if (latestProjectRequestId.current === currentProjectId) {
-            setProjectStudies([]);
-            setError("Failed to load project studies. Please try again.");
-          }
-        } finally {
-          if (latestProjectRequestId.current === currentProjectId) {
-            setProjectStudiesLoading(false)
-          }
-        }
-      };
-      fetchProjectStudies();
-    } else {
-      latestProjectRequestId.current = null
-      setProjectStudiesLoading(false)
-      setProjectStudies([]);
-    }
-  }, [selectedProjectId]);
-
-  // Filter studies based on selected project
-  const filteredStudies = selectedProjectId ? projectStudies : studies;
-
-  // New effect to update stats when filtered studies change
-  useEffect(() => {
-    const total = filteredStudies.length
-    const active = filteredStudies.filter(s => s.status === 'active').length
-    const draft = filteredStudies.filter(s => s.status === 'draft').length
-    const completed = filteredStudies.filter(s => s.status === 'completed').length
-
-    const nextStats = { total, active, draft, completed }
-    setStats(nextStats)
-
-    // Only cache global stats
-    if (!selectedProjectId) {
-      try { localStorage.setItem('home_stats_cache', JSON.stringify(nextStats)) } catch { }
-    }
-  }, [filteredStudies, selectedProjectId])
+  const filteredStudies = selectedProjectId ? projectStudies : studies
 
   // Keep loading spinner until token is validated AND initial data fetch completes (or redirects)
   if (isValidatingToken || isInitialDataLoading) {
@@ -684,8 +787,8 @@ function DashboardContent() {
           isLoading={projectsLoading}
           studies={studies}
           fetchProjectStudies={async (projectId) => {
-            const data = await getProjectStudiesApi(projectId)
-            return Array.isArray(data) ? (data as StudyListItem[]) : []
+            const data = await getProjectStudiesApi(projectId, { page: 1, per_page: 100 })
+            return Array.isArray(data.items) ? (data.items as StudyListItem[]) : []
           }}
           onStudyCopied={refetchStudies}
           forceExpanded={forceSidebarForTour}
@@ -713,6 +816,7 @@ function DashboardContent() {
               selectedTime={selectedTime}
               setSelectedTime={setSelectedTime}
               onClearFilters={handleClearFilters}
+              onSearchSubmit={() => setDebouncedSearch(searchQuery)}
               stats={stats}
             />
 
@@ -721,7 +825,7 @@ function DashboardContent() {
                 <button
                   type="button"
                   onClick={handleExportProjectCsv}
-                  disabled={exportingProjectCsv || projectStudies.length === 0}
+                  disabled={exportingProjectCsv || !projectHasStudies}
                   className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
                 >
                   {exportingProjectCsv ? (
@@ -739,7 +843,7 @@ function DashboardContent() {
                 <button
                   type="button"
                   onClick={() => setIsPanelistModalOpen(true)}
-                  disabled={projectStudies.length === 0}
+                  disabled={!projectHasStudies}
                   className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
                 >
                   <FileDown className="w-4 h-4" />
@@ -748,7 +852,7 @@ function DashboardContent() {
                 <button
                   type="button"
                   onClick={handleExportProjectZip}
-                  disabled={exportingProjectZip || projectStudies.length === 0}
+                  disabled={exportingProjectZip || !projectHasStudies}
                   className="inline-flex cursor-pointer items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white disabled:opacity-70 disabled:cursor-not-allowed transition-colors"
                 >
                   {exportingProjectZip ? (
@@ -788,17 +892,25 @@ function DashboardContent() {
             <StudyGrid
               studies={filteredStudies}
               isAllStudiesView={!selectedProjectId}
-              activeTab={activeTab}
-              searchQuery={searchQuery}
-              selectedType={selectedType}
-              selectedTime={selectedTime}
               loading={selectedProjectId ? projectStudiesLoading : loading}
               error={error}
               projects={projects}
+              hasActiveFilters={hasActiveFilters}
+              onClearFilters={handleClearFilters}
+              onRetry={fetchStudiesList}
               onMappingChange={() => setStudyProjectMapping(getStudyProjectMapping())}
               onStudyCopied={refetchStudies}
               onStudyDeleted={handleStudyDeleted}
               onStudyAssigned={refetchStudies}
+            />
+
+            <Pagination
+              page={page}
+              totalPages={totalPages}
+              total={total}
+              perPage={PAGE_SIZE}
+              onPageChange={handlePageChange}
+              disabled={selectedProjectId ? projectStudiesLoading : loading}
             />
           </div>
         </motion.div>

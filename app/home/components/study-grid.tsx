@@ -14,13 +14,12 @@ import { prepareFreshCreateStudy } from "@/lib/utils/createStudyStorage"
 interface StudyGridProps {
   studies: StudyListItem[]
   isAllStudiesView?: boolean
-  activeTab: string
-  searchQuery: string
-  selectedType: string
-  selectedTime: string
   loading: boolean
   error: string | null
   projects: Project[]
+  hasActiveFilters?: boolean
+  onClearFilters?: () => void
+  onRetry?: () => void
   onMappingChange?: () => void
   onStudyCopied?: () => void | Promise<void>
   onStudyDeleted?: (studyId: string) => void | Promise<void>
@@ -30,13 +29,12 @@ interface StudyGridProps {
 export function StudyGrid({
   studies,
   isAllStudiesView = true,
-  activeTab,
-  searchQuery,
-  selectedType,
-  selectedTime,
   loading,
   error,
   projects,
+  hasActiveFilters = false,
+  onClearFilters,
+  onRetry,
   onMappingChange,
   onStudyCopied,
   onStudyDeleted,
@@ -222,50 +220,7 @@ export function StudyGrid({
     }
   }
 
-  // Filter studies based on active tab, search query, and filters
-  const filteredStudies = studies.filter((study) => {
-    // Tab filtering
-    if (activeTab === "Active Studies" && study.status !== "active") return false
-    if (activeTab === "Draft Studies" && study.status !== "draft") return false
-    if (activeTab === "Complete" && study.status !== "completed") return false
-
-    // Search filtering
-    if (searchQuery && !study.title.toLowerCase().includes(searchQuery.toLowerCase())) {
-      return false
-    }
-
-    // Type filtering
-    if (selectedType !== "All Types") {
-      if (selectedType === "Grid" && study.study_type !== "grid") return false
-      if (selectedType === "Layer" && study.study_type !== "layer") return false
-      if (selectedType === "Hybrid" && study.study_type !== "hybrid") return false
-      if (selectedType === "Text" && study.study_type !== "text") return false
-    }
-
-    // Time filtering (simplified - you can implement more sophisticated date filtering)
-    if (selectedTime !== "All Time") {
-      const studyDate = new Date(study.created_at)
-      const now = new Date()
-      const daysDiff = Math.floor((now.getTime() - studyDate.getTime()) / (1000 * 60 * 60 * 24))
-
-      switch (selectedTime) {
-        case "Last 7 days":
-          if (daysDiff > 7) return false
-          break
-        case "Last 30 days":
-          if (daysDiff > 30) return false
-          break
-        case "Last 3 months":
-          if (daysDiff > 90) return false
-          break
-        case "Last year":
-          if (daysDiff > 365) return false
-          break
-      }
-    }
-
-    return true
-  })
+  const filteredStudies = studies
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -318,19 +273,39 @@ export function StudyGrid({
     return (
       <div data-tour="studies" className="text-center py-12">
         <div className="text-red-600 mb-4">Error loading studies: {error}</div>
-        <Button onClick={() => window.location.reload()}>Try Again</Button>
+        <Button onClick={() => (onRetry ? onRetry() : window.location.reload())}>Try Again</Button>
       </div>
     )
   }
 
   if (filteredStudies.length === 0) {
-    // Check if there are no studies at all vs no studies matching filters
-    const hasFilters = searchQuery || selectedType !== "All Types" || selectedTime !== "All Time" || activeTab !== "All Studies"
-
     return (
       <div className="text-center py-12">
-        {studies.length === 0 ? (
-          // No studies at all
+        {hasActiveFilters ? (
+          <div className="max-w-md mx-auto">
+            <div className="text-gray-500 mb-4">
+              <div className="text-6xl mb-4">🔍</div>
+              <h3 className="text-lg font-semibold text-gray-700 mb-2">No Studies Found</h3>
+              <p className="text-sm text-gray-500 mb-6">
+                No studies match your current filters. Try adjusting your search criteria or clearing the filters.
+              </p>
+            </div>
+            <div className="flex gap-3 justify-center">
+              {onClearFilters && (
+                <Button variant="outline" onClick={onClearFilters} className="px-4 py-2 cursor-pointer">
+                  Clear Filters
+                </Button>
+              )}
+              <Button
+                onClick={handleCreateNewStudy}
+                data-tour="create-study"
+                className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-4 py-2 rounded-lg cursor-pointer"
+              >
+                Create New Study
+              </Button>
+            </div>
+          </div>
+        ) : (
           <div className="max-w-md mx-auto">
             <div className="text-gray-500 mb-4">
               <div className="text-6xl mb-4">📊</div>
@@ -342,42 +317,10 @@ export function StudyGrid({
             <Button
               onClick={handleCreateNewStudy}
               data-tour="create-study"
-              className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-6 py-2 rounded-lg"
+              className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-6 py-2 rounded-lg cursor-pointer"
             >
               Create Your First Study
             </Button>
-          </div>
-        ) : (
-          // Studies exist but don't match filters
-          <div className="max-w-md mx-auto">
-            <div className="text-gray-500 mb-4">
-              <div className="text-6xl mb-4">🔍</div>
-              <h3 className="text-lg font-semibold text-gray-700 mb-2">No Studies Found</h3>
-              <p className="text-sm text-gray-500 mb-6">
-                {hasFilters
-                  ? "No studies match your current filters. Try adjusting your search criteria or clearing the filters."
-                  : "No studies found in this category."
-                }
-              </p>
-            </div>
-            <div className="flex gap-3 justify-center">
-              {hasFilters && (
-                <Button
-                  variant="outline"
-                  onClick={() => window.location.reload()}
-                  className="px-4 py-2"
-                >
-                  Clear Filters
-                </Button>
-              )}
-              <Button
-                onClick={handleCreateNewStudy}
-                data-tour="create-study"
-                className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-4 py-2 rounded-lg"
-              >
-                Create New Study
-              </Button>
-            </div>
           </div>
         )}
       </div>

@@ -3,7 +3,7 @@
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Search, ChevronDown } from "lucide-react"
+import { Search, ChevronDown, X } from "lucide-react"
 import { useState, useEffect, useRef } from "react"
 
 interface Stats {
@@ -23,6 +23,7 @@ interface StudyFiltersProps {
   selectedTime: string
   setSelectedTime: (time: string) => void
   onClearFilters: () => void
+  onSearchSubmit?: () => void
   stats: Stats
 }
 
@@ -36,6 +37,7 @@ export function StudyFilters({
   selectedTime,
   setSelectedTime,
   onClearFilters,
+  onSearchSubmit,
   stats,
 }: StudyFiltersProps) {
   const [showTypeDropdown, setShowTypeDropdown] = useState(false)
@@ -52,8 +54,12 @@ export function StudyFilters({
 
   const typeOptions = ["All Types", "Grid", "Layer", "Hybrid", "Text"]
   const timeOptions = ["All Time", "Last 7 days", "Last 30 days", "Last 3 months", "Last year"]
+  const hasFilters =
+    Boolean(searchQuery.trim()) ||
+    selectedType !== "All Types" ||
+    selectedTime !== "All Time" ||
+    activeTab !== "All Studies"
 
-  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (typeDropdownRef.current && !typeDropdownRef.current.contains(event.target as Node)) {
@@ -64,14 +70,14 @@ export function StudyFilters({
       }
     }
 
-    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener("mousedown", handleClickOutside)
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener("mousedown", handleClickOutside)
     }
   }, [])
+
   return (
     <div className="mb-8">
-      {/* Tabs */}
       <div className="flex flex-wrap gap-2 mb-6 border-b border-[rgba(209,223,235,1)]">
         {tabs.map((tab) => (
           <motion.button
@@ -95,29 +101,45 @@ export function StudyFilters({
         ))}
       </div>
 
-      {/* Search and Filters */}
       <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
         <div className="flex-1 sm:relative w-full">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4 z-10" />
             <Input
-              placeholder="Search Studies By Title, Type And Descriptions"
+              placeholder="Search studies by title or product ID"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10 pr-4 sm:pr-28 py-2 w-full"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") onSearchSubmit?.()
+              }}
+              className="pl-10 pr-20 sm:pr-32 py-2 w-full"
+              aria-label="Search studies"
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                className="absolute right-[5.5rem] sm:right-28 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 cursor-pointer"
+                aria-label="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
-          <Button className="w-full sm:w-auto mt-2 sm:mt-0 sm:absolute sm:right-2 sm:top-1/2 sm:-translate-y-1/2 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-4 py-2 text-sm cursor-pointer">
+          <Button
+            type="button"
+            onClick={() => onSearchSubmit?.()}
+            className="w-full sm:w-auto mt-2 sm:mt-0 sm:absolute sm:right-2 sm:top-1/2 sm:-translate-y-1/2 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-4 py-2 text-sm cursor-pointer"
+          >
             Search
           </Button>
         </div>
 
         <div className="flex gap-2 flex-wrap">
-          {/* Type Filter Dropdown */}
           <div className="relative" ref={typeDropdownRef}>
             <motion.div whileHover={{ scale: 1.02 }}>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="flex items-center space-x-1 bg-transparent min-w-[120px] cursor-pointer"
                 onClick={() => setShowTypeDropdown(!showTypeDropdown)}
               >
@@ -125,7 +147,7 @@ export function StudyFilters({
                 <ChevronDown className="w-4 h-4 flex-shrink-0" />
               </Button>
             </motion.div>
-            
+
             {showTypeDropdown && (
               <div className="absolute top-full left-0 mt-1 w-40 bg-white border border-gray-200 rounded-md shadow-lg z-10 cursor-pointer">
                 {typeOptions.map((option) => (
@@ -136,7 +158,7 @@ export function StudyFilters({
                       setShowTypeDropdown(false)
                     }}
                     className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 cursor-pointer ${
-                      selectedType === option ? 'bg-blue-50 text-blue-600' : 'text-gray-700'
+                      selectedType === option ? "bg-blue-50 text-blue-600" : "text-gray-700"
                     }`}
                   >
                     {option}
@@ -146,11 +168,10 @@ export function StudyFilters({
             )}
           </div>
 
-          {/* Time Filter Dropdown */}
           <div className="relative" ref={timeDropdownRef}>
             <motion.div whileHover={{ scale: 1.02 }}>
-              <Button 
-                variant="outline" 
+              <Button
+                variant="outline"
                 className="flex items-center space-x-1 bg-transparent min-w-[120px] cursor-pointer"
                 onClick={() => setShowTimeDropdown(!showTimeDropdown)}
               >
@@ -158,7 +179,7 @@ export function StudyFilters({
                 <ChevronDown className="w-4 h-4 flex-shrink-0" />
               </Button>
             </motion.div>
-            
+
             {showTimeDropdown && (
               <div className="absolute top-full left-0 mt-1 w-40 bg-white border border-gray-200 rounded-md shadow-lg z-10">
                 {timeOptions.map((option) => (
@@ -169,7 +190,7 @@ export function StudyFilters({
                       setShowTimeDropdown(false)
                     }}
                     className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 cursor-pointer ${
-                      selectedTime === option ? 'bg-blue-50 text-blue-600' : 'text-gray-700'
+                      selectedTime === option ? "bg-blue-50 text-blue-600" : "text-gray-700"
                     }`}
                   >
                     {option}
@@ -180,7 +201,12 @@ export function StudyFilters({
           </div>
 
           <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-            <Button variant="outline" onClick={onClearFilters} className="cursor-pointer">
+            <Button
+              variant="outline"
+              onClick={onClearFilters}
+              disabled={!hasFilters}
+              className="cursor-pointer"
+            >
               Clear Filters
             </Button>
           </motion.div>

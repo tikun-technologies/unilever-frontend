@@ -84,21 +84,127 @@ export async function getProjectById(projectId: string): Promise<Project> {
     return res.json();
 }
 
-/**
- * Get all studies affiliated with a project
- * GET /api/v1/projects/{project_id}/studies
- */
-export async function getProjectStudies(projectId: string): Promise<any[]> {
-    const res = await fetchWithAuth(`${API_BASE_URL}/projects/${projectId}/studies`, {
-        method: "GET",
-    });
+export type ProjectStudyStatus = "active" | "draft" | "completed" | "paused"
+export type ProjectStudyType = "grid" | "layer" | "text" | "hybrid"
+export type ProjectStudyTimeRange = "all" | "7d" | "30d" | "90d" | "365d"
 
-    if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.detail || "Failed to fetch project studies");
+export interface ProjectStudyListItem {
+    id: string
+    title: string
+    study_type: ProjectStudyType
+    status: ProjectStudyStatus
+    created_at: string
+    updated_at?: string
+    total_responses: number
+    completed_responses: number
+    abandoned_responses?: number
+    last_step?: number
+    project_id?: string
+    respondents_target?: number
+    respondents_completed?: number
+    product_id?: string | null
+    user_role?: "admin" | "editor" | "viewer"
+}
+
+export interface ProjectStudiesResponse {
+    items: ProjectStudyListItem[]
+    total: number
+    page: number
+    per_page: number
+    total_pages: number
+    has_next: boolean
+    has_previous: boolean
+    status_counts: {
+        total: number
+        active: number
+        draft: number
+        completed: number
+        paused: number
+    }
+}
+
+export interface GetProjectStudiesParams {
+    page?: number
+    per_page?: number
+    search?: string
+    status?: ProjectStudyStatus | "all"
+    study_type?: ProjectStudyType | "all"
+    time_range?: ProjectStudyTimeRange
+}
+
+function normalizeProjectStudiesResponse(data: unknown, page = 1, per_page = 10): ProjectStudiesResponse {
+    if (Array.isArray(data)) {
+        const items = data as ProjectStudyListItem[]
+        return {
+            items,
+            total: items.length,
+            page,
+            per_page,
+            total_pages: items.length > 0 ? 1 : 0,
+            has_next: false,
+            has_previous: false,
+            status_counts: { total: items.length, active: 0, draft: 0, completed: 0, paused: 0 },
+        }
     }
 
-    return res.json();
+    const obj = (data && typeof data === "object" ? data : {}) as Record<string, unknown>
+    const items = Array.isArray(obj.items) ? (obj.items as ProjectStudyListItem[]) : []
+    const total = Number(obj.total ?? items.length) || 0
+    const resolvedPage = Number(obj.page ?? page) || 1
+    const resolvedPerPage = Number(obj.per_page ?? per_page) || 10
+    const totalPages = Number(obj.total_pages ?? (resolvedPerPage > 0 ? Math.ceil(total / resolvedPerPage) : 0)) || 0
+    const counts = (obj.status_counts && typeof obj.status_counts === "object")
+        ? obj.status_counts as ProjectStudiesResponse["status_counts"]
+        : { total: 0, active: 0, draft: 0, completed: 0, paused: 0 }
+
+    return {
+        items,
+        total,
+        page: resolvedPage,
+        per_page: resolvedPerPage,
+        total_pages: totalPages,
+        has_next: Boolean(obj.has_next ?? resolvedPage < totalPages),
+        has_previous: Boolean(obj.has_previous ?? resolvedPage > 1),
+        status_counts: {
+            total: Number(counts.total || 0),
+            active: Number(counts.active || 0),
+            draft: Number(counts.draft || 0),
+            completed: Number(counts.completed || 0),
+            paused: Number(counts.paused || 0),
+        },
+    }
+}
+
+/**
+ * Get paginated studies affiliated with a project
+ * GET /api/v1/projects/{project_id}/studies
+ */
+export async function getProjectStudies(
+    projectId: string,
+    params: GetProjectStudiesParams = {}
+): Promise<ProjectStudiesResponse> {
+    const qs = new URLSearchParams()
+    const page = params.page ?? 1
+    const perPage = params.per_page ?? 10
+    qs.set("page", String(page))
+    qs.set("per_page", String(perPage))
+    if (params.search?.trim()) qs.set("search", params.search.trim())
+    if (params.status && params.status !== "all") qs.set("status", params.status)
+    if (params.study_type && params.study_type !== "all") qs.set("study_type", params.study_type)
+    if (params.time_range && params.time_range !== "all") qs.set("time_range", params.time_range)
+
+    const res = await fetchWithAuth(
+        `${API_BASE_URL}/projects/${projectId}/studies?${qs.toString()}`,
+        { method: "GET" }
+    )
+
+    if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || "Failed to fetch project studies")
+    }
+
+    const data = await res.json()
+    return normalizeProjectStudiesResponse(data, page, perPage)
 }
 
 /**

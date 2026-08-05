@@ -2684,31 +2684,146 @@ export async function checkStudyOwnership(studyId: string): Promise<{ is_owner: 
 }
 
 // Home page studies API
+export type StudyStatusFilter = 'active' | 'draft' | 'completed' | 'paused'
+export type StudyTimeRange = 'all' | '7d' | '30d' | '90d' | '365d'
+
 export interface StudyListItem {
   id: string
   title: string
   study_type: StudyType
-  status: 'active' | 'draft' | 'completed' | 'paused'
+  status: StudyStatusFilter
   created_at: string
   total_responses: number
   completed_responses: number
   abandoned_responses: number
   last_step?: number
   project_id?: string
+  respondents_target?: number
+  respondents_completed?: number
+  product_id?: string | null
   /** User's role for this study (from get studies API). Used to show/hide copy and delete. */
   user_role?: 'admin' | 'editor' | 'viewer'
 }
 
-export interface StudiesResponse {
-  studies?: StudyListItem[]
-  total?: number
-  page?: number
-  per_page?: number
-  total_pages?: number
+export interface StudyStatusCounts {
+  total: number
+  active: number
+  draft: number
+  completed: number
+  paused: number
 }
 
-export async function getStudies(page: number = 1, per_page: number = 1000): Promise<StudyListItem[]> {
-  const response = await fetchWithAuth(`${API_BASE_URL}/studies?page=${page}&per_page=${per_page}`, {
+export interface StudiesResponse {
+  items: StudyListItem[]
+  total: number
+  page: number
+  per_page: number
+  total_pages: number
+  has_next: boolean
+  has_previous: boolean
+  status_counts: StudyStatusCounts
+  /** @deprecated legacy shape */
+  studies?: StudyListItem[]
+}
+
+export interface GetStudiesParams {
+  page?: number
+  per_page?: number
+  search?: string
+  status?: StudyStatusFilter | 'all'
+  study_type?: StudyType | 'all'
+  time_range?: StudyTimeRange
+}
+
+const EMPTY_STATUS_COUNTS: StudyStatusCounts = {
+  total: 0,
+  active: 0,
+  draft: 0,
+  completed: 0,
+  paused: 0,
+}
+
+function normalizeStudiesResponse(data: unknown, page = 1, per_page = 10): StudiesResponse {
+  if (Array.isArray(data)) {
+    const items = data as StudyListItem[]
+    return {
+      items,
+      total: items.length,
+      page,
+      per_page,
+      total_pages: items.length > 0 ? 1 : 0,
+      has_next: false,
+      has_previous: false,
+      status_counts: EMPTY_STATUS_COUNTS,
+    }
+  }
+
+  if (data && typeof data === 'object') {
+    const obj = data as Record<string, unknown>
+    const items = Array.isArray(obj.items)
+      ? (obj.items as StudyListItem[])
+      : Array.isArray(obj.studies)
+        ? (obj.studies as StudyListItem[])
+        : []
+    const total = Number(obj.total ?? items.length) || 0
+    const resolvedPage = Number(obj.page ?? page) || 1
+    const resolvedPerPage = Number(obj.per_page ?? per_page) || 10
+    const totalPages = Number(obj.total_pages ?? (resolvedPerPage > 0 ? Math.ceil(total / resolvedPerPage) : 0)) || 0
+    const counts = (obj.status_counts && typeof obj.status_counts === 'object')
+      ? {
+          total: Number((obj.status_counts as StudyStatusCounts).total || 0),
+          active: Number((obj.status_counts as StudyStatusCounts).active || 0),
+          draft: Number((obj.status_counts as StudyStatusCounts).draft || 0),
+          completed: Number((obj.status_counts as StudyStatusCounts).completed || 0),
+          paused: Number((obj.status_counts as StudyStatusCounts).paused || 0),
+        }
+      : EMPTY_STATUS_COUNTS
+
+    return {
+      items,
+      total,
+      page: resolvedPage,
+      per_page: resolvedPerPage,
+      total_pages: totalPages,
+      has_next: Boolean(obj.has_next ?? resolvedPage < totalPages),
+      has_previous: Boolean(obj.has_previous ?? resolvedPage > 1),
+      status_counts: counts,
+    }
+  }
+
+  return {
+    items: [],
+    total: 0,
+    page,
+    per_page,
+    total_pages: 0,
+    has_next: false,
+    has_previous: false,
+    status_counts: EMPTY_STATUS_COUNTS,
+  }
+}
+
+function buildStudiesQuery(params: GetStudiesParams = {}): string {
+  const qs = new URLSearchParams()
+  const page = params.page ?? 1
+  const perPage = params.per_page ?? 10
+  qs.set('page', String(page))
+  qs.set('per_page', String(perPage))
+  if (params.search?.trim()) qs.set('search', params.search.trim())
+  if (params.status && params.status !== 'all') qs.set('status', params.status)
+  if (params.study_type && params.study_type !== 'all') qs.set('study_type', params.study_type)
+  if (params.time_range && params.time_range !== 'all') qs.set('time_range', params.time_range)
+  return qs.toString()
+}
+
+export async function getStudies(params: GetStudiesParams | number = 1, per_page: number = 10): Promise<StudiesResponse> {
+  const normalized: GetStudiesParams =
+    typeof params === 'number'
+      ? { page: params, per_page }
+      : { page: 1, per_page: 10, ...params }
+
+  const query = buildStudiesQuery(normalized)
+  const response = await fetchWithAuth(`${API_BASE_URL}/studies?${query}`, {
     method: 'GET',
     headers: {
       'Content-Type': 'application/json',
@@ -2716,7 +2831,9 @@ export async function getStudies(page: number = 1, per_page: number = 1000): Pro
   })
 
   // 204 = auth redirect in progress (fetchWithAuth returned no-content); don't parse body
-  if (response.status === 204) return []
+  if (response.status === 204) {
+    return normalizeStudiesResponse([], normalized.page, normalized.per_page)
+  }
 
   if (!response.ok) {
     const text = await response.text().catch(() => '')
@@ -2726,25 +2843,17 @@ export async function getStudies(page: number = 1, per_page: number = 1000): Pro
   }
 
   const text = await response.text().catch(() => '')
-  if (!text.trim()) return []
+  if (!text.trim()) {
+    return normalizeStudiesResponse([], normalized.page, normalized.per_page)
+  }
   let data: unknown
   try {
     data = JSON.parse(text)
   } catch {
-    return []
+    return normalizeStudiesResponse([], normalized.page, normalized.per_page)
   }
 
-  // Handle different response structures
-  if (Array.isArray(data)) {
-    return data
-  } else if (data && typeof data === 'object' && 'studies' in data && Array.isArray((data as { studies: unknown }).studies)) {
-    return (data as { studies: StudyListItem[] }).studies
-  } else if (data === null || data === undefined) {
-    return []
-  } else {
-    console.warn('Unexpected API response structure:', data)
-    return []
-  }
+  return normalizeStudiesResponse(data, normalized.page, normalized.per_page)
 }
 
 export async function getStudyBasicDetails(studyId: string): Promise<any> {
