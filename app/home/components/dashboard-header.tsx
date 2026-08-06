@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { ChevronDown, Plus, LogOut, PlayCircle, Share2, Trash2, Eye, LayoutTemplate } from "lucide-react"
+import { ChevronDown, Plus, LogOut, PlayCircle, UserPlus, Trash2, Eye, LayoutTemplate } from "lucide-react"
 import { useAuth } from "@/lib/auth/AuthContext"
 import Link from "next/link"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
@@ -176,7 +176,7 @@ export function DashboardHeader() {
                   disabled={!canViewStudyDetail}
                   variant="outline"
                   className={`${canViewStudyDetail
-                    ? "border-blue-200 text-blue-600 hover:bg-blue-50"
+                    ? "border-blue-200 text-blue-600 hover:bg-blue-50 cursor-pointer"
                     : "opacity-50 cursor-not-allowed text-gray-400 border-gray-200"
                     } h-9 px-2 sm:px-3 md:px-4 py-2 rounded-lg flex items-center justify-center gap-1 sm:gap-2 transition-all shrink-0 text-xs sm:text-sm`}
                   title={
@@ -195,13 +195,13 @@ export function DashboardHeader() {
                   disabled={!studyId || !userRole}
                   variant="outline"
                   className={`${studyId
-                    ? "border-blue-200 text-blue-600 hover:bg-blue-50"
+                    ? "border-blue-200 text-blue-600 hover:bg-blue-50 cursor-pointer"
                     : "opacity-50 cursor-not-allowed text-gray-400 border-gray-200"
-                    } h-9 w-9 sm:h-auto sm:w-auto p-0 sm:px-3 md:px-4 sm:py-2 rounded-lg flex items-center justify-center sm:space-x-2 transition-all shrink-0`}
-                  title={!studyId ? "Create a study first to share" : "Share study"}
+                    } h-9 w-9 sm:h-auto sm:w-auto p-0 sm:px-3 md:px-4 sm:py-2 rounded-lg flex items-center justify-center sm:space-x-2 transition-all shrink-0 text-xs sm:text-sm`}
+                  title={!studyId ? "Create a study first to add collaborators" : "Add collaborator"}
                 >
-                  <Share2 className="w-4 h-4 shrink-0" />
-                  <span className="hidden sm:inline whitespace-nowrap">Share</span>
+                  <UserPlus className="w-4 h-4 shrink-0" />
+                  <span className="hidden sm:inline whitespace-nowrap">Add Collaborator</span>
                 </Button>
                 {/* <Button
                   onClick={() => canDisposeStudy && setIsDisposeModalOpen(true)}
