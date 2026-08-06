@@ -327,9 +327,12 @@ export default function TasksPage() {
           middle: String(rs.middle_label || "")
         })
 
-        // API returns background at root metadata; merge may add study_info.metadata — read both
+        // API returns background at root metadata; merge may add study_info.metadata — read both.
+        // Only layer studies use a background; ignore stale URLs for grid/text/hybrid.
         const metadata = info.metadata || details.metadata || {}
-        setBackgroundUrl(metadata.background_image_url || info.background_image_url || details.background_image_url || null)
+        const rawBackgroundUrl =
+          metadata.background_image_url || info.background_image_url || details.background_image_url || null
+        setBackgroundUrl(normalizedType === 'layer' ? (rawBackgroundUrl || null) : null)
 
         // respondentTasks can be bucketed (for hybrid) or flat
         let respondentTasks: any[] = []
@@ -913,14 +916,19 @@ export default function TasksPage() {
                 
                 // 5. Store study details (same logic as intro page)
                 const normalizedInfo = respondentDetails?.study_info || {}
-                const backgroundUrl = normalizedInfo?.metadata?.background_image_url ||
+                const mergeStudyType = String(normalizedInfo?.study_type || '').toLowerCase()
+                const rawMergeBackgroundUrl = normalizedInfo?.metadata?.background_image_url ||
                   normalizedInfo?.background_image_url ||
                   respondentDetails?.metadata?.background_image_url || null
+                const backgroundUrl = mergeStudyType === 'layer' ? rawMergeBackgroundUrl : null
                   
                 const essentialData = {
                   study_info: {
                     ...normalizedInfo,
-                    ...(backgroundUrl ? { metadata: { ...(normalizedInfo.metadata || {}), background_image_url: backgroundUrl } } : {}),
+                    metadata: {
+                      ...(normalizedInfo.metadata || {}),
+                      background_image_url: backgroundUrl,
+                    },
                   },
                   assigned_tasks: respondentDetails?.assigned_tasks || [],
                   classification_questions: respondentDetails?.classification_questions || [],

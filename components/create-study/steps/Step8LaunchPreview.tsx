@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { createStudyFromLocalStorage, fetchWithAuth, buildStudyPayloadFromLocalStorage, putUpdateStudyAsync, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
 import { formatAgeSplitForDisplay, validateAudienceSegmentation } from "@/lib/utils/audienceSegmentationValidation"
+import { areGeneratedTasksStale } from "@/lib/utils/createStudyStorage"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
 
 function get<T>(key: string, fallback: T): T {
@@ -99,6 +100,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const [launchError, setLaunchError] = useState<string | null>(null)
   const [isConfirmed, setIsConfirmed] = useState(false)
   const [isGeneratingTasks, setIsGeneratingTasks] = useState(false)
+  const [tasksStale, setTasksStale] = useState(false)
   const [taskProgress, setTaskProgress] = useState(0)
   const taskWsCleanupRef = useRef<(() => void) | null>(null)
   const taskWsJobIdRef = useRef<string | null>(null)
@@ -155,7 +157,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const hasLayer = step2.type === 'layer'
   const hasText = step2.type === 'text'
 
-  // Sync task generation state and attach the dedicated task-generation WebSocket when needed.
+  // Sync task generation / staleness state and attach the dedicated task-generation WebSocket when needed.
   useEffect(() => {
     const stopTaskSocket = () => {
       taskWsCleanupRef.current?.()
@@ -164,6 +166,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
     }
 
     const update = () => {
+      setTasksStale(areGeneratedTasksStale())
       const active = isJobStateActive()
       setIsGeneratingTasks(active)
 
@@ -278,6 +281,10 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const handleLaunchStudy = async () => {
     if (!canLaunch || isReadOnly) return
     if (isGeneratingTasks) return
+    if (areGeneratedTasksStale()) {
+      setLaunchError('Study type changed after tasks were generated. Open Task Generation to regenerate tasks before launching.')
+      return
+    }
     if (!isConfirmed) {
       setLaunchError('Please confirm you are ready to launch this study')
       return
@@ -364,12 +371,12 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
             // Add status: 'active' to the payload to activate the study
             const finalPayload = { ...updatePayload, status: 'active' }
 
-            // CRITICAL: Explicitly remove study_layers if not a layer study to prevent backend 400 error
+            // CRITICAL: Explicitly remove study_layers if not a layer study to prevent backend 400 error.
+            // Always null background_image_url (do not omit) so a leftover layer BG cannot stay in the DB.
             const currentType = String(step2.type || 'grid').toLowerCase()
             if (currentType !== 'layer') {
-              // Use delete operator to remove keys if they exist
               if ('study_layers' in finalPayload) delete finalPayload.study_layers
-              if ('background_image_url' in finalPayload) delete finalPayload.background_image_url
+              finalPayload.background_image_url = null
             }
 
             // Log the fast launch payload
@@ -951,7 +958,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
               <Button
                 className="flex-1 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white rounded-full disabled:opacity-50 cursor-pointer"
                 onClick={handleLaunchStudy}
-                disabled={isLaunching || !isConfirmed || isReadOnly || !canLaunch || isGeneratingTasks || hasCrossStepDuplicateQuestions}
+                disabled={isLaunching || !isConfirmed || isReadOnly || !canLaunch || isGeneratingTasks || tasksStale || hasCrossStepDuplicateQuestions}
               >
                 {isLaunching ? (
                   <span className="flex items-center justify-center gap-2">
@@ -979,7 +986,12 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
                 </div>
               </div>
             )}
-            {!canLaunch && !isGeneratingTasks && (
+            {tasksStale && !isGeneratingTasks && (
+              <p className="text-xs text-center text-amber-600 font-medium">
+                Study type changed after tasks were generated. Open Task Generation to regenerate tasks before launching.
+              </p>
+            )}
+            {!canLaunch && !isGeneratingTasks && !tasksStale && (
               <p className="text-xs text-center text-amber-600 font-medium">
                 Only admins and editors can launch. You have {userRole || 'viewer'} access.
               </p>

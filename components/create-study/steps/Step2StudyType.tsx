@@ -3,6 +3,13 @@
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { updateStudyAsync } from "@/lib/api/StudyAPI"
+import {
+  ensureGeneratedTasksTypeStamp,
+  getGeneratedTasksStudyType,
+  hasGeneratedTasks,
+  isTaskGenerationInProgress,
+  type CreateStudyType,
+} from "@/lib/utils/createStudyStorage"
 
 interface Step2StudyTypeProps {
   onNext: (selected: StudyType, mainQuestion: string, orientationText: string) => void
@@ -12,7 +19,7 @@ interface Step2StudyTypeProps {
   isReadOnly?: boolean
 }
 
-type StudyType = "grid" | "layer" | "text" | "hybrid"
+type StudyType = CreateStudyType
 
 // Visual preview for Text Study
 export function TextStudy() {
@@ -165,6 +172,8 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
     try { const v = localStorage.getItem('cs_step2'); if (v) { const o = JSON.parse(v); return o.orientationText || "Welcome to the study!" } } catch { }
     return "Welcome to the study!"
   })
+  const [pendingType, setPendingType] = useState<StudyType | null>(null)
+  const [blockTypeChangeReason, setBlockTypeChangeReason] = useState<string | null>(null)
 
   useEffect(() => { }, [])
 
@@ -183,6 +192,40 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
     } catch { /* ignore */ }
   }, [type])
 
+  const requestTypeChange = (next: StudyType) => {
+    if (isReadOnly || !next || next === type) return
+
+    if (isTaskGenerationInProgress()) {
+      setBlockTypeChangeReason(
+        "Tasks are currently being generated. Please wait for generation to finish before changing the study type."
+      )
+      return
+    }
+
+    if (hasGeneratedTasks()) {
+      // Stamp only when missing (legacy drafts). Do this from the current type before leaving it.
+      if (type) ensureGeneratedTasksTypeStamp(type)
+
+      // Switching back to the type tasks were generated for — no regen warning needed.
+      const generatedFor = getGeneratedTasksStudyType()
+      if (generatedFor && generatedFor === next) {
+        setType(next)
+        return
+      }
+
+      setPendingType(next)
+      return
+    }
+
+    setType(next)
+  }
+
+  const confirmTypeChange = () => {
+    if (!pendingType) return
+    setType(pendingType)
+    setPendingType(null)
+  }
+
   return (
     <div>
       <div className={`space-y-6 ${isReadOnly ? "opacity-70 pointer-events-none" : ""}`}>
@@ -195,7 +238,7 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
             <button
               type="button"
-              onClick={() => !isReadOnly && setType("grid")}
+              onClick={() => requestTypeChange("grid")}
               disabled={isReadOnly}
               className={`border-2 cursor-pointer rounded-3xl aspect-square w-full flex items-center justify-center text-left transition-all ${type === "grid" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
             >
@@ -206,7 +249,7 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
 
             <button
               type="button"
-              onClick={() => !isReadOnly && setType("layer")}
+              onClick={() => requestTypeChange("layer")}
               disabled={isReadOnly}
               className={`border-2 cursor-pointer rounded-3xl aspect-square w-full flex items-center justify-center text-left transition-all ${type === "layer" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
             >
@@ -217,7 +260,7 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
 
             <button
               type="button"
-              onClick={() => !isReadOnly && setType("text")}
+              onClick={() => requestTypeChange("text")}
               disabled={isReadOnly}
               className={`border-2 cursor-pointer rounded-3xl aspect-square w-full flex items-center justify-center text-left transition-all ${type === "text" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
             >
@@ -228,7 +271,7 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
 
             <button
               type="button"
-              onClick={() => !isReadOnly && setType("hybrid")}
+              onClick={() => requestTypeChange("hybrid")}
               disabled={isReadOnly}
               className={`border-2 cursor-pointer rounded-3xl aspect-square w-full flex items-center justify-center text-left transition-all ${type === "hybrid" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
             >
@@ -308,6 +351,80 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
           Save & Next
         </Button>
       </div>
+
+      {pendingType && (
+        <>
+          <div
+            className="fixed inset-0 z-[110] bg-black/40"
+            onClick={() => setPendingType(null)}
+          />
+          <div className="fixed inset-0 z-[111] flex items-center justify-center pointer-events-none p-4">
+            <div
+              className="pointer-events-auto w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+              role="alertdialog"
+              aria-labelledby="change-study-type-title"
+              aria-describedby="change-study-type-desc"
+            >
+              <h4 id="change-study-type-title" className="text-lg font-semibold text-gray-900">
+                Change study type?
+              </h4>
+              <p id="change-study-type-desc" className="mt-2 text-sm text-gray-600">
+                Tasks have already been generated for this study. Changing the study type will require
+                regenerating tasks after you update the study structure. Your previous task preview will
+                be kept until you open Task Generation and regenerate. If you switch back to the previous
+                type before regenerating, those tasks will become valid again.
+              </p>
+              <div className="mt-6 flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  className="cursor-pointer"
+                  onClick={() => setPendingType(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] cursor-pointer"
+                  onClick={confirmTypeChange}
+                >
+                  Change type
+                </Button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {blockTypeChangeReason && (
+        <>
+          <div
+            className="fixed inset-0 z-[110] bg-black/40"
+            onClick={() => setBlockTypeChangeReason(null)}
+          />
+          <div className="fixed inset-0 z-[111] flex items-center justify-center pointer-events-none p-4">
+            <div
+              className="pointer-events-auto w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl"
+              role="alertdialog"
+              aria-labelledby="block-type-change-title"
+              aria-describedby="block-type-change-desc"
+            >
+              <h4 id="block-type-change-title" className="text-lg font-semibold text-gray-900">
+                Cannot change study type
+              </h4>
+              <p id="block-type-change-desc" className="mt-2 text-sm text-gray-600">
+                {blockTypeChangeReason}
+              </p>
+              <div className="mt-6 flex justify-end">
+                <Button
+                  className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] cursor-pointer"
+                  onClick={() => setBlockTypeChangeReason(null)}
+                >
+                  OK
+                </Button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

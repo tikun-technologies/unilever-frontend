@@ -177,12 +177,21 @@ export default function ParticipateIntroPage() {
       // Get respondent-specific study details using the new API
       try {
         const respondentDetails = await getRespondentStudyDetails(String(response.respondent_id), params.id)
-        // Normalize background image URL into metadata for consumers (API returns it at root metadata)
+        // Normalize background image URL into metadata for consumers (API returns it at root metadata).
+        // Only layer studies use a background — ignore stale URLs for grid/text/hybrid.
         const rawInfo = respondentDetails?.study_info || respondentDetails || {}
-        const backgroundUrl = rawInfo?.metadata?.background_image_url || rawInfo?.background_image_url || respondentDetails?.metadata?.background_image_url || null
+        const studyTypeNorm = String(rawInfo?.study_type || respondentDetails?.study_type || '').toLowerCase()
+        const rawBackgroundUrl = rawInfo?.metadata?.background_image_url || rawInfo?.background_image_url || respondentDetails?.metadata?.background_image_url || null
+        const backgroundUrl = studyTypeNorm === 'layer' ? rawBackgroundUrl : null
         const normalizedInfo = backgroundUrl
           ? { ...rawInfo, metadata: { ...(rawInfo.metadata || {}), background_image_url: backgroundUrl } }
-          : rawInfo
+          : {
+              ...rawInfo,
+              metadata: {
+                ...(rawInfo.metadata || {}),
+                background_image_url: null,
+              },
+            }
         // Extract layers and transforms from elements_shown_content in assigned_tasks
         // This is the primary source since transforms are included in each task's elements_shown_content
         const layerTransforms: Record<string, { x: number; y: number; width: number; height: number }> = {}

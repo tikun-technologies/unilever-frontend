@@ -221,8 +221,9 @@ export default function TasksPage() {
       setMainQuestion(String(s2?.mainQuestion || s2?.main_question || s2?.question || ""))
 
       try {
+        // Only layer studies use a background; ignore leftover local BG for grid/text/hybrid preview.
         const bg = layerBg?.secureUrl || layerBg?.previewUrl || null
-        setBackgroundUrl(bg || null)
+        setBackgroundUrl(normalizedType === 'layer' ? (bg || null) : null)
       } catch {
         setBackgroundUrl(null)
       }

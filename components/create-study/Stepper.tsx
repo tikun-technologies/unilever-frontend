@@ -3,6 +3,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useRef } from 'react'
 import { isAudienceSegmentationStepValid } from '@/lib/utils/audienceSegmentationValidation'
+import { areGeneratedTasksStale } from '@/lib/utils/createStudyStorage'
 
 interface StepperProps {
   currentStep?: number
@@ -239,8 +240,9 @@ function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
       }
       case 8: {
         if (!isSpecialCreator) {
+          // Task Generation: completed only when tasks exist and match the current study type
           const data = localStorage.getItem('cs_step7_tasks')
-          return !!data
+          return !!data && !areGeneratedTasksStale()
         }
         // Keys step (special creators only): product_id required (min 1 character) + at least one key with name;
         // percentages must sum to 100–100.01 (same rules as StepKeys).
@@ -264,22 +266,25 @@ function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
       }
       case 9: {
         if (!isSpecialCreator) {
+          // Launch Study
           const data = localStorage.getItem('cs_step8')
           if (!data) return false
           try {
             const parsed = JSON.parse(data)
-            return !!parsed.completed
+            return !!parsed.completed && !areGeneratedTasksStale()
           } catch { return false }
         }
+        // Task Generation (special creator)
         const data = localStorage.getItem('cs_step7_tasks')
-        return !!data
+        return !!data && !areGeneratedTasksStale()
       }
       case 10: {
+        // Launch Study (special creator)
         const data = localStorage.getItem('cs_step8')
         if (!data) return false
         try {
           const parsed = JSON.parse(data)
-          return !!parsed.completed
+          return !!parsed.completed && !areGeneratedTasksStale()
         } catch { return false }
       }
       default:
@@ -389,7 +394,15 @@ export default function Stepper({ currentStep = 5, className = "", onStepChange,
             let isCompleted = isStepCompletedWithRefresh(step.id)
             const isCurrent = step.id === currentStep
             const isUpcoming = step.id > currentStep
-            const isClickable = (isCompleted || isCurrent || step.id < currentStep) && (step.id <= 7 || audienceStepValid)
+            // Allow jumping to the next incomplete step when all prior steps are done.
+            // Needed after study-type changes: Step 5 completion is type-specific
+            // (cs_step5_grid vs cs_step5_layer), so switching Layer → Grid marks
+            // Study Structure incomplete while steps 1–4 stay complete. Without this,
+            // Step 5 stays grayed out until the user advances via Save & Next on Step 4.
+            const allPriorStepsCompleted = steps
+              .filter((s) => s.id < step.id)
+              .every((s) => isStepCompletedWithRefresh(s.id))
+            const isClickable = (isCompleted || isCurrent || step.id < currentStep || allPriorStepsCompleted) && (step.id <= 7 || audienceStepValid)
             return (
               <div
                 key={step.id}

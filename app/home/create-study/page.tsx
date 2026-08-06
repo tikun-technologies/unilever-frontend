@@ -19,6 +19,7 @@ import { getStudyPreview, normalizeClassificationId, saveStudyStepOnNavigate, St
 import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { validateAudienceSegmentation, getAudienceSegmentationFromLocalStorage } from "@/lib/utils/audienceSegmentationValidation"
+import { areGeneratedTasksStale } from "@/lib/utils/createStudyStorage"
 
 import { CreateStudyOnboarding } from "@/components/onboarding/CreateStudyOnboarding"
 import { shouldShowCreateStudyWalkthrough } from "@/lib/api/onboardingApi"
@@ -761,7 +762,7 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
           case 8: {
             if (!isSpecialCreator) {
               const data = localStorage.getItem('cs_step7_tasks')
-              return !!data
+              return !!data && !areGeneratedTasksStale()
             }
             const data = localStorage.getItem('cs_step_keys')
             if (!data) return false
@@ -784,13 +785,13 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
           case 9: {
             if (isSpecialCreator) {
               const data = localStorage.getItem('cs_step7_tasks')
-              return !!data
+              return !!data && !areGeneratedTasksStale()
             }
             const data = localStorage.getItem('cs_step8')
             if (!data) return false
             try {
               const parsed = JSON.parse(data)
-              return !!parsed.completed
+              return !!parsed.completed && !areGeneratedTasksStale()
             } catch { return false }
           }
           case 10: {
@@ -798,7 +799,7 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
             if (!data) return false
             try {
               const parsed = JSON.parse(data)
-              return !!parsed.completed
+              return !!parsed.completed && !areGeneratedTasksStale()
             } catch { return false }
           }
           default: return false

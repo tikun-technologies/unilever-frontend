@@ -6,7 +6,18 @@ import { Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, getTaskGenerationResult, validateDesignConstraints, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
 import { useJobNotifications } from "@/lib/jobs/JobNotificationContext"
+import {
+  areGeneratedTasksStale,
+  getCurrentStudyType,
+  isStudyStructureReadyForCurrentType,
+} from "@/lib/utils/createStudyStorage"
 import JSZip from "jszip"
+
+function normalizeResultStudyType(raw: unknown): string | null {
+  const v = String(raw || "").toLowerCase().trim()
+  if (v === "grid" || v === "layer" || v === "text" || v === "hybrid") return v
+  return null
+}
 
 const GENERATION_ERROR_KEY = 'cs_step7_generation_error'
 
@@ -81,6 +92,8 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
   const isResuming = useRef<boolean>(false)
   const abortControllerRef = useRef<AbortController | null>(null)
   const isLoadingFromCache = useRef<boolean>(false)
+  const staleTypeRegenLockRef = useRef<boolean>(false)
+  const handleRegenerateTasksRef = useRef<() => Promise<void>>(async () => {})
   // Preview anchoring to background fit box
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const bgImgRef = useRef<HTMLImageElement>(null)
@@ -445,6 +458,17 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       console.log('[Step7] No result provided, skipping save')
       return
     }
+
+    const currentType = getCurrentStudyType()
+    const resultType = normalizeResultStudyType(result?.metadata?.study_type)
+    // Discard late results from a previous study type after the user changed type.
+    if (currentType && resultType && resultType !== currentType) {
+      console.warn('[Step7] Discarding task result for mismatched study type:', { currentType, resultType })
+      return
+    }
+
+    const effectiveType = currentType || resultType
+
     try {
       console.log('[Step7] Saving preview and completing. totals:', {
         respondents: result?.metadata?.number_of_respondents,
@@ -495,8 +519,12 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         }
       } catch { }
 
+      const metadata = {
+        ...(result.metadata || {}),
+        ...(effectiveType ? { study_type: effectiveType } : {}),
+      }
       const previewData: any = {
-        metadata: result.metadata,
+        metadata,
         preview_tasks: previewTasks,
         total_respondents: result.metadata?.number_of_respondents || 0,
         total_tasks: result.metadata?.total_tasks || 0,
@@ -519,7 +547,10 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     // Mark step 7 as completed
     try {
       console.log('[Step7] Marking step7 as completed')
-      localStorage.setItem('cs_step7_tasks', JSON.stringify({ completed: true, timestamp: Date.now() }))
+      localStorage.setItem(
+        'cs_step7_tasks',
+        JSON.stringify({ completed: true, timestamp: Date.now(), ...(effectiveType ? { study_type: effectiveType } : {}) })
+      )
       // Mark step 8 as completed too so it shows as blue in stepper
       localStorage.setItem('cs_step8', JSON.stringify({ completed: true }))
       // Dispatch custom event to trigger Stepper refresh (storage event only fires for other tabs)
@@ -734,8 +765,21 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
             }
           } catch { }
 
+          const immediateType = getCurrentStudyType() || normalizeResultStudyType(data?.metadata?.study_type)
+          const immediateResultType = normalizeResultStudyType(data?.metadata?.study_type)
+          if (immediateType && immediateResultType && immediateResultType !== immediateType) {
+            console.warn('[Step7] Discarding immediate task result for mismatched study type:', {
+              currentType: immediateType,
+              resultType: immediateResultType,
+            })
+            return
+          }
+
           const previewData: any = {
-            metadata: data.metadata,
+            metadata: {
+              ...(data.metadata || {}),
+              ...(immediateType ? { study_type: immediateType } : {}),
+            },
             preview_tasks: previewTasks,
             total_respondents: data.metadata?.number_of_respondents || 0,
             total_tasks: data.metadata?.total_tasks || 0,
@@ -755,7 +799,11 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
         // Mark step 7 as completed
         console.log('[Step7] Marking step7 as completed (immediate)')
-        localStorage.setItem('cs_step7_tasks', JSON.stringify({ completed: true, timestamp: Date.now() }))
+        const stampType = getCurrentStudyType() || normalizeResultStudyType(data?.metadata?.study_type)
+        localStorage.setItem(
+          'cs_step7_tasks',
+          JSON.stringify({ completed: true, timestamp: Date.now(), ...(stampType ? { study_type: stampType } : {}) })
+        )
         // Mark step 8 as completed too
         localStorage.setItem('cs_step8', JSON.stringify({ completed: true }))
         clearJobState() // Clear job state when completed
@@ -763,6 +811,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         stopTimerSaving() // Stop timer saving when completed
         setJobStartTime(null)
         setHighestProgress(0) // Clear highest progress when job completes
+        window.dispatchEvent(new CustomEvent('stepDataChanged'))
         onDataChange?.()
       }
     } catch (e) {
@@ -850,6 +899,13 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       try {
         const cached = localStorage.getItem('cs_step7_matrix')
         if (cached) {
+          // Keep stale preview in localStorage for revert, but do not treat it as completed UI state.
+          if (areGeneratedTasksStale()) {
+            console.log('[Step7] Cached matrix is stale for current study type; not loading as completed')
+            setMatrix(null)
+            return
+          }
+
           console.log('[Step7] Found cached matrix, loading it')
           isLoadingFromCache.current = true
           const matrixData = JSON.parse(cached)
@@ -941,6 +997,27 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     if (!hasCheckedForExistingJob.current) return
 
     console.log('[Step7] Step became active')
+
+    // Study type changed after tasks were generated: regenerate only when structure for the new type is ready.
+    // Keep the old preview in localStorage until regenerate clears it (supports reverting the type).
+    if (areGeneratedTasksStale()) {
+      console.log('[Step7] Tasks are stale for current study type')
+      setMatrix(null)
+      if (!isStudyStructureReadyForCurrentType()) {
+        const msg =
+          'Study type changed after tasks were generated. Complete Study Structure for the new type, then return here to regenerate tasks.'
+        setPollingError(msg)
+        setJobStatus({ status: 'failed', error: msg, progress: 0 })
+        return
+      }
+      if (isGenerating || isPolling || staleTypeRegenLockRef.current) return
+      console.log('[Step7] Structure ready — regenerating tasks for new study type')
+      staleTypeRegenLockRef.current = true
+      void handleRegenerateTasksRef.current().finally(() => {
+        staleTypeRegenLockRef.current = false
+      })
+      return
+    }
 
     if (hasCachedMatrix && matrix) {
       console.log('[Step7] ✅ Matrix already loaded, not starting new generation')
@@ -1447,6 +1524,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     console.log('[Step7] Starting generateNow after state clearing...')
     await generateNow();
   }
+  handleRegenerateTasksRef.current = handleRegenerateTasks
 
   // State for CSV download loading
   const [isDownloadingCSV, setIsDownloadingCSV] = useState(false)
