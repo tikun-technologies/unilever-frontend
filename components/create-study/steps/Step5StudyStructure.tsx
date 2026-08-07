@@ -7270,7 +7270,7 @@ function LayerMode({
               </div>
             </div>
 
-            <div className={`flex-1 min-h-0 bg-slate-50 p-4 sm:p-6 ${designConstraintView === 'overview' ? 'overflow-y-auto' : 'overflow-hidden'}`}>
+            <div className={`flex min-h-0 flex-1 flex-col bg-slate-50 p-4 sm:p-6 ${designConstraintView === 'overview' ? 'overflow-y-auto' : 'overflow-hidden'}`}>
               {designConstraintView === 'overview' ? (
                 <div className="space-y-5">
                   {designConstraints.length > 0 ? (
@@ -7363,13 +7363,13 @@ function LayerMode({
                   </div>
                 </div>
               ) : (
-                <div className="grid h-full min-h-0 grid-cols-1 gap-5 overflow-hidden lg:grid-cols-3">
-                  <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-sm">
-                    <div className="p-4 pb-2">
+                <div className="grid min-h-0 flex-1 grid-cols-1 gap-5 lg:grid-cols-3">
+                  <div className="flex min-h-0 flex-col rounded-2xl border border-blue-100 bg-white shadow-sm">
+                    <div className="flex-shrink-0 p-4 pb-2">
                       <div className="text-sm font-semibold text-gray-900">1. Which layer element?</div>
                       <p className="mt-1 text-xs leading-5 text-gray-500">Select one or more elements. Click selected elements again to deselect.</p>
                     </div>
-                    <div className="min-h-0 flex-1 space-y-3 overflow-y-scroll px-4 pb-4">
+                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-y-contain px-4 pb-12">
                       {renderSelectedConstraintDropdown('Selected', constraintDraft.anchors, 'blue')}
                       {layers.map((layer) => {
                         const options = layer.images
@@ -7379,7 +7379,7 @@ function LayerMode({
                         const selectedCount = getConstraintLayerSelectionCount(constraintDraft.anchors, layer.id)
 
                         return (
-                          <div key={layer.id} className={`overflow-hidden rounded-xl border bg-white transition-all ${selectedCount > 0 ? 'border-blue-300 ring-2 ring-blue-100' : 'border-gray-200'}`}>
+                          <div key={layer.id} className={`rounded-xl border bg-white transition-all ${selectedCount > 0 ? 'border-blue-300 ring-2 ring-blue-100' : 'border-gray-200'} ${constraintExpandedAnchorLayers.has(layer.id) ? '' : 'overflow-hidden'}`}>
                             <button
                               type="button"
                               onClick={() => toggleConstraintAnchorLayerExpanded(layer.id)}
@@ -7396,8 +7396,8 @@ function LayerMode({
                                 {renderConstraintChevron(constraintExpandedAnchorLayers.has(layer.id))}
                               </div>
                             </button>
-                            <div className={`overflow-hidden border-t transition-all duration-300 ease-in-out ${constraintExpandedAnchorLayers.has(layer.id) ? 'max-h-[2000px] opacity-100' : 'max-h-0 border-t-0 opacity-0'}`}>
-                              <div className="grid grid-cols-1 gap-2 p-3">
+                            <div className={`border-t ${constraintExpandedAnchorLayers.has(layer.id) ? 'opacity-100' : 'max-h-0 overflow-hidden border-t-0 opacity-0'}`}>
+                              <div className="grid grid-cols-1 gap-2 p-3 pb-4">
                               {options.map((option) => {
                                 const selected = constraintDraft.anchors.some((anchorItem) => anchorItem.layerId === option.layerId && anchorItem.imageId === option.imageId)
                                 return (
@@ -7443,10 +7443,11 @@ function LayerMode({
                           </div>
                         )
                       })}
+                      <div className="h-6 flex-shrink-0" aria-hidden="true" />
                     </div>
                   </div>
 
-                  <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+                  <div className="flex min-h-0 flex-col rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
                     <div className="mb-4">
                       <div className="text-sm font-semibold text-gray-900">Preview</div>
                       <p className="mt-1 text-xs leading-5 text-gray-500">
@@ -7464,12 +7465,12 @@ function LayerMode({
                     </div>
                   </div>
 
-                  <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-red-100 bg-white shadow-sm">
-                    <div className="p-4 pb-2">
+                  <div className="flex min-h-0 flex-col rounded-2xl border border-red-100 bg-white shadow-sm">
+                    <div className="flex-shrink-0 p-4 pb-2">
                       <div className="text-sm font-semibold text-gray-900">2. Should not come with this</div>
                       <p className="mt-1 text-xs leading-5 text-gray-500">Select one or more elements. Click selected elements again to deselect.</p>
                     </div>
-                    <div className="min-h-0 flex-1 space-y-3 overflow-y-scroll px-4 pb-4">
+                    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-y-contain px-4 pb-12">
                       {renderSelectedConstraintDropdown('Selected', constraintDraft.blocked, 'red')}
                       {layers.map((layer) => {
                         const options = layer.images
@@ -7479,7 +7480,7 @@ function LayerMode({
                         const selectedCount = getConstraintLayerSelectionCount(constraintDraft.blocked, layer.id)
 
                         return (
-                          <div key={layer.id} className={`overflow-hidden rounded-xl border bg-white transition-all ${selectedCount > 0 ? 'border-red-300 ring-2 ring-red-100' : 'border-gray-200'}`}>
+                          <div key={layer.id} className={`rounded-xl border bg-white transition-all ${selectedCount > 0 ? 'border-red-300 ring-2 ring-red-100' : 'border-gray-200'} ${constraintExpandedBlockedLayers.has(layer.id) ? '' : 'overflow-hidden'}`}>
                             <button
                               type="button"
                               onClick={() => toggleConstraintBlockedLayerExpanded(layer.id)}
@@ -7496,8 +7497,8 @@ function LayerMode({
                                 {renderConstraintChevron(constraintExpandedBlockedLayers.has(layer.id))}
                               </div>
                             </button>
-                            <div className={`overflow-hidden border-t transition-all duration-300 ease-in-out ${constraintExpandedBlockedLayers.has(layer.id) ? 'max-h-[2000px] opacity-100' : 'max-h-0 border-t-0 opacity-0'}`}>
-                              <div className="grid grid-cols-1 gap-2 p-3">
+                            <div className={`border-t ${constraintExpandedBlockedLayers.has(layer.id) ? 'opacity-100' : 'max-h-0 overflow-hidden border-t-0 opacity-0'}`}>
+                              <div className="grid grid-cols-1 gap-2 p-3 pb-4">
                               {options.map((option) => {
                                 const isAnchor = constraintDraft.anchors.some((anchorItem) => anchorItem.layerId === option.layerId && anchorItem.imageId === option.imageId)
                                 const selected = constraintDraft.blocked.some((blockedItem) => blockedItem.layerId === option.layerId && blockedItem.imageId === option.imageId)
@@ -7548,12 +7549,13 @@ function LayerMode({
                           </div>
                         )
                       })}
+                      <div className="h-6 flex-shrink-0" aria-hidden="true" />
                     </div>
                   </div>
                 </div>
               )}
 
-              {constraintError && (
+              {constraintError && designConstraintView === 'overview' && (
                 <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {constraintError}
                 </div>
@@ -7561,7 +7563,13 @@ function LayerMode({
             </div>
 
             {designConstraintView === 'builder' && (
-              <div className="flex flex-col-reverse gap-3 border-t border-gray-200 bg-white px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+              <div className="flex-shrink-0 border-t border-gray-200 bg-white">
+                {constraintError && (
+                  <div className="border-b border-red-200 bg-red-50 px-5 py-3 text-sm text-red-700 sm:px-6">
+                    {constraintError}
+                  </div>
+                )}
+                <div className="flex flex-col-reverse gap-3 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                 <div className="text-xs text-gray-500">
                   {constraintDraft.anchors.length > 0 || constraintDraft.blocked.length > 0
                     ? `${constraintDraft.anchors.length} anchor element${constraintDraft.anchors.length === 1 ? '' : 's'} · ${constraintDraft.blocked.length} blocked element${constraintDraft.blocked.length === 1 ? '' : 's'} selected`
@@ -7579,6 +7587,7 @@ function LayerMode({
                   >
                     Save Constraint
                   </Button>
+                </div>
                 </div>
               </div>
             )}

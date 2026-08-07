@@ -1156,9 +1156,6 @@
   .max-h-\[800px\] {
     max-height: 800px;
   }
-  .max-h-\[2000px\] {
-    max-height: 2000px;
-  }
   .max-h-\[calc\(100vh-1\.5rem\)\] {
     max-height: calc(100vh - 1.5rem);
   }
@@ -1179,6 +1176,9 @@
   }
   .max-h-full {
     max-height: 100%;
+  }
+  .max-h-none {
+    max-height: none;
   }
   .min-h-0 {
     min-height: 0px;
@@ -1712,6 +1712,9 @@
   .scroll-mt-24 {
     scroll-margin-top: calc(var(--spacing) * 24);
   }
+  .scroll-pb-8 {
+    scroll-padding-bottom: calc(var(--spacing) * 8);
+  }
   .scrollbar-none {
     scrollbar-width: none;
   }
@@ -2005,14 +2008,14 @@
   .overflow-y-auto {
     overflow-y: auto;
   }
-  .overflow-y-scroll {
-    overflow-y: scroll;
-  }
   .overscroll-auto {
     overscroll-behavior: auto;
   }
   .overscroll-contain {
     overscroll-behavior: contain;
+  }
+  .overscroll-y-contain {
+    overscroll-behavior-y: contain;
   }
   .scroll-smooth {
     scroll-behavior: smooth;
