@@ -1,22 +1,17 @@
 "use client"
 
 import { useParams, useRouter } from "next/navigation"
-// import { DashboardHeader } from "@/app/home/components/dashboard-header"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { runParticipatePhasePreload } from "@/lib/utils/participatePreload"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Button } from "@/components/ui/button"
-import { Search, User, Check, CalendarIcon } from "lucide-react"
-import { format } from "date-fns"
-// import Link from "next/link"
-import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider'
-import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs'
-import { DateCalendar } from '@mui/x-date-pickers/DateCalendar'
-import dayjs from 'dayjs'
+import { Search, User, Check } from "lucide-react"
 import { updateUserPersonalInfo } from "@/lib/api/ResponseAPI"
 import { searchPanelists, assignPanelistToSession, Panelist } from "@/lib/api/PanelistAPI"
 import { cn } from "@/lib/utils"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
+
+const MIN_AGE = 18
+const MAX_AGE = 120
 
 export default function PersonalInformationPage() {
   const params = useParams<{ id: string }>()
@@ -90,65 +85,36 @@ export default function PersonalInformationPage() {
     runParticipatePhasePreload('personal-info')
   }, [])
 
-  const [dob, setDob] = useState<Date>()
+  const ageOptions = useMemo(
+    () => Array.from({ length: MAX_AGE - MIN_AGE + 1 }, (_, i) => MIN_AGE + i),
+    []
+  )
+
+  const [age, setAge] = useState<number | undefined>(undefined)
   const [gender, setGender] = useState<string | null>("male")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [ageError, setAgeError] = useState<string>("")
   const [formError, setFormError] = useState<string>("")
-  const [calendarOpen, setCalendarOpen] = useState(false) // Add state to control calendar open/close
-
-  const handleDateChange = (newValue: any) => {
-    if (newValue) {
-      // For year-only selection, set to January 1st of the selected year
-      const selectedYear = newValue.year()
-      const yearDate = new Date(selectedYear, 0, 1) // January 1st of selected year
-      setDob(yearDate)
-
-      // Auto-close the calendar after year selection
-      setTimeout(() => {
-        setCalendarOpen(false)
-      }, 150)
-    }
-  }
-
-  const handleCalendarClick = (event: React.MouseEvent) => {
-    const target = event.target as HTMLElement
-
-    // Check if clicked on a year button
-    if (target.closest('.MuiPickersYear-yearButton:not(.Mui-disabled)')) {
-      // Delay closing to allow the date change to process
-      setTimeout(() => {
-        setCalendarOpen(false)
-      }, 150)
-    }
-  }
 
   const handleContinue = async () => {
     if (!sessionReady) {
       alert('Study is still starting. Please wait a moment and try again.')
       return
     }
-    if (!dob || !gender || !gender.trim()) {
+    if (age == null || !gender || !gender.trim()) {
       setFormError("All fields are required.")
       return
     } else {
       setFormError("")
     }
 
-    // Age validation: must be 13+ (using year-only calculation)
-    try {
-      const today = new Date()
-      const currentYear = today.getFullYear()
-      const birthYear = dob.getFullYear()
-      const ageYears = currentYear - birthYear
-
-      if (ageYears < 13) {
-        setAgeError("You must be at least 13 years old to participate.")
-        return
-      } else {
-        setAgeError("")
-      }
-    } catch { }
+    // Age validation: must be 18–120
+    if (!Number.isInteger(age) || age < MIN_AGE || age > MAX_AGE) {
+      setAgeError(`Please select an age between ${MIN_AGE} and ${MAX_AGE}.`)
+      return
+    } else {
+      setAgeError("")
+    }
 
     setIsSubmitting(true)
 
@@ -162,10 +128,10 @@ export default function PersonalInformationPage() {
 
       const { sessionId: sid } = JSON.parse(sessionData)
 
-      // Prepare personal info payload
+      // Prepare personal info payload (store age directly; DOB no longer collected)
       const personalInfo = {
         user_details: {
-          date_of_birth: dob.toISOString().split('T')[0], // Format as YYYY-MM-DD
+          age,
           gender: gender
         }
       }
@@ -246,62 +212,41 @@ export default function PersonalInformationPage() {
 
         <div className="mt-8 bg-white border rounded-xl shadow-sm p-4 sm:p-6">
           <div className="mt-2">
-            <label className="block text-sm font-semibold text-gray-800 mb-2">Year of Birth</label>
-            <div className="flex items-center gap-2">
-              <Popover open={calendarOpen} onOpenChange={setCalendarOpen}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    className="w-full justify-start text-left font-normal border-gray-200 hover:border-gray-300 focus:ring-2 focus:ring-[rgba(38,116,186,0.3)] focus:border-[rgba(38,116,186,0.3)] bg-transparent"
-                  >
-                    <CalendarIcon className="mr-2 h-4 w-4 text-gray-500" />
-                    {dob ? dob.getFullYear().toString() : <span className="text-gray-500">Select Year</span>}
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="p-4 w-[90vw] max-w-[20rem] sm:w-auto" align="start">
-                  <div onClick={handleCalendarClick}>
-                    <LocalizationProvider dateAdapter={AdapterDayjs}>
-                      <DateCalendar
-                        value={dob ? dayjs(dob) : null}
-                        onChange={handleDateChange}
-                        maxDate={dayjs()}
-                        minDate={dayjs('1900-01-01')}
-                        views={['year']}
-                        sx={{
-                          '& .MuiPickersCalendarHeader-root': {
-                            paddingLeft: 1,
-                            paddingRight: 1,
-                            minHeight: '40px',
-                          },
-                          '& .MuiYearCalendar-root': {
-                            fontSize: '0.875rem',
-                          },
-                          '& .MuiPickersYear-yearButton': {
-                            fontSize: '0.875rem',
-                            width: '60px',
-                            height: '32px',
-                            '&.Mui-selected': {
-                              backgroundColor: 'rgba(38,116,186,1)',
-                              '&:hover': {
-                                backgroundColor: 'rgba(38,116,186,0.9)',
-                              },
-                            },
-                          },
-                          '& .MuiPickersCalendarHeader-switchViewButton': {
-                            fontSize: '0.875rem',
-                          },
-                          '& .MuiPickersArrowSwitcher-button': {
-                            fontSize: '0.875rem',
-                          },
-                        }}
-                      />
-                    </LocalizationProvider>
-                  </div>
-                </PopoverContent>
-              </Popover>
+            <label htmlFor="participant-age" className="block text-sm font-semibold text-gray-800 mb-2">Age</label>
+            <div className="relative">
+              <select
+                id="participant-age"
+                value={age != null ? String(age) : ""}
+                onChange={(e) => {
+                  const value = e.target.value
+                  if (!value) {
+                    setAge(undefined)
+                    return
+                  }
+                  const next = Number(value)
+                  setAge(Number.isFinite(next) ? next : undefined)
+                  setAgeError("")
+                  setFormError("")
+                }}
+                className="w-full cursor-pointer h-11 appearance-none rounded-md border border-gray-200 bg-white px-3 pr-10 text-sm text-gray-900 outline-none transition-colors hover:border-gray-300 focus:border-[rgba(38,116,186,0.3)] focus:ring-2 focus:ring-[rgba(38,116,186,0.3)]"
+              >
+                <option value="" disabled>
+                  Select age
+                </option>
+                {ageOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-400">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M6 9l6 6 6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
             </div>
             <p className="mt-2 text-xs text-gray-500">
-              Please select your birth year. We&apos;ll calculate your age automatically.
+              Please select your age. You must be at least {MIN_AGE} years old to participate.
             </p>
             {ageError && (
               <div className="mt-2 text-xs text-red-600">{ageError}</div>

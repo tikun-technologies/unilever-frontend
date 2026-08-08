@@ -41,6 +41,7 @@ export interface SubmitResponsePayload {
 	study_id: string
 	responses: TaskResponse[]
 	personal_info?: {
+		age?: number
 		date_of_birth?: string
 		gender?: string
 	}
@@ -55,6 +56,7 @@ export interface SubmitResponseResult {
 
 export interface PersonalInfoPayload {
 	user_details: {
+		age?: number
 		date_of_birth?: string
 		gender?: string
 	}
@@ -341,7 +343,7 @@ export async function submitStudyResponses(payload: SubmitResponsePayload): Prom
 /**
  * Update user personal information for a study session
  * @param sessionId - The session ID
- * @param personalInfo - Personal information data (DOB, gender)
+ * @param personalInfo - Personal information data (age or DOB, gender)
  * @returns Promise with update result
  */
 export async function updateUserPersonalInfo(sessionId: string, personalInfo: PersonalInfoPayload): Promise<any> {
