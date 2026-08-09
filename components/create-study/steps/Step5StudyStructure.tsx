@@ -1573,6 +1573,8 @@ type LayerImage = {
   textStrokeColor?: string
   textStrokeWidth?: number
   textLetterSpacing?: number
+  textLineHeight?: number
+  textWrap?: boolean
   textShadowColor?: string
   textShadowBlur?: number
   textShadowOffsetX?: number
@@ -1687,6 +1689,8 @@ function LayerMode({
                 textStrokeColor: sourceType === 'text' ? ((img as { textStrokeColor?: string | null }).textStrokeColor ?? undefined) : undefined,
                 textStrokeWidth: sourceType === 'text' ? ((img as { textStrokeWidth?: number | null }).textStrokeWidth ?? undefined) : undefined,
                 textLetterSpacing: sourceType === 'text' ? ((img as { textLetterSpacing?: number | null }).textLetterSpacing ?? undefined) : undefined,
+                textLineHeight: sourceType === 'text' ? ((img as { textLineHeight?: number | null }).textLineHeight ?? undefined) : undefined,
+                textWrap: sourceType === 'text' ? ((img as { textWrap?: boolean | null }).textWrap ?? undefined) : undefined,
                 textShadowColor: sourceType === 'text' ? ((img as { textShadowColor?: string | null }).textShadowColor ?? undefined) : undefined,
                 textShadowBlur: sourceType === 'text' ? ((img as { textShadowBlur?: number | null }).textShadowBlur ?? undefined) : undefined,
                 textShadowOffsetX: sourceType === 'text' ? ((img as { textShadowOffsetX?: number | null }).textShadowOffsetX ?? undefined) : undefined,
@@ -1736,6 +1740,8 @@ function LayerMode({
   const [draftTextStrokeColor, setDraftTextStrokeColor] = useState("#000000")
   const [draftTextStrokeWidth, setDraftTextStrokeWidth] = useState(1)
   const [draftTextLetterSpacing, setDraftTextLetterSpacing] = useState(0)
+  const [draftTextLineHeight, setDraftTextLineHeight] = useState(1)
+  const [draftTextWrap, setDraftTextWrap] = useState(true)
   const [draftTextShadowColor, setDraftTextShadowColor] = useState("#000000")
   const [draftTextShadowBlur, setDraftTextShadowBlur] = useState(0)
   const [draftTextShadowOffsetX, setDraftTextShadowOffsetX] = useState(0)
@@ -1764,6 +1770,8 @@ function LayerMode({
   const [layerTextStrokeColor, setLayerTextStrokeColor] = useState("#000000")
   const [layerTextStrokeWidth, setLayerTextStrokeWidth] = useState(1)
   const [layerTextLetterSpacing, setLayerTextLetterSpacing] = useState(0)
+  const [layerTextLineHeight, setLayerTextLineHeight] = useState(1)
+  const [layerTextWrap, setLayerTextWrap] = useState(true)
   const [layerTextShadowColor, setLayerTextShadowColor] = useState("#000000")
   const [layerTextShadowBlur, setLayerTextShadowBlur] = useState(0)
   const [layerTextShadowOffsetX, setLayerTextShadowOffsetX] = useState(0)
@@ -1787,7 +1795,7 @@ function LayerMode({
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const bgImgRef = useRef<HTMLImageElement>(null)
   const [containerSize, setContainerSize] = useState<{ width: number; height: number }>({ width: 300, height: 400 })
-  const HANDLE_INSET = 8
+  const HANDLE_OUTSET = 7
   const [bgFit, setBgFit] = useState<{ left: number; top: number; width: number; height: number }>({ left: 0, top: 0, width: 300, height: 400 })
   const bgFitKey = `${Math.round(bgFit.width)}x${Math.round(bgFit.height)}`
   const [selectedImageIds, setSelectedImageIds] = useState<Record<string, string>>({}) // layerId -> selectedImageId
@@ -3162,6 +3170,8 @@ function LayerMode({
     backgroundRadius?: number
     textAlign?: string
     letterSpacing?: number
+    lineHeight?: number
+    wrap?: boolean
     fontStyle?: string
     textDecoration?: string
     textOpacity?: number
@@ -3184,6 +3194,8 @@ function LayerMode({
       backgroundRadius,
       textAlign,
       letterSpacing,
+      lineHeight = 1,
+      wrap = true,
       fontStyle,
       textDecoration,
       textOpacity = 100,
@@ -3260,7 +3272,7 @@ function LayerMode({
       display: "inline-flex",
       alignItems: "center",
       justifyContent: "center",
-      lineHeight: 1,
+      lineHeight,
       overflow: "visible",
       outline: "none",
       border: "none",
@@ -3273,12 +3285,14 @@ function LayerMode({
       color: color,
       textAlign: (textAlign as any) || "left",
       letterSpacing: letterSpacing ? `${letterSpacing}px` : "normal",
+      lineHeight,
       fontStyle: fontStyle || "normal",
       textDecoration: textDecoration || "none",
       opacity: textOpacity / 100,
       transform: `translateY(${strokeNudge})`,
-      whiteSpace: "pre-wrap",
-      wordWrap: "break-word",
+      whiteSpace: wrap ? "pre-wrap" : "nowrap",
+      overflowWrap: wrap ? "break-word" : "normal",
+      wordWrap: wrap ? "break-word" : "normal",
       display: "inline-block",
       textShadow: shadowColor && (
         (typeof shadowBlur !== 'undefined' && shadowBlur !== 0) ||
@@ -3339,6 +3353,8 @@ function LayerMode({
     textAlign = "left",
     textOpacity = 100,
     textRotation = 0,
+    lineHeight = 1,
+    wrap = true,
   }: {
     text: string
     html?: string
@@ -3361,6 +3377,8 @@ function LayerMode({
     textAlign?: string
     textOpacity?: number
     textRotation?: number
+    lineHeight?: number
+    wrap?: boolean
   }): Promise<{ file: File; previewUrl: string; width: number; height: number }> => {
     // Dynamically import dom-to-image-more to avoid SSR issues
     const domToImage = (await import('dom-to-image-more')).default
@@ -3421,7 +3439,7 @@ function LayerMode({
 
       const styles = getTextLayerStyles({
         color, fontWeight, fontSize, fontFamily, backgroundColor, backgroundRadius,
-        textAlign, letterSpacing, fontStyle, textDecoration, textOpacity, textRotation,
+        textAlign, letterSpacing, fontStyle, textDecoration, textOpacity, textRotation, lineHeight, wrap,
         shadowColor, shadowBlur, shadowOffsetX, shadowOffsetY, strokeColor, strokeWidth
       })
 
@@ -3608,6 +3626,8 @@ function LayerMode({
     setDraftTextStrokeColor("#000000")
     setDraftTextStrokeWidth(1)
     setDraftTextLetterSpacing(0)
+    setDraftTextLineHeight(1)
+    setDraftTextWrap(true)
     setDraftTextShadowColor("#000000")
     setDraftTextShadowBlur(0)
     setDraftTextShadowOffsetX(0)
@@ -3635,6 +3655,8 @@ function LayerMode({
       setDraftTextStrokeColor("#000000")
       setDraftTextStrokeWidth(1)
       setDraftTextLetterSpacing(0)
+      setDraftTextLineHeight(1)
+      setDraftTextWrap(true)
       setDraftTextShadowColor("#000000")
       setDraftTextShadowBlur(0)
       setDraftTextShadowOffsetX(0)
@@ -3663,6 +3685,8 @@ function LayerMode({
         setLayerTextBackgroundRadius(0)
         setLayerTextStrokeColor("#000000")
         setLayerTextStrokeWidth(1)
+      setLayerTextLineHeight(1)
+      setLayerTextWrap(true)
         return
       }
 
@@ -3681,6 +3705,8 @@ function LayerMode({
       setLayerTextStrokeColor(targetImage.textStrokeColor || "")
       setLayerTextStrokeWidth(targetImage.textStrokeWidth || 0)
       setLayerTextLetterSpacing(targetImage.textLetterSpacing || 0)
+      setLayerTextLineHeight(targetImage.textLineHeight ?? 1)
+      setLayerTextWrap(targetImage.textWrap ?? true)
       setLayerTextShadowColor(targetImage.textShadowColor || "#000000")
       setLayerTextShadowBlur(targetImage.textShadowBlur || 0)
       setLayerTextShadowOffsetX(targetImage.textShadowOffsetX || 0)
@@ -3705,6 +3731,8 @@ function LayerMode({
     setLayerTextStrokeColor("#000000")
     setLayerTextStrokeWidth(1)
     setLayerTextLetterSpacing(0)
+    setLayerTextLineHeight(1)
+    setLayerTextWrap(true)
     setLayerTextShadowColor("#000000")
     setLayerTextShadowBlur(0)
     setLayerTextShadowOffsetX(0)
@@ -3726,6 +3754,8 @@ function LayerMode({
     setLayerTextStrokeColor("")
     setLayerTextStrokeWidth(0)
     setLayerTextLetterSpacing(0)
+    setLayerTextLineHeight(1)
+    setLayerTextWrap(true)
     setLayerTextShadowColor("#000000")
     setLayerTextShadowBlur(0)
     setLayerTextShadowOffsetX(0)
@@ -3774,6 +3804,8 @@ function LayerMode({
         textAlign: layerTextAlign,
         textOpacity: layerTextOpacity,
         textRotation: layerTextRotation,
+        lineHeight: layerTextLineHeight,
+        wrap: layerTextWrap,
       })
       const [result] = await uploadImages([file])
       const secureUrl = result?.secure_url || null
@@ -3818,6 +3850,8 @@ function LayerMode({
           textStrokeColor: layerTextStrokeColor,
           textStrokeWidth: layerTextStrokeWidth,
           textLetterSpacing: layerTextLetterSpacing,
+          textLineHeight: layerTextLineHeight,
+          textWrap: layerTextWrap,
           textShadowColor: layerTextShadowColor,
           textShadowBlur: layerTextShadowBlur,
           textShadowOffsetX: layerTextShadowOffsetX,
@@ -3861,6 +3895,8 @@ function LayerMode({
               textStrokeColor: layerTextStrokeColor,
               textStrokeWidth: layerTextStrokeWidth,
               textLetterSpacing: layerTextLetterSpacing,
+              textLineHeight: layerTextLineHeight,
+              textWrap: layerTextWrap,
               textShadowColor: layerTextShadowColor,
               textShadowBlur: layerTextShadowBlur,
               textShadowOffsetX: layerTextShadowOffsetX,
@@ -3920,6 +3956,8 @@ function LayerMode({
           textAlign: draftTextAlign,
           textOpacity: draftTextOpacity,
           textRotation: draftTextRotation,
+          lineHeight: draftTextLineHeight,
+          wrap: draftTextWrap,
         })
         const [result] = await uploadImages([file])
         const secureUrl = result?.secure_url || null
@@ -3959,6 +3997,8 @@ function LayerMode({
           textStrokeColor: draftTextStrokeColor,
           textStrokeWidth: draftTextStrokeWidth,
           textLetterSpacing: draftTextLetterSpacing,
+          textLineHeight: draftTextLineHeight,
+          textWrap: draftTextWrap,
           textShadowColor: draftTextShadowColor,
           textShadowBlur: draftTextShadowBlur,
           textShadowOffsetX: draftTextShadowOffsetX,
@@ -4144,6 +4184,8 @@ function LayerMode({
               if (img.textStrokeColor) imageObj.text_stroke_color = img.textStrokeColor
               if (typeof img.textStrokeWidth === 'number') imageObj.text_stroke_width = img.textStrokeWidth
               if (typeof img.textLetterSpacing === 'number') imageObj.text_letter_spacing = img.textLetterSpacing
+              if (typeof img.textLineHeight === 'number') imageObj.text_line_height = img.textLineHeight
+              if (typeof img.textWrap === 'boolean') imageObj.text_wrap = img.textWrap
               if (img.textShadowColor) imageObj.text_shadow_color = img.textShadowColor
               if (typeof img.textShadowBlur === 'number') imageObj.text_shadow_blur = img.textShadowBlur
               if (typeof img.textShadowOffsetX === 'number') imageObj.text_shadow_offset_x = img.textShadowOffsetX
@@ -4167,6 +4209,8 @@ function LayerMode({
                 ...(img.textStrokeColor ? { text_stroke_color: img.textStrokeColor } : {}),
                 ...(typeof img.textStrokeWidth === 'number' ? { text_stroke_width: img.textStrokeWidth } : {}),
                 ...(typeof img.textLetterSpacing === 'number' ? { text_letter_spacing: img.textLetterSpacing } : {}),
+                ...(typeof img.textLineHeight === 'number' ? { text_line_height: img.textLineHeight } : {}),
+                ...(typeof img.textWrap === 'boolean' ? { text_wrap: img.textWrap } : {}),
                 ...(img.textShadowColor ? { text_shadow_color: img.textShadowColor } : {}),
                 ...(typeof img.textShadowBlur === 'number' ? { text_shadow_blur: img.textShadowBlur } : {}),
                 ...(typeof img.textShadowOffsetX === 'number' ? { text_shadow_offset_x: img.textShadowOffsetX } : {}),
@@ -4613,6 +4657,8 @@ function LayerMode({
             imageObj.textStrokeColor = i.textStrokeColor ?? ''
             imageObj.textStrokeWidth = typeof i.textStrokeWidth === 'number' ? i.textStrokeWidth : 0
             imageObj.textLetterSpacing = typeof i.textLetterSpacing === 'number' ? i.textLetterSpacing : 0
+            imageObj.textLineHeight = typeof i.textLineHeight === 'number' ? i.textLineHeight : 1
+            imageObj.textWrap = typeof i.textWrap === 'boolean' ? i.textWrap : true
             imageObj.textShadowColor = i.textShadowColor ?? ''
             imageObj.textShadowBlur = typeof i.textShadowBlur === 'number' ? i.textShadowBlur : 0
             imageObj.textShadowOffsetX = typeof i.textShadowOffsetX === 'number' ? i.textShadowOffsetX : 0
@@ -4791,7 +4837,7 @@ function LayerMode({
           {/* Preview canvas built from z order with draggable/resizable layers */}
           <div
             ref={previewContainerRef}
-            className={`relative w-full ${aspectClass} ${previewAspect === 'portrait' ? 'max-h-[55vh]' : previewAspect === 'landscape' ? 'max-h-[50vh]' : 'max-h-[60vh]'} overflow-hidden bg-slate-50 rounded-lg border`}
+            className={`relative w-full ${aspectClass} ${previewAspect === 'portrait' ? 'max-h-[55vh]' : previewAspect === 'landscape' ? 'max-h-[50vh]' : 'max-h-[60vh]'} overflow-visible bg-slate-50 rounded-lg border`}
             style={{ position: 'relative' }}
             onMouseDown={(e) => { if (e.currentTarget === e.target) setSelectedLayerId(null) }}
           >
@@ -4811,7 +4857,7 @@ function LayerMode({
 
             {/* Overlay fit box; children are constrained within */}
             <div
-              className="absolute overflow-hidden isolate"
+              className="absolute overflow-visible isolate"
               style={{
                 left: bgFit.left,
                 top: bgFit.top,
@@ -4873,7 +4919,7 @@ function LayerMode({
                       }
                     }}
                     style={{
-                      zIndex: background ? l.z + 1 : l.z,
+                      zIndex: isSelected ? 1000 : (background ? l.z + 1 : l.z),
                       border: isSelected ? '2px solid rgba(37,99,235,1)' : 'none',
                       boxShadow: isSelected ? '0 0 0 2px rgba(37,99,235,0.2)' : 'none',
                       background: 'transparent',
@@ -4909,44 +4955,44 @@ function LayerMode({
                       // Edge handles: centered on each side
                       top: {
                         width: '24px', height: '10px', background: '#fff', borderRadius: '9999px',
-                        border: '1px solid rgba(0,0,0,0.15)', boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                        top: `${HANDLE_INSET}px`, left: '50%', transform: 'translate(-50%, 0)'
+                        border: '2px solid rgba(37,99,235,0.95)', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                        zIndex: 1001, top: `-${HANDLE_OUTSET}px`, left: '50%', transform: 'translate(-50%, -50%)'
                       },
                       bottom: {
                         width: '24px', height: '10px', background: '#fff', borderRadius: '9999px',
-                        border: '1px solid rgba(0,0,0,0.15)', boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                        bottom: `${HANDLE_INSET}px`, left: '50%', transform: 'translate(-50%, 0)'
+                        border: '2px solid rgba(37,99,235,0.95)', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                        zIndex: 1001, bottom: `-${HANDLE_OUTSET}px`, left: '50%', transform: 'translate(-50%, 50%)'
                       },
                       left: {
                         width: '10px', height: '24px', background: '#fff', borderRadius: '9999px',
-                        border: '1px solid rgba(0,0,0,0.15)', boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                        left: `${HANDLE_INSET}px`, top: '50%', transform: 'translate(0, -50%)'
+                        border: '2px solid rgba(37,99,235,0.95)', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                        zIndex: 1001, left: `-${HANDLE_OUTSET}px`, top: '50%', transform: 'translate(-50%, -50%)'
                       },
                       right: {
                         width: '10px', height: '24px', background: '#fff', borderRadius: '9999px',
-                        border: '1px solid rgba(0,0,0,0.15)', boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                        right: `${HANDLE_INSET}px`, top: '50%', transform: 'translate(0, -50%)'
+                        border: '2px solid rgba(37,99,235,0.95)', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                        zIndex: 1001, right: `-${HANDLE_OUTSET}px`, top: '50%', transform: 'translate(50%, -50%)'
                       },
                       // Corner handles: circles at corners
                       topLeft: {
                         width: '12px', height: '12px', background: '#fff', borderRadius: '9999px',
-                        border: '1px solid rgba(0,0,0,0.15)', boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                        left: `${HANDLE_INSET}px`, top: `${HANDLE_INSET}px`
+                        border: '2px solid rgba(37,99,235,0.95)', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                        zIndex: 1001, left: `-${HANDLE_OUTSET}px`, top: `-${HANDLE_OUTSET}px`, transform: 'translate(-50%, -50%)'
                       },
                       topRight: {
                         width: '12px', height: '12px', background: '#fff', borderRadius: '9999px',
-                        border: '1px solid rgba(0,0,0,0.15)', boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                        right: `${HANDLE_INSET}px`, top: `${HANDLE_INSET}px`
+                        border: '2px solid rgba(37,99,235,0.95)', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                        zIndex: 1001, right: `-${HANDLE_OUTSET}px`, top: `-${HANDLE_OUTSET}px`, transform: 'translate(50%, -50%)'
                       },
                       bottomLeft: {
                         width: '12px', height: '12px', background: '#fff', borderRadius: '9999px',
-                        border: '1px solid rgba(0,0,0,0.15)', boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                        left: `${HANDLE_INSET}px`, bottom: `${HANDLE_INSET}px`
+                        border: '2px solid rgba(37,99,235,0.95)', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                        zIndex: 1001, left: `-${HANDLE_OUTSET}px`, bottom: `-${HANDLE_OUTSET}px`, transform: 'translate(-50%, 50%)'
                       },
                       bottomRight: {
                         width: '12px', height: '12px', background: '#fff', borderRadius: '9999px',
-                        border: '1px solid rgba(0,0,0,0.15)', boxShadow: '0 1px 2px rgba(0,0,0,0.15)',
-                        right: `${HANDLE_INSET}px`, bottom: `${HANDLE_INSET}px`
+                        border: '2px solid rgba(37,99,235,0.95)', boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+                        zIndex: 1001, right: `-${HANDLE_OUTSET}px`, bottom: `-${HANDLE_OUTSET}px`, transform: 'translate(50%, 50%)'
                       }
                     } : undefined}
                   >
@@ -4957,7 +5003,7 @@ function LayerMode({
                       <img
                         src={selectedImage.secureUrl || selectedImage.previewUrl}
                         alt={l.name}
-                        className="max-w-full max-h-full object-contain pointer-events-none select-none"
+                        className="w-full h-full object-contain pointer-events-none select-none"
                         draggable={false}
                       />
                     </div>
@@ -5873,7 +5919,7 @@ function LayerMode({
                           {/* Content Editable Area */}
                           <div
                             ref={draftTextEditorRef}
-                            className="w-full rounded-b-lg border border-t-0 border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[rgba(38,116,186,0.3)] h-20 overflow-y-auto text-base bg-white [&_*]:!text-[16px] [&_*]:![-webkit-text-stroke-width:0px]"
+                            className="w-full rounded-b-lg border border-t-0 border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[rgba(38,116,186,0.3)] h-20 overflow-y-auto text-base bg-white [&_*]:!text-black [&_*]:!text-[16px] [&_*]:!font-normal [&_*]:!not-italic [&_*]:!no-underline [&_*]:!bg-transparent [&_*]:![-webkit-text-stroke-width:0px] [&_*]:![text-shadow:none] [&_*]:![letter-spacing:normal] [&_*]:![line-height:1.5]"
                             contentEditable
                             onInput={(e) => {
                               const target = e.currentTarget
@@ -5891,17 +5937,20 @@ function LayerMode({
                             onClick={() => detectSelectionStyles(draftTextEditorRef, false)}
                             onKeyUp={() => detectSelectionStyles(draftTextEditorRef, false)}
                             style={{
-                              fontFamily: FONT_OPTIONS.find(f => f === draftTextFont) ? `'${draftTextFont}', sans-serif` : 'Inter, sans-serif',
-                              fontWeight: draftTextWeight,
-                              color: draftTextColor,
+                              color: '#000000',
                               fontSize: '16px',
-                              textAlign: draftTextAlign,
-                              fontStyle: draftTextFontStyle,
-                              textDecoration: draftTextDecoration,
+                              fontWeight: 400,
+                              fontStyle: 'normal',
+                              textDecoration: 'none',
+                              lineHeight: 1.5,
+                              whiteSpace: 'pre-wrap',
+                              caretColor: '#000000',
+                              textShadow: 'none',
+                              WebkitTextStroke: '0px transparent',
                             }}
                           />
                           <div className="text-xs text-gray-500">
-                            Tip: Select text to apply specific styles. Global styles below apply to the container.
+                            Tip: Select text to apply styles in Preview. The editor stays plain black for easy editing.
                           </div>
                         </div>
 
@@ -5917,6 +5966,8 @@ function LayerMode({
                                 color={draftTextColor}
                                 fontWeight={draftTextWeight}
                                 fontSize={draftTextSize}
+                              lineHeight={draftTextLineHeight}
+                              wrap={draftTextWrap}
                                 fontFamily={draftTextFont}
                                 backgroundColor={draftTextBackgroundColor}
                                 backgroundRadius={draftTextBackgroundRadius}
@@ -6108,6 +6159,29 @@ function LayerMode({
                               onChange={(e) => setDraftTextLetterSpacing(Number(e.target.value))}
                               className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[rgba(38,116,186,1)] [&::-webkit-slider-thumb]:cursor-pointer"
                             />
+                          </div>
+
+                          <div className="mb-4">
+                            <label className="block text-sm font-semibold text-gray-800 mb-2">
+                              Line Spacing: <span className="text-[rgba(38,116,186,1)]">{draftTextLineHeight.toFixed(2)}×</span>
+                            </label>
+                            <input
+                              type="range"
+                              min="0.8"
+                              max="3"
+                              step="0.05"
+                              value={draftTextLineHeight}
+                              onChange={(e) => setDraftTextLineHeight(Number(e.target.value))}
+                              className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[rgba(38,116,186,1)]"
+                            />
+                          </div>
+
+                          <div className="mb-4">
+                            <label className="block text-sm font-semibold text-gray-800 mb-2">Text Wrapping</label>
+                            <div className="flex gap-2">
+                              <button type="button" className={`flex-1 py-1 text-xs border rounded ${draftTextWrap ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white'}`} onClick={() => setDraftTextWrap(true)}>Wrap</button>
+                              <button type="button" className={`flex-1 py-1 text-xs border rounded ${!draftTextWrap ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white'}`} onClick={() => setDraftTextWrap(false)}>Single line</button>
+                            </div>
                           </div>
 
                           {/* Text Shadow */}
@@ -6782,7 +6856,7 @@ function LayerMode({
                     {/* Content Editable Area */}
                     <div
                       ref={layerTextEditorRef}
-                      className="w-full rounded-b-lg border border-t-0 border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[rgba(38,116,186,0.3)] h-20 overflow-y-auto text-base bg-white [&_*]:!text-[16px] [&_*]:![-webkit-text-stroke-width:0px]"
+                      className="w-full rounded-b-lg border border-t-0 border-gray-200 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-[rgba(38,116,186,0.3)] h-20 overflow-y-auto text-base bg-white [&_*]:!text-black [&_*]:!text-[16px] [&_*]:!font-normal [&_*]:!not-italic [&_*]:!no-underline [&_*]:!bg-transparent [&_*]:![-webkit-text-stroke-width:0px] [&_*]:![text-shadow:none] [&_*]:![letter-spacing:normal] [&_*]:![line-height:1.5]"
                       contentEditable
                       onInput={(e) => {
                         const target = e.currentTarget
@@ -6800,17 +6874,20 @@ function LayerMode({
                       onClick={() => detectSelectionStyles(layerTextEditorRef, true)}
                       onKeyUp={() => detectSelectionStyles(layerTextEditorRef, true)}
                       style={{
-                        fontFamily: FONT_OPTIONS.find(f => f === layerTextFont) ? `'${layerTextFont}', sans-serif` : 'Inter, sans-serif',
-                        fontWeight: layerTextWeight,
-                        color: layerTextColor,
+                        color: '#000000',
                         fontSize: '16px',
-                        textAlign: layerTextAlign,
-                        fontStyle: layerTextFontStyle,
-                        textDecoration: layerTextDecoration,
+                        fontWeight: 400,
+                        fontStyle: 'normal',
+                        textDecoration: 'none',
+                        lineHeight: 1.5,
+                        whiteSpace: 'pre-wrap',
+                        caretColor: '#000000',
+                        textShadow: 'none',
+                        WebkitTextStroke: '0px transparent',
                       }}
                     />
                     <div className="text-xs text-gray-500">
-                      Tip: Select text to apply specific styles. Global styles below apply to the container.
+                      Tip: Select text to apply styles in Preview. The editor stays plain black for easy editing.
                     </div>
                   </div>
 
@@ -6826,6 +6903,8 @@ function LayerMode({
                           color={layerTextColor}
                           fontWeight={layerTextWeight}
                           fontSize={layerTextSize}
+                              lineHeight={layerTextLineHeight}
+                              wrap={layerTextWrap}
                           fontFamily={layerTextFont}
                           backgroundColor={layerTextBackgroundColor}
                           backgroundRadius={layerTextBackgroundRadius}
@@ -7047,6 +7126,29 @@ function LayerMode({
                         onChange={(e) => setLayerTextLetterSpacing(Number(e.target.value))}
                         className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[rgba(38,116,186,1)] [&::-webkit-slider-thumb]:cursor-pointer"
                       />
+                    </div>
+
+                    <div className="mb-4">
+                      <label className="block text-sm font-semibold text-gray-800 mb-2">
+                        Line Spacing: <span className="text-[rgba(38,116,186,1)]">{layerTextLineHeight.toFixed(2)}×</span>
+                      </label>
+                      <input
+                        type="range"
+                        min="0.8"
+                        max="3"
+                        step="0.05"
+                        value={layerTextLineHeight}
+                        onChange={(e) => setLayerTextLineHeight(Number(e.target.value))}
+                        className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-[rgba(38,116,186,1)]"
+                      />
+                    </div>
+
+                    <div className="mb-4">
+                      <label className="block text-sm font-semibold text-gray-800 mb-2">Text Wrapping</label>
+                      <div className="flex gap-2">
+                        <button type="button" className={`flex-1 py-1 text-xs border rounded ${layerTextWrap ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white'}`} onClick={() => setLayerTextWrap(true)}>Wrap</button>
+                        <button type="button" className={`flex-1 py-1 text-xs border rounded ${!layerTextWrap ? 'bg-blue-50 border-blue-300 text-blue-700' : 'bg-white'}`} onClick={() => setLayerTextWrap(false)}>Single line</button>
+                      </div>
                     </div>
 
                     {/* Text Shadow */}
