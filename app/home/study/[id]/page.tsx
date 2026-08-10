@@ -669,6 +669,7 @@ export default function StudyManagementPage() {
                 {study.study_type === "layer" ? "Layer Study" : study.study_type === "text" ? "Text Study" : study.study_type === "hybrid" ? "Hybrid Study" : "Grid Study"}
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
+                {studyUserRole?.toLowerCase() !== "viewer" && (
                 <button
                   onClick={() => setIsCollaboratorModalOpen(true)}
                   className="flex flex-1 sm:flex-initial items-center justify-center gap-1.5 px-2.5 py-2 sm:px-3 sm:py-1.5 rounded-lg border border-[rgba(38,116,186,0.35)] text-[rgba(38,116,186,1)] bg-[rgba(38,116,186,0.06)] hover:bg-[rgba(38,116,186,0.12)] transition-all duration-200 cursor-pointer min-w-0"
@@ -680,6 +681,7 @@ export default function StudyManagementPage() {
                     <span className="hidden sm:inline">Add Collaborator</span>
                   </span>
                 </button>
+                )}
                 <button
                   onClick={() => study.status === 'active' && router.push(studySubpageHref('share'))}
                   disabled={study.status !== 'active'}

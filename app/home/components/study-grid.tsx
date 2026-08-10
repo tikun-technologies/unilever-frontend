@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion"
 import { Button } from "@/components/ui/button"
-import { Calendar, Share2, Eye, Folder, Circle, FolderPlus, Copy, Trash2, FolderOpen } from "lucide-react"
+import { Calendar, Share2, Eye, Folder, Circle, FolderPlus, Copy, Trash2, FolderOpen, UserPlus } from "lucide-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { StudyListItem, copyStudy, deleteStudy } from "@/lib/api/StudyAPI"
 import { format } from "date-fns"
@@ -10,6 +10,7 @@ import { useState, useEffect } from "react"
 import { Project, assignStudyToProject } from "@/api/projectApi"
 import { mapStudyToProject, unmapStudyFromProject, getStudyProjectMapping } from "@/lib/utils/projectUtils"
 import { prepareFreshCreateStudy } from "@/lib/utils/createStudyStorage"
+import { ShareStudyModal } from "@/components/create-study/ShareStudyModal"
 
 interface StudyGridProps {
   studies: StudyListItem[]
@@ -58,6 +59,7 @@ export function StudyGrid({
   const [assignError, setAssignError] = useState<string | null>(null)
   const [assignLoading, setAssignLoading] = useState(false)
   const [assignSuccess, setAssignSuccess] = useState(false)
+  const [collaboratorStudy, setCollaboratorStudy] = useState<StudyListItem | null>(null)
 
   useEffect(() => {
     setStudyProjectMapping(getStudyProjectMapping())
@@ -536,6 +538,17 @@ export function StudyGrid({
                   )}
                 </motion.button>
               )}
+              {(study.user_role || "").toLowerCase() !== "viewer" && (
+                <motion.button
+                  whileHover={{ scale: 1.1 }}
+                  whileTap={{ scale: 0.9 }}
+                  onClick={() => setCollaboratorStudy(study)}
+                  className="w-10 h-10 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] rounded-full flex items-center justify-center transition-colors"
+                  title="Add collaborator"
+                >
+                  <UserPlus className="w-5 h-5 text-white cursor-pointer" />
+                </motion.button>
+              )}
               {study.status === "draft" && (study.user_role === "admin" || canDeleteInProject) && (
                 <motion.button
                   whileHover={{ scale: 1.1 }}
@@ -648,6 +661,15 @@ export function StudyGrid({
           </div>
         </div>
       </div>
+    )}
+
+    {collaboratorStudy && (
+      <ShareStudyModal
+        isOpen={!!collaboratorStudy}
+        onClose={() => setCollaboratorStudy(null)}
+        studyId={collaboratorStudy.id}
+        userRole={collaboratorStudy.user_role || "admin"}
+      />
     )}
 
     {/* Delete study confirmation modal */}
