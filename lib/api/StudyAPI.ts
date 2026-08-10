@@ -2281,6 +2281,77 @@ function getStudyTypeFromLocalStorage(): string {
   return 'grid'
 }
 
+/** Create a minimal study shell (used by Step 1 Save & Next / stepper leave). */
+export async function createStudyMinimal(
+  title: string,
+  background: string,
+  language: string,
+  projectId?: string | null
+): Promise<{ id?: string; study_id?: string } & Record<string, unknown>> {
+  let resolvedProjectId = projectId
+  if (!resolvedProjectId && typeof window !== 'undefined') {
+    resolvedProjectId = new URLSearchParams(window.location.search).get('proj_id')
+  }
+
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/minimal`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title,
+      background,
+      language: language.toLowerCase().substring(0, 2),
+      ...(resolvedProjectId && { project_id: resolvedProjectId }),
+    }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error((data && (data.detail || data.message)) || 'Failed to create study')
+  }
+  return data
+}
+
+/**
+ * Ensure a study exists for create-study Step 1 data in localStorage.
+ * Creates via /studies/minimal when cs_study_id is missing, then PUTs step 1 fields.
+ * Used by Save & Next and by stepper navigation away from Step 1.
+ */
+export async function ensureStudyExistsFromStep1(): Promise<string> {
+  if (typeof window === 'undefined') throw new Error('Not in browser')
+
+  const s1 = get('cs_step1', { title: '', description: '', language: 'en', agree: false }) as {
+    title?: string
+    description?: string
+    language?: string
+    agree?: boolean
+  }
+  const title = (s1.title || '').trim()
+  const description = (s1.description || '').trim()
+  const language = (s1.language || 'en').toString()
+  if (!title || !description || !s1.agree) {
+    throw new Error('Complete Step 1 (title, description, and terms) before continuing.')
+  }
+
+  const langCode = language.toLowerCase().substring(0, 2)
+  const step1Payload = {
+    title,
+    background: description,
+    language: langCode,
+    last_step: 1,
+  }
+
+  let studyId = getStudyIdFromLocalStorage()
+  if (!studyId) {
+    const response = await createStudyMinimal(title, description, language)
+    const createdId = response.id || response.study_id
+    if (!createdId) throw new Error('No study ID returned')
+    studyId = String(createdId)
+    localStorage.setItem('cs_study_id', studyId)
+  }
+
+  putUpdateStudyAsync(studyId, step1Payload, 1)
+  return studyId
+}
+
 /** Persist the current create-study step to the backend when navigating via stepper or Back (not Save & Next). */
 export function saveStudyStepOnNavigate(stepNumber: number, isSpecialCreator = false): void {
   if (typeof window === 'undefined') return

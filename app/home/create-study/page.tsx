@@ -15,7 +15,7 @@ import { StepKeys } from "@/components/create-study/steps/StepKeys"
 import { Step6AudienceSegmentation } from "@/components/create-study/steps/Step6AudienceSegmentation"
 import { Step7TaskGeneration } from "@/components/create-study/steps/Step7TaskGeneration"
 import { Step8LaunchPreview } from "@/components/create-study/steps/Step8LaunchPreview"
-import { getStudyPreview, normalizeClassificationId, saveStudyStepOnNavigate, StudyType } from "@/lib/api/StudyAPI"
+import { ensureStudyExistsFromStep1, getStudyPreview, normalizeClassificationId, saveStudyStepOnNavigate, StudyType } from "@/lib/api/StudyAPI"
 import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { validateAudienceSegmentation, getAudienceSegmentationFromLocalStorage } from "@/lib/utils/audienceSegmentationValidation"
@@ -873,7 +873,7 @@ export default function CreateStudyPage() {
   })
   const [showCreateStudyOnboarding] = useState(() => shouldShowCreateStudyWalkthrough())
 
-  const navigateToStep = (newStep: number, options?: { skipSave?: boolean }) => {
+  const navigateToStep = async (newStep: number, options?: { skipSave?: boolean }) => {
     if (newStep === currentStep) return
 
     const audienceStep = 7
@@ -887,7 +887,18 @@ export default function CreateStudyPage() {
 
     setNavigationError(null)
     if (!options?.skipSave && userRole !== 'viewer') {
-      saveStudyStepOnNavigate(currentStep, isSpecialCreator)
+      // Leaving Step 1: create study if needed (same as Save & Next), then PUT step 1.
+      // Without this, stepper jumps skip create and later update calls have no study id.
+      if (currentStep === 1) {
+        try {
+          await ensureStudyExistsFromStep1()
+        } catch (err: unknown) {
+          setNavigationError(err instanceof Error ? err.message : 'Failed to create study')
+          return
+        }
+      } else {
+        saveStudyStepOnNavigate(currentStep, isSpecialCreator)
+      }
     }
     // Keep studyType in sync with the latest Step 2 selection before rendering the
     // target step. Step 2 persists every change to cs_step2, but the parent state
