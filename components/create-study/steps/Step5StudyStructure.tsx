@@ -5097,37 +5097,37 @@ function LayerMode({
             </div>
           </div>
           {/* Controls under the outer preview div */}
-          <div className="mt-3 w-full flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
+          <div className="mt-3 w-full flex items-center justify-between gap-2 max-md:gap-1.5">
+            <div className="flex items-center gap-2 max-md:min-w-0 max-md:gap-1">
               <button
                 type="button"
                 title="Portrait"
                 onClick={() => !isReadOnly && setPreviewAspect('portrait')}
                 disabled={isReadOnly}
-                className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs ${isReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${previewAspect === 'portrait' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs max-md:h-8 max-md:w-8 max-md:shrink-0 max-md:text-[10px] ${isReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${previewAspect === 'portrait' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
               >9:16</button>
               <button
                 type="button"
                 title="Landscape"
                 onClick={() => !isReadOnly && setPreviewAspect('landscape')}
                 disabled={isReadOnly}
-                className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs ${isReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${previewAspect === 'landscape' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs max-md:h-8 max-md:w-8 max-md:shrink-0 max-md:text-[10px] ${isReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${previewAspect === 'landscape' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
               >16:9</button>
               <button
                 type="button"
                 title="Square"
                 onClick={() => !isReadOnly && setPreviewAspect('square')}
                 disabled={isReadOnly}
-                className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs ${isReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${previewAspect === 'square' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
+                className={`w-9 h-9 rounded-full border flex items-center justify-center text-xs max-md:h-8 max-md:w-8 max-md:shrink-0 max-md:text-[10px] ${isReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${previewAspect === 'square' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300'}`}
               >1:1</button>
-              <div className="mx-1 h-5 w-px bg-gray-200" />
+              <div className="mx-1 h-5 w-px bg-gray-200 max-md:hidden" />
               <button
                 type="button"
                 title={`Undo (${undoShortcutLabel})`}
                 aria-label="Undo"
                 onClick={undoLayers}
                 disabled={isReadOnly || !canUndoLayers}
-                className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center text-gray-700 ${isReadOnly || !canUndoLayers ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-gray-50'}`}
+                className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center text-gray-700 max-md:h-8 max-md:w-8 max-md:shrink-0 ${isReadOnly || !canUndoLayers ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-gray-50'}`}
               ><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" /></svg></button>
               <button
                 type="button"
@@ -5135,15 +5135,15 @@ function LayerMode({
                 aria-label="Redo"
                 onClick={redoLayers}
                 disabled={isReadOnly || !canRedoLayers}
-                className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center text-gray-700 ${isReadOnly || !canRedoLayers ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-gray-50'}`}
+                className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center text-gray-700 max-md:h-8 max-md:w-8 max-md:shrink-0 ${isReadOnly || !canRedoLayers ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-gray-50'}`}
               ><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13" /></svg></button>
-              <div className="relative group">
+              <div className="relative group max-md:shrink-0">
                 <button
                   type="button"
                   aria-label="Shuffle the combination"
                   onClick={shuffleLayerSelection}
                   disabled={isReadOnly || !canShuffleLayerSelection}
-                  className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center text-gray-700 ${isReadOnly || !canShuffleLayerSelection ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-gray-50'}`}
+                  className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center text-gray-700 max-md:h-8 max-md:w-8 ${isReadOnly || !canShuffleLayerSelection ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-gray-50'}`}
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M16 3h5v5" />
@@ -5158,7 +5158,7 @@ function LayerMode({
                 </span>
               </div>
             </div>
-            <Button variant="outline" className="rounded-full px-4 py-1 cursor-pointer shrink-0" onClick={() => setShowFullPreview(true)}>Preview</Button>
+            <Button variant="outline" className="rounded-full px-4 py-1 cursor-pointer shrink-0 max-md:px-2.5 max-md:text-xs" onClick={() => setShowFullPreview(true)}>Preview</Button>
           </div>
           {selectionConflictNotice && (
             <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">

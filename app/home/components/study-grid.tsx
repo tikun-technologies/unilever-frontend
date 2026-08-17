@@ -500,41 +500,42 @@ export function StudyGrid({
           )}
 
           {/* Actions */}
-          <div className="flex items-center justify-between">
-            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+          <div className="flex items-center justify-between max-md:min-w-0 max-md:gap-2">
+            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="max-md:min-w-0 max-md:flex-1">
               <Button
                 onClick={() => handleViewDetails(study)}
                 disabled={study.status === 'draft' && loadingStudyId === study.id}
-                className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-6 py-2 rounded-lg flex items-center space-x-2 flex-1 mr-3 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white px-6 py-2 rounded-lg flex items-center space-x-2 flex-1 mr-3 disabled:opacity-50 disabled:cursor-not-allowed max-md:mr-0 max-md:w-full max-md:justify-center max-md:px-3"
               >
                 {loadingStudyId === study.id && study.status === 'draft' ? (
                   <>
-                    <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    <span className="cursor-pointer">Loading...</span>
+                    <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin max-md:shrink-0" />
+                    <span className="cursor-pointer max-md:truncate">Loading...</span>
                   </>
                 ) : (
                   <>
-                    <Eye className="w-4 h-4" />
-                    <span className="cursor-pointer">{study.status === 'draft' ? 'Continue Editing' : 'View Details'}</span>
+                    <Eye className="w-4 h-4 max-md:shrink-0" />
+                    <span className="cursor-pointer md:hidden">{study.status === 'draft' ? 'Edit' : 'View'}</span>
+                    <span className="cursor-pointer hidden md:inline">{study.status === 'draft' ? 'Continue Editing' : 'View Details'}</span>
                   </>
                 )}
               </Button>
             </motion.div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 max-md:shrink-0 max-md:gap-1.5">
               {canCopyStudies && study.user_role !== "viewer" && (
                 <motion.button
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={() => handleCopyStudy(study.id)}
                   disabled={copyLoadingStudyId !== null}
-                  className="w-10 h-10 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] rounded-full flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-10 h-10 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] rounded-full flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed max-md:h-8 max-md:w-8"
                   title={study.status === "draft" ? "Copy draft study" : "Copy study"}
                 >
                   {copyLoadingStudyId === study.id ? (
-                    <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin max-md:h-4 max-md:w-4" />
                   ) : (
-                    <Copy className="w-5 h-5 text-white cursor-pointer" />
+                    <Copy className="w-5 h-5 text-white cursor-pointer max-md:h-4 max-md:w-4" />
                   )}
                 </motion.button>
               )}
@@ -543,10 +544,10 @@ export function StudyGrid({
                   whileHover={{ scale: 1.1 }}
                   whileTap={{ scale: 0.9 }}
                   onClick={() => setCollaboratorStudy(study)}
-                  className="w-10 h-10 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] rounded-full flex items-center justify-center transition-colors"
+                  className="w-10 h-10 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] rounded-full flex items-center justify-center transition-colors max-md:h-8 max-md:w-8"
                   title="Add collaborator"
                 >
-                  <UserPlus className="w-5 h-5 text-white cursor-pointer" />
+                  <UserPlus className="w-5 h-5 text-white cursor-pointer max-md:h-4 max-md:w-4" />
                 </motion.button>
               )}
               {study.status === "draft" && (study.user_role === "admin" || canDeleteInProject) && (
@@ -555,13 +556,13 @@ export function StudyGrid({
                   whileTap={{ scale: 0.9 }}
                   onClick={() => handleDeleteStudyClick(study)}
                   disabled={deleteLoadingStudyId !== null}
-                  className="w-10 h-10 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-10 h-10 bg-red-500 hover:bg-red-600 rounded-full flex items-center justify-center transition-colors disabled:opacity-50 disabled:cursor-not-allowed max-md:h-8 max-md:w-8"
                   title="Delete study"
                 >
                   {deleteLoadingStudyId === study.id ? (
-                    <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span className="inline-block w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin max-md:h-4 max-md:w-4" />
                   ) : (
-                    <Trash2 className="w-5 h-5 text-white cursor-pointer" />
+                    <Trash2 className="w-5 h-5 text-white cursor-pointer max-md:h-4 max-md:w-4" />
                   )}
                 </motion.button>
               )}
@@ -569,10 +570,10 @@ export function StudyGrid({
                 whileHover={{ scale: 1.1 }}
                 whileTap={{ scale: 0.9 }}
                 onClick={() => handleShare(study.id)}
-                className="w-10 h-10 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] rounded-full flex items-center justify-center transition-colors"
+                className="w-10 h-10 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] rounded-full flex items-center justify-center transition-colors max-md:h-8 max-md:w-8"
                 title="Share study"
               >
-                <Share2 className="w-5 h-5 text-white cursor-pointer" />
+                <Share2 className="w-5 h-5 text-white cursor-pointer max-md:h-4 max-md:w-4" />
               </motion.button>
             </div>
           </div>
