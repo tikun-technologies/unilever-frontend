@@ -82,7 +82,7 @@ function parseNormalizedFiles(
   pathOverrides: WeakMap<File, string>,
   options: FolderParseOptions
 ): FolderParseResult {
-  const { maxGroups, maxImagesPerGroup = 10, remainingGroupSlots, groupLabel = 'category' } = options
+  const { maxGroups, maxImagesPerGroup = 30, remainingGroupSlots, groupLabel = 'category' } = options
   const groupLabelPlural = groupLabel === 'layer' ? 'layers' : 'categories'
 
   const rootImages: File[] = []

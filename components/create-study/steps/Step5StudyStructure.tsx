@@ -239,11 +239,11 @@ interface Step5StudyStructureProps {
 export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChange, isReadOnly = false, isActive = true, editorVariant = "study", storagePrefix = "cs_step5", templateTitle, onTemplateTitleChange, showTemplateTitleField = true, onSaveDraft, onPublish, isSaving }: Step5StudyStructureProps) {
   // Dynamic limits from env with sensible defaults
   // const GRID_MIN = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MIN_ELEMENTS || '4') || 4
-  const GRID_MAX = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MAX_ELEMENTS || '20') || 20
+  const GRID_MAX = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MAX_ELEMENTS || '30') || 30
   const CATEGORY_MIN = 3
   const CATEGORY_MAX = 15
   const ELEMENT_MIN = 3
-  const ELEMENT_MAX = 10
+  const ELEMENT_MAX = 30
 
   const [categories, setCategories] = useState<CategoryItem[]>(() => {
     try {
@@ -1287,7 +1287,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                                 </div>
                               ))}
                               <div className="pt-2">
-                                <Button variant="outline" className="rounded-full w-full border-dashed border-2" onClick={() => addTextStatement(category.id, p)}>+ Add Statement</Button>
+                                <Button variant="outline" className="rounded-full w-full border-dashed border-2" onClick={() => addTextStatement(category.id, p)} disabled={category.elements.length >= ELEMENT_MAX}>+ Add Statement</Button>
                               </div>
                             </div>
                           ) : (
@@ -1310,6 +1310,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                                   <Button variant="outline" size="sm" onClick={() => removeCategoryElement(category.id, element.id, p)} className="w-full mt-1 text-xs cursor-pointer">Remove</Button>
                                 </div>
                               ))}
+                              {category.elements.length < ELEMENT_MAX && (
                               <div
                                 className="border-2 border-dashed border-gray-300 rounded-lg p-3 cursor-pointer hover:bg-gray-50 transition-colors flex flex-col items-center justify-center min-h-[120px]"
                                 onClick={() => {
@@ -1337,12 +1338,13 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                                 <div className="text-gray-400 text-2xl mb-1">+</div>
                                 <div className="text-xs text-gray-500 text-center">Drag and drop or click to add</div>
                               </div>
+                              )}
                             </div>
                           )
                         ) : (
                           currentMode === 'text' ? (
                             <div className="text-center py-4">
-                              <Button variant="outline" className="rounded-full border-dashed border-2 px-8" onClick={() => addTextStatement(category.id, p)}>+ Add Statement</Button>
+                              <Button variant="outline" className="rounded-full border-dashed border-2 px-8" onClick={() => addTextStatement(category.id, p)} disabled={category.elements.length >= ELEMENT_MAX}>+ Add Statement</Button>
                             </div>
                           ) : (
                             <div
@@ -1634,6 +1636,7 @@ function LayerMode({
 
   // Dynamic limits from env with sensible defaults
   const LAYER_MIN = 3
+  const LAYER_MAX = Number.parseInt(process.env.NEXT_PUBLIC_LAYER_MAX_LAYERS || '15') || 15
   const ELEMENT_MIN = 3
   const {
     state: layers,
@@ -1756,7 +1759,7 @@ function LayerMode({
   const [draftSaving, setDraftSaving] = useState(false)
   const [draftError, setDraftError] = useState<string | null>(null)
   const [folderImportNotice, setFolderImportNotice] = useState<string | null>(null)
-  const ELEMENT_MAX = 10
+  const ELEMENT_MAX = Number.parseInt(process.env.NEXT_PUBLIC_GRID_MAX_ELEMENTS || '30') || 30
   const [layerAddMenu, setLayerAddMenu] = useState<string | null>(null)
   const [showLayerTextModal, setShowLayerTextModal] = useState<LayerTextModalState | null>(null)
   const [layerTextValue, setLayerTextValue] = useState("")
@@ -2390,6 +2393,65 @@ function LayerMode({
     [buildConstraintAwareLayerSelection, selectedImageIds]
   )
 
+  const shuffleArray = <T,>(items: T[]): T[] => {
+    const next = [...items]
+    for (let i = next.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1))
+      ;[next[i], next[j]] = [next[j], next[i]]
+    }
+    return next
+  }
+
+  const buildRandomConstraintAwareLayerSelection = () => {
+    const next: Record<string, string> = {}
+    const selectedKeys: string[] = []
+    const orderedLayers = shuffleArray(
+      layers.filter((layer) => layer.visible !== false && layer.images.length > 0)
+    )
+
+    orderedLayers.forEach((layer) => {
+      const selected = shuffleArray(layer.images).find((image) => {
+        const candidateKey = getConstraintElementKey(layer.id, image.id)
+        return selectedKeys.every((selectedKey) => !constraintConflictMap.has(`${candidateKey}|${selectedKey}`))
+      })
+
+      if (selected) {
+        next[layer.id] = selected.id
+        selectedKeys.push(getConstraintElementKey(layer.id, selected.id))
+      }
+    })
+
+    return next
+  }
+
+  const canShuffleLayerSelection = layers.some((layer) => layer.visible !== false && layer.images.length > 0)
+
+  const shuffleLayerSelection = () => {
+    if (isReadOnly || !canShuffleLayerSelection) return
+
+    const visibleLayerCount = layers.filter((layer) => layer.visible !== false && layer.images.length > 0).length
+    let best = effectiveSelectedImageIds
+    let bestCount = Object.keys(best).length
+
+    for (let attempt = 0; attempt < 48; attempt += 1) {
+      const candidate = buildRandomConstraintAwareLayerSelection()
+      const count = Object.keys(candidate).length
+      const isDifferent = !isSameSelectionMap(candidate, effectiveSelectedImageIds)
+
+      if (count > bestCount || (count === bestCount && isDifferent)) {
+        best = candidate
+        bestCount = count
+      }
+
+      if (count === visibleLayerCount && isDifferent) {
+        best = candidate
+        break
+      }
+    }
+
+    setSelectedImageIds(best)
+  }
+
   const constrainedOutLayerNames = useMemo(() => {
     return layers
       .filter((layer) => layer.visible !== false && layer.images.length > 0 && !effectiveSelectedImageIds[layer.id])
@@ -3008,6 +3070,7 @@ function LayerMode({
   }, [previewAspect])
 
   const addLayer = () => {
+    if (layers.length >= LAYER_MAX) return
     setShowLayerTypeMenu(true)
   }
 
@@ -3110,7 +3173,10 @@ function LayerMode({
     if (draftType !== 'image') return
     if (!files) return
     setDraftError(null)
-    const list = Array.from(files)
+    const remaining = ELEMENT_MAX - draftImages.length
+    if (remaining <= 0) return
+    let list = Array.from(files)
+    if (list.length > remaining) list = list.slice(0, remaining)
     const ids: string[] = []
     list.forEach((file) => {
       const tempId = crypto.randomUUID()
@@ -3776,6 +3842,10 @@ function LayerMode({
     const { layerId } = showLayerTextModal
     const targetLayer = layers.find(l => l.id === layerId)
     if (!targetLayer) return
+    if (showLayerTextModal.mode === 'add' && targetLayer.images.length >= ELEMENT_MAX) {
+      setLayerTextError(`Maximum ${ELEMENT_MAX} elements per layer`)
+      return
+    }
 
     setLayerTextSaving(true)
     setLayerTextError(null)
@@ -3924,6 +3994,10 @@ function LayerMode({
 
   const saveLayer = async () => {
     if (draftSaving) return
+    if (layers.length >= LAYER_MAX) {
+      setDraftError(`Maximum ${LAYER_MAX} layers allowed`)
+      return
+    }
 
     if (draftType === 'text') {
       if (!draftText.trim()) {
@@ -4028,7 +4102,7 @@ function LayerMode({
     setDraftError(null)
     const id = crypto.randomUUID()
     const nextZ = layers.length
-    const imgs = draftImages.map(i => ({
+    const imgs = draftImages.slice(0, ELEMENT_MAX).map(i => ({
       id: i.id,
       file: i.file,
       previewUrl: i.previewUrl,
@@ -4340,6 +4414,7 @@ function LayerMode({
   const duplicateLayerImage = (layerId: string, imageId: string) => {
     setLayers(prev => prev.map(layer => {
       if (layer.id !== layerId) return layer
+      if (layer.images.length >= ELEMENT_MAX) return layer
       const targetImage = layer.images.find(img => img.id === imageId)
       if (!targetImage) return layer
 
@@ -4367,7 +4442,13 @@ function LayerMode({
   }
 
   const addImagesToLayer = (layerId: string, files: FileList | null) => {
-    const list = Array.from(files || [])
+    const layer = layers.find(l => l.id === layerId)
+    if (layer && layer.images.length >= ELEMENT_MAX) return
+
+    let list = Array.from(files || [])
+    const remaining = ELEMENT_MAX - (layer?.images.length || 0)
+    if (remaining <= 0) return
+    if (list.length > remaining) list = list.slice(0, remaining)
 
     const ids: string[] = []
     list.forEach((file) => {
@@ -4451,8 +4532,11 @@ function LayerMode({
   }
 
   const handleFolderImportForLayers = async (rawFiles: File[]) => {
+    const remainingSlots = LAYER_MAX - layers.length
     const parsed = parseFolderSelection(rawFiles, {
+      maxGroups: LAYER_MAX,
       maxImagesPerGroup: ELEMENT_MAX,
+      remainingGroupSlots: remainingSlots,
       groupLabel: 'layer',
     })
 
@@ -4788,14 +4872,14 @@ function LayerMode({
               variant="outline"
               className="cursor-pointer shrink-0"
               onClick={promptAddFolderForLayers}
-              disabled={isReadOnly}
+              disabled={isReadOnly || layers.length >= LAYER_MAX}
             >
               + Add Folder
             </Button>
             <Button
               className="bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] cursor-pointer shrink-0"
               onClick={addLayer}
-              disabled={isReadOnly}
+              disabled={isReadOnly || layers.length >= LAYER_MAX}
             >
               + Add New Layer
             </Button>
@@ -5013,7 +5097,7 @@ function LayerMode({
             </div>
           </div>
           {/* Controls under the outer preview div */}
-          <div className="mt-3 w-full flex items-center justify-between">
+          <div className="mt-3 w-full flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -5053,8 +5137,28 @@ function LayerMode({
                 disabled={isReadOnly || !canRedoLayers}
                 className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center text-gray-700 ${isReadOnly || !canRedoLayers ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-gray-50'}`}
               ><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13" /></svg></button>
+              <div className="relative group">
+                <button
+                  type="button"
+                  aria-label="Shuffle the combination"
+                  onClick={shuffleLayerSelection}
+                  disabled={isReadOnly || !canShuffleLayerSelection}
+                  className={`w-9 h-9 rounded-full border border-gray-300 bg-white flex items-center justify-center text-gray-700 ${isReadOnly || !canShuffleLayerSelection ? 'cursor-not-allowed opacity-40' : 'cursor-pointer hover:bg-gray-50'}`}
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M16 3h5v5" />
+                    <path d="M4 20 21 3" />
+                    <path d="M21 16v5h-5" />
+                    <path d="M15 15l6 6" />
+                    <path d="M4 4l5 5" />
+                  </svg>
+                </button>
+                <span className="pointer-events-none absolute bottom-full left-1/2 z-30 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-md bg-gray-800 px-2 py-1 text-[10px] font-medium text-white opacity-0 shadow-sm transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                  Shuffle the combination
+                </span>
+              </div>
             </div>
-            <Button variant="outline" className="rounded-full px-4 py-1 cursor-pointer" onClick={() => setShowFullPreview(true)}>Preview</Button>
+            <Button variant="outline" className="rounded-full px-4 py-1 cursor-pointer shrink-0" onClick={() => setShowFullPreview(true)}>Preview</Button>
           </div>
           {selectionConflictNotice && (
             <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
@@ -5068,7 +5172,7 @@ function LayerMode({
           )}
         </div>
         <div className={previewAspect === 'landscape' ? 'md:col-span-2 flex min-h-0 flex-col' : 'md:col-span-3 flex min-h-0 flex-col'}>
-          <div className="text-xs text-gray-600 mb-2">Min {LAYER_MIN}. Current: {layers.length}</div>
+          <div className="text-xs text-gray-600 mb-2">Min {LAYER_MIN}, Max {LAYER_MAX}. Current: {layers.length}</div>
           <div
             className="custom-scrollbar md:h-[var(--layer-preview-height)] md:overflow-y-auto md:pr-2"
             style={{ '--layer-preview-height': `${containerSize.height}px` } as CSSProperties}
@@ -5194,7 +5298,7 @@ function LayerMode({
                       <div>
                         <div className="flex items-center justify-between mb-2">
                           <div className="text-sm font-medium text-gray-700">Elements ({layer.images.length})</div>
-                          <div className="text-[10px] text-gray-500">Min {ELEMENT_MIN}</div>
+                          <div className="text-[10px] text-gray-500">Min {ELEMENT_MIN}, Max {ELEMENT_MAX}</div>
                         </div>
                         <div className="flex flex-wrap gap-3">
                           {layer.images.map(img => {
@@ -5241,9 +5345,9 @@ function LayerMode({
                                 {layer.layer_type === 'text' && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); duplicateLayerImage(layer.id, img.id) }}
-                                    disabled={isReadOnly}
-                                    className={`absolute -bottom-2 -right-2 w-5 h-5 bg-green-500 text-white rounded-full text-xs opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-green-600 ${isReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} flex items-center justify-center z-10`}
-                                    title="Duplicate"
+                                    disabled={isReadOnly || layer.images.length >= ELEMENT_MAX}
+                                    className={`absolute -bottom-2 -right-2 w-5 h-5 bg-green-500 text-white rounded-full text-xs opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity hover:bg-green-600 ${isReadOnly || layer.images.length >= ELEMENT_MAX ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} flex items-center justify-center z-10`}
+                                    title={layer.images.length >= ELEMENT_MAX ? `Maximum ${ELEMENT_MAX} elements per layer` : 'Duplicate'}
                                   >
                                     ⧉
                                   </button>
@@ -5259,6 +5363,7 @@ function LayerMode({
                               </div>
                             )
                           })}
+                          {layer.images.length < ELEMENT_MAX && (
                           <div
                             data-layer-add-menu
                             className={`relative w-20 h-20 border-2 border-dashed rounded-md flex items-center justify-center text-gray-400 ${isReadOnly ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-gray-300'} transition-colors`}
@@ -5328,6 +5433,7 @@ function LayerMode({
                               </div>
                             )}
                           </div>
+                          )}
                         </div>
                       </div>
                     </div>

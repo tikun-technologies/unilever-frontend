@@ -67,7 +67,12 @@ export function validateAudienceSegmentation(data: AudienceSegmentationData): Au
 
 	const checked = getCheckedAgeEntries(data.ageSelections)
 	if (checked.length === 0) {
-		return { valid: true, error: null, total: 0, checkedCount: 0 }
+		return {
+			valid: false,
+			error: 'Select at least one age group. Age distribution must total 100%.',
+			total: 0,
+			checkedCount: 0,
+		}
 	}
 
 	for (const [label, v] of checked) {

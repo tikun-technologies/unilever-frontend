@@ -4269,6 +4269,9 @@
   .group-focus-within\:text-blue-600:is(:where(.group):focus-within *) {
     color: var(--color-blue-600);
   }
+  .group-focus-within\:opacity-100:is(:where(.group):focus-within *) {
+    opacity: 100%;
+  }
   @media (hover: hover) {
     .group-hover\:visible:is(:where(.group):hover *) {
       visibility: visible;

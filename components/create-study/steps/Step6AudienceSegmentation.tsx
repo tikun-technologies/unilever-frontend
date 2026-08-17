@@ -109,10 +109,22 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 	}
 
 	const handleAgeChange = (label: string, checked: boolean) => {
-		setAgeSelections(prev => ({
-			...prev,
-			[label]: { ...prev[label], checked },
-		}))
+		setAgeSelections(prev => {
+			const next = {
+				...prev,
+				[label]: {
+					...prev[label],
+					checked,
+					percent: checked ? prev[label]?.percent || '' : '',
+				},
+			}
+			const checkedEntries = Object.entries(next).filter(([, value]) => value.checked)
+			if (checkedEntries.length === 1 && !checkedEntries[0][1].percent) {
+				const [onlyLabel, onlyValue] = checkedEntries[0]
+				next[onlyLabel] = { ...onlyValue, percent: '100' }
+			}
+			return next
+		})
 	}
 
 	const handleAgePercentChange = (label: string, percent: string) => {
@@ -252,7 +264,7 @@ export function Step6AudienceSegmentation({ onNext, onBack, onDataChange, isRead
 				</div>
 
 				<div>
-					<div className="text-sm font-semibold text-gray-800 mb-2">Age Distribution</div>
+					<div className="text-sm font-semibold text-gray-800 mb-2">Age Distribution <span className="text-red-500">*</span></div>
 					<div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
 						{Object.entries(ageSelections).map(([label, v]) => (
 							<div key={label} className="flex items-center gap-2 border rounded-md p-2">
