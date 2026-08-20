@@ -116,7 +116,7 @@ export default function SyntheticRespondentPage() {
       .finally(() => setLoading(false))
   }, [studyId])
 
-  // Background: basic-2 for max combinations + total_responses (validation)
+  // Background: basic-2 for generated-respondent count + total_responses (validation)
   useEffect(() => {
     if (!studyId) return
     getStudyBasicDetails2(studyId)
@@ -140,31 +140,21 @@ export default function SyntheticRespondentPage() {
     } catch { /* ignore */ }
   }, [studyId])
 
-  const maxPanelists = studyBasic2 ? (() => {
-    const qs = studyBasic2.classification_questions
-    if (!qs?.length) return 10000
-    let product = 1
-    for (const q of qs) {
-      const n = q.answer_options?.length ?? 0
-      product *= n > 0 ? n : 1
-    }
-    return product
-  })() : null
   const totalResponses = (studyBasic2?.total_responses ?? 0)
   const configuredRespondents = studyBasic2?.study_config?.number_of_respondents
-  const effectiveMax = maxPanelists != null
-    ? Math.min(maxPanelists, configuredRespondents ?? Infinity)
+  const maxRespondents = configuredRespondents != null && configuredRespondents > 0
+    ? configuredRespondents
     : null
-  const availableSlots = effectiveMax != null ? Math.max(0, effectiveMax - totalResponses) : null
+  const availableSlots = maxRespondents != null ? Math.max(0, maxRespondents - totalResponses) : null
 
   const respondentCount = Math.min(10000, Math.max(0, parseInt(respondentCountInput, 10) || 0))
 
   const validationError = ((): string | null => {
     if (respondentCount < 1) return "Enter at least 1 panelist."
-    if (maxPanelists != null && respondentCount > maxPanelists)
-      return `AI can create max ${maxPanelists} unique panelists based on your classification questions.`
+    if (maxRespondents != null && respondentCount > maxRespondents)
+      return `You can run at most ${maxRespondents} respondents — that is how many task sets were generated for this study.`
     if (availableSlots != null && respondentCount > availableSlots && totalResponses > 0)
-      return `You already have ${totalResponses} respondents. AI can add max ${availableSlots} more panelists.`
+      return `You already have ${totalResponses} respondents. You can add at most ${availableSlots} more (study was generated for ${maxRespondents}).`
     return null
   })()
 
@@ -646,15 +636,15 @@ export default function SyntheticRespondentPage() {
                           {validationError}
                         </p>
                       )}
-                      {maxPanelists != null && maxPanelists < 10000 && !validationError && (
+                      {maxRespondents != null && !validationError && (
                         <p className="mt-2 text-xs text-gray-500">
-                          Max unique panelists from classification: {maxPanelists}
-                          {totalResponses > 0 && ` · ${totalResponses} respondents already · ${availableSlots} available`}
+                          Max {maxRespondents} respondents (tasks generated for this study)
+                          {totalResponses > 0 && ` · ${totalResponses} already · ${availableSlots} available`}
                         </p>
                       )}
                       {/* Quick-pick chips */}
                       <div className="flex flex-wrap gap-2 mt-3">
-                        {[10, 25, 50, 100, 200, 500, 1000].filter((n) => maxPanelists == null || n <= (availableSlots ?? maxPanelists)).map((n) => (
+                        {[10, 25, 50, 100, 200, 500, 1000].filter((n) => maxRespondents == null || n <= (availableSlots ?? maxRespondents)).map((n) => (
                           <motion.button
                             key={n}
                             whileHover={{ scale: 1.05 }}
