@@ -23,54 +23,150 @@ type Layer = {
   options: LayerOption[]
 }
 
+const CONFIG_BASE = "/landing-page/configurator"
+
+/** Winning mink pack from the story — used by Best Mix. */
+const BEST_MIX: Record<string, string> = {
+  bottle: "bottle-mink",
+  element: "element-flame",
+  product: "product-shampoo",
+  proposition: "proposition-revives",
+  pump: "pump-A-light",
+}
+
+function titleCase(name: string) {
+  return name
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+function optionsFor(folder: string, names: string[]): LayerOption[] {
+  return names.map((name) => ({
+    id: `${folder}-${name}`,
+    name: titleCase(name),
+    image: `${CONFIG_BASE}/${folder}/${name}.webp`,
+  }))
+}
+
 const LAYERS: Layer[] = [
   {
-    id: "layer1",
-    name: "Layer 1",
+    id: "bottle",
+    name: "Bottle",
     zIndex: 1,
-    options: [
-      { id: "a2", name: "Large Cap Grey", image: "/design configurator/layer 1/a2-largecap-grey.webp" },
-      { id: "a3", name: "Large Cap Teal", image: "/design configurator/layer 1/a3-largecap-teal.webp" },
-      { id: "a8", name: "Small Cap Grey", image: "/design configurator/layer 1/a8-smallcap-grey.webp" },
-    ],
+    options: optionsFor("bottle", [
+      "blush",
+      "chalk",
+      "clear",
+      "hazy",
+      "honey",
+      "ivory",
+      "khaki",
+      "light-teal",
+      "Lilac",
+      "mauve",
+      "mink",
+      "parrot",
+      "periwinkle",
+      "powder",
+      "rosewood",
+      "sage",
+      "slate",
+      "steel",
+      "taupe",
+      "teal",
+      "terracotta",
+    ]),
   },
   {
-    id: "layer2",
-    name: "Layer 2",
+    id: "element",
+    name: "Element",
     zIndex: 2,
-    options: [
-      { id: "b1", name: "Brushed Metal", image: "/design configurator/layer 2/b1-brushed-metal.webp" },
-      { id: "b2", name: "Chrome Metal", image: "/design configurator/layer 2/b2-chrome-metal.webp" },
-    ],
+    options: optionsFor("element", [
+      "air",
+      "branch",
+      "clock",
+      "diamond",
+      "drop",
+      "flame",
+      "gear",
+      "hourglass",
+      "ice",
+      "leaf",
+      "leaves",
+      "mineral",
+      "mountain",
+      "polaris",
+      "shine",
+      "splash",
+      "waves",
+      "wind",
+    ]),
   },
   {
-    id: "layer3",
-    name: "Layer 3",
+    id: "product",
+    name: "Product",
     zIndex: 3,
-    options: [
-      { id: "d1", name: "Glossy", image: "/design configurator/layer 3/d1-glossy.webp" },
-      { id: "d3", name: "Holo", image: "/design configurator/layer 3/d3-holo.webp" },
-      { id: "d4", name: "Glossy Rosegold", image: "/design configurator/layer 3/d4-glossy-rosegold.webp" },
-    ],
+    options: optionsFor("product", ["bodywash", "deodorant", "handwash", "moisturiser", "shampoo"]),
   },
   {
-    id: "layer4",
-    name: "Layer 4",
+    id: "proposition",
+    name: "Proposition",
     zIndex: 4,
-    options: [
-      { id: "e3", name: "Clinical Large", image: "/design configurator/layer 4/e3-clinical-large.webp" },
-      { id: "e4", name: "Maximum Large", image: "/design configurator/layer 4/e4-maximum-large.webp" },
-    ],
+    options: optionsFor("proposition", [
+      "adapts",
+      "biohacks",
+      "cares",
+      "cleanses",
+      "comforts",
+      "ferments",
+      "freshens",
+      "hydrates",
+      "lasts",
+      "nourishes",
+      "personalises",
+      "protects",
+      "rebalances",
+      "recalibrates",
+      "regenerates",
+      "renews",
+      "repairs",
+      "reprograms",
+      "restores",
+      "revives",
+      "softens",
+      "soothes",
+      "synchronises",
+      "uplifts",
+    ]),
   },
   {
-    id: "layer5",
-    name: "Layer 5",
+    id: "pump",
+    name: "Pump",
     zIndex: 5,
-    options: [
-      { id: "f1", name: "Curved Thin", image: "/design configurator/layer 5/f1-curved-thin.webp" },
-      { id: "f3", name: "Straight Thin", image: "/design configurator/layer 5/f3-straight-thin.webp" },
-      { id: "f4", name: "Straight Thick", image: "/design configurator/layer 5/f4-straight-thick.webp" },
-    ],
+    options: optionsFor("pump", [
+      "A-dark",
+      "A-light",
+      "A-neutral",
+      "B-dark",
+      "B-light",
+      "B-neutral",
+      "C-dark",
+      "C-light",
+      "C-neutral",
+      "D-dark",
+      "D-light",
+      "D-neutral",
+      "E-dark",
+      "E-light",
+      "E-neutral",
+      "F-dark",
+      "F-light",
+      "F-neutral",
+      "G-dark",
+      "G-light",
+      "G-neutral",
+      "G-neutral-wide",
+    ]),
   },
 ]
 
@@ -120,7 +216,7 @@ function MetricSegmentControls({
             key={metric}
             type="button"
             onClick={() => onMetricChange(metric)}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+            className={`cursor-pointer px-4 py-2 text-sm font-medium rounded-lg transition-all ${
               activeMetric === metric
                 ? "bg-white text-[#1a5f96] shadow-sm"
                 : "text-slate-600 hover:text-slate-900"
@@ -135,7 +231,7 @@ function MetricSegmentControls({
         <select
           value={activeSegment}
           onChange={(e) => onSegmentChange(e.target.value)}
-          className="appearance-none bg-white border border-slate-200 text-slate-700 py-2 pl-4 pr-10 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#1a5f96]/20 shadow-sm"
+          className="appearance-none cursor-pointer bg-white border border-slate-200 text-slate-700 py-2 pl-4 pr-10 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#1a5f96]/20 shadow-sm"
         >
           {SEGMENTS.map((seg) => (
             <option key={seg} value={seg}>
@@ -176,7 +272,7 @@ function LayersPanel({
             <button
               type="button"
               onClick={() => onToggleLayer(layer.id)}
-              className="w-full flex items-center justify-between p-4 bg-white hover:bg-slate-50 transition-colors"
+              className="w-full flex cursor-pointer items-center justify-between p-4 bg-white hover:bg-slate-50 transition-colors"
             >
               <div className="flex flex-col items-start">
                 <span className="font-semibold text-slate-900">{layer.name}</span>
@@ -205,7 +301,7 @@ function LayersPanel({
                         key={option.id}
                         type="button"
                         onClick={() => onSelect(layer.id, option.id)}
-                        className={`relative flex flex-col items-center p-3 rounded-xl border transition-all ${
+                        className={`relative flex cursor-pointer flex-col items-center p-3 rounded-xl border transition-all ${
                           isSelected
                             ? "border-[#1a5f96] bg-[#1a5f96]/5 ring-1 ring-[#1a5f96]/20"
                             : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
@@ -245,7 +341,7 @@ export function LandingDesignConfigurator() {
   const [activeMetric, setActiveMetric] = useState<Metric>("Top Down")
   const [activeSegment, setActiveSegment] = useState("Overall")
   const [selections, setSelections] = useState<Record<string, string>>({})
-  const [expandedLayer, setExpandedLayer] = useState<string | null>("layer1")
+  const [expandedLayer, setExpandedLayer] = useState<string | null>("bottle")
   const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState(false)
   const [mounted, setMounted] = useState(false)
 
@@ -276,20 +372,7 @@ export function LandingDesignConfigurator() {
   }
 
   const handleBestMix = () => {
-    const best: Record<string, string> = {}
-    LAYERS.forEach((layer) => {
-      let bestOption = layer.options[0]
-      let bestValue = getCoefficient(bestOption.id, activeMetric, activeSegment)
-      layer.options.forEach((opt) => {
-        const val = getCoefficient(opt.id, activeMetric, activeSegment)
-        if (val > bestValue) {
-          bestValue = val
-          bestOption = opt
-        }
-      })
-      best[layer.id] = bestOption.id
-    })
-    setSelections(best)
+    setSelections({ ...BEST_MIX })
   }
 
   const totalCoefficient = useMemo(() => {
@@ -357,7 +440,7 @@ export function LandingDesignConfigurator() {
           <button
             type="button"
             onClick={() => setIsMobileDrawerOpen(true)}
-            className="inline-flex h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-xl bg-[#1a5f96] px-4 text-sm font-bold text-white shadow-sm transition-all duration-150 hover:bg-[#155a8a] active:scale-[0.98] lg:hidden"
+            className="inline-flex h-11 w-full cursor-pointer touch-manipulation items-center justify-center gap-2 rounded-xl bg-[#1a5f96] px-4 text-sm font-bold text-white shadow-sm transition-all duration-150 hover:bg-[#155a8a] active:scale-[0.98] lg:hidden"
           >
             <Layers className="h-4 w-4" />
             Select Elements
@@ -370,14 +453,14 @@ export function LandingDesignConfigurator() {
                 <button
                   type="button"
                   onClick={handleBestMix}
-                  className="text-sm font-medium text-[#1a5f96] hover:text-[#155a8a] flex items-center gap-1.5"
+                  className="cursor-pointer text-sm font-medium text-[#1a5f96] hover:text-[#155a8a] flex items-center gap-1.5"
                 >
                   <SparklesIcon className="h-4 w-4" /> Best Mix
                 </button>
                 <button
                   type="button"
                   onClick={handleClear}
-                  className="text-sm font-medium text-slate-500 hover:text-slate-700 flex items-center gap-1.5"
+                  className="cursor-pointer text-sm font-medium text-slate-500 hover:text-slate-700 flex items-center gap-1.5"
                 >
                   <RefreshCw className="h-4 w-4" /> Clear
                 </button>
@@ -387,7 +470,7 @@ export function LandingDesignConfigurator() {
             <div className="relative flex-1 bg-slate-50/30 flex items-center justify-center overflow-hidden p-8">
               <div className="relative w-full h-full max-w-[300px]">
                 <Image
-                  src="/design configurator/background.webp"
+                  src={`${CONFIG_BASE}/background.webp`}
                   alt="Background"
                   fill
                   className="object-contain"
@@ -453,7 +536,7 @@ export function LandingDesignConfigurator() {
           <div className="fixed inset-0 z-[210] lg:hidden">
             <button
               type="button"
-              className="absolute inset-0 bg-black/35"
+              className="absolute inset-0 cursor-pointer bg-black/35"
               aria-label="Close element selector"
               onClick={() => setIsMobileDrawerOpen(false)}
             />
@@ -474,7 +557,7 @@ export function LandingDesignConfigurator() {
                   <button
                     type="button"
                     onClick={() => setIsMobileDrawerOpen(false)}
-                    className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200"
+                    className="flex h-11 w-11 flex-shrink-0 cursor-pointer items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200"
                     aria-label="Close element selector"
                   >
                     <X className="h-5 w-5" />
@@ -495,7 +578,7 @@ export function LandingDesignConfigurator() {
                 <button
                   type="button"
                   onClick={() => setIsMobileDrawerOpen(false)}
-                  className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-[#1a5f96] text-sm font-bold text-white"
+                  className="inline-flex h-11 w-full cursor-pointer items-center justify-center rounded-xl bg-[#1a5f96] text-sm font-bold text-white"
                 >
                   Done
                 </button>

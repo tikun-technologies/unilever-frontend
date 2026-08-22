@@ -3,11 +3,11 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useRef, useState, useEffect, useMemo } from "react"
-import { ArrowRight, Menu, X } from "lucide-react"
+import { ArrowRight, Check, Menu, X } from "lucide-react"
 import gsap from "gsap"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
 import { useGSAP } from "@gsap/react"
-import { CaseStudies } from "./case-studies"
+// import { CaseStudies } from "./case-studies"
 import { LandingDesignConfigurator } from "./landing-design-configurator"
 
 if (typeof window !== "undefined") {
@@ -15,6 +15,7 @@ if (typeof window !== "undefined") {
 }
 
 const LOGIN_HREF = "/login"
+const CONTACT_MAILTO = "mailto:jbrown@tikuntech.com"
 const BRAND_BLUE = "#1a5f96"
 const BRAND_BLUE_HOVER = "#155a8a"
 const BRAND_BLUE_RGB = "26, 89, 150"
@@ -22,103 +23,212 @@ const BRAND_BLUE_RGB = "26, 89, 150"
 const ACTION_WORDS = ["Choose.", "Decide.", "Act.", "Buy.", "Engage."]
 
 /**
- * Each bottle lives in its own folder and is built from 9 stacked layers
- * (z-0 = bare bottle + cap, z-1..z-8 = individual label elements). Stacked
- * they read as a finished pack; pulled apart they reveal the idea's parts.
+ * Every pack is composed of five stacked, perfectly-registered layers (each a
+ * full 1024² transparent canvas exported from the design system). Painted
+ * back-to-front they read as a finished bottle; pulled apart they reveal the
+ * five testable "elements" of a Mind Genomics study.
+ *
+ * `bottle` is the base body and never leaves its place during the scan; the
+ * other four lift off and are called out with a minimalist leader line.
  */
-const BOTTLES = [
-  { folder: "Bottle1", segment: "Best for Gen Z", score: "+18%", isBest: false },
-  { folder: "Bottle2", segment: "Best overall", score: "+34%", isBest: true },
-  { folder: "Bottle3", segment: "Best for Families", score: "+16%", isBest: false },
-]
-const BEST_INDEX = Math.max(0, BOTTLES.findIndex((b) => b.isBest))
-const LAYER_COUNT = 9
+type LayerKey = "bottle" | "element" | "product" | "proposition" | "pump"
+const RENDER_ORDER: LayerKey[] = ["bottle", "element", "product", "proposition", "pump"]
+
+type Design = {
+  key: string
+  bottle: string
+  element: string
+  product: string
+  proposition: string
+  pump: string
+  isBest?: boolean
+}
 
 /**
- * Deconstruction targets for the label layers (index 1..8), expressed as a
- * fraction of the bottle box size. Index 0 (the bare bottle) never moves.
- * The pattern alternates left / right and fans outward so that vertically
- * adjacent pieces always separate — guaranteeing no overlap on any device.
- * Horizontal reach is kept <= ~0.30 so scatter fits between neighbouring
- * bottles; vertical reach is kept compact so the whole scene stays in view.
+ * The story deliberately uses three candidates at every breakpoint. That gives
+ * every scattered element enough room for a readable callout while keeping the
+ * winning mink pack dead-centre.
  */
-const SCATTER: ({ x: number; y: number; r: number } | null)[] = [
-  null,
-  { x: 0.28, y: -0.18, r: 10 },
-  { x: -0.26, y: -0.2, r: -9 },
-  { x: -0.3, y: -0.06, r: -7 },
-  { x: 0.3, y: -0.05, r: 7 },
-  { x: -0.28, y: 0.03, r: -6 },
-  { x: 0.28, y: 0.11, r: 6 },
-  { x: -0.28, y: 0.12, r: -9 },
-  { x: 0.24, y: 0.1, r: 9 },
+const DESIGNS: Design[] = [
+  { key: "rosewood", bottle: "rosewood", element: "drop", product: "bodywash", proposition: "hydrates", pump: "A-light" },
+  { key: "sage", bottle: "sage", element: "leaf", product: "moisturiser", proposition: "nourishes", pump: "A-light" },
+  { key: "mink", bottle: "mink", element: "flame", product: "shampoo", proposition: "revives", pump: "A-light", isBest: true },
+  { key: "periwinkle", bottle: "periwinkle", element: "ice", product: "deodorant", proposition: "freshens", pump: "A-light" },
+  { key: "terracotta", bottle: "terracotta", element: "mineral", product: "handwash", proposition: "protects", pump: "A-light" },
 ]
+const STORY_DESIGNS = [DESIGNS[1], DESIGNS[2], DESIGNS[3]]
+const assetSrc = (type: LayerKey, name: string) => `/landing-page/story/${type}/${name}.webp`
 
-// Horizontal reach (fraction of box) of the widest scattered element from the
-// bottle centre — used to keep everything inside the viewport on any screen.
-// (Measured worst case ~0.43; 0.45 leaves a safety margin against cropping.)
-const H_REACH = 0.45
+// The pump art is light; a hairline shadow keeps its edge on white. The printed
+// icon / text layers are near-white, so they get a much stronger treatment
+// (below) to read clearly once they drift off the coloured bottle.
+const PUMP_OUTLINE =
+  "drop-shadow(0.5px 0 0.4px rgba(15,23,42,0.3)) drop-shadow(-0.5px 0 0.4px rgba(15,23,42,0.3)) drop-shadow(0 0.5px 0.4px rgba(15,23,42,0.3)) drop-shadow(0 -0.5px 0.4px rgba(15,23,42,0.3))"
+// Darken the faint icon / product / claim art into a crisp slate so every
+// scattered element is clearly visible against the white background.
+const INK_FILTER =
+  "brightness(0.08) contrast(1.45) saturate(0) drop-shadow(0 0 0.6px rgba(15,23,42,0.45))"
+
+function layerFilter(key: LayerKey): string | undefined {
+  if (key === "bottle") return undefined
+  if (key === "pump") return PUMP_OUTLINE
+  return INK_FILTER
+}
+
+/**
+ * Per-element performance callouts (Mind Genomics style): each testable element
+ * gets its own segment + utility lift so the deconstruction reads like real
+ * results rather than plain part names.
+ */
+const STAT_LABELS: Record<LayerKey, { seg: string; values: string[] }> = {
+  element: { seg: "Gen Z", values: ["+14%", "+22%", "+11%"] },
+  product: { seg: "Millennials", values: ["+9%", "+15%", "+12%"] },
+  proposition: { seg: "Females", values: ["+13%", "+17%", "+8%"] },
+  pump: { seg: "Males", values: ["+10%", "+12%", "+7%"] },
+  bottle: { seg: "Overall", values: ["+12%", "+19%", "+10%"] },
+}
+
+/**
+ * Scatter offsets for the four detachable layers (fraction of a pack box),
+ * applied to EVERY pack as the scanner passes. The bottle base never moves.
+ * Kept compact so each pack's parts stay inside its own lane — no pack ever
+ * collides with its neighbour, on any screen.
+ */
+const SCATTER: Partial<Record<LayerKey, { x: number; y: number; r: number }>> = {
+  pump: { x: 0.0, y: -0.42, r: 0 },
+  product: { x: 0.34, y: -0.12, r: 5 },
+  proposition: { x: 0.34, y: 0.22, r: -5 },
+  element: { x: -0.36, y: 0.05, r: -6 },
+}
+
+const MIX_SHIFT: Record<LayerKey, number> = {
+  bottle: 0,
+  pump: 1,
+  product: 2,
+  proposition: 1,
+  element: 1,
+}
+
+function mixedAsset(destination: number, key: LayerKey) {
+  const source = (destination - MIX_SHIFT[key] + STORY_DESIGNS.length) % STORY_DESIGNS.length
+  return STORY_DESIGNS[source][key]
+}
+
+/**
+ * Approximate centre of each layer's visible artwork inside its square canvas,
+ * expressed as an offset (fraction of box) from the box centre. Combined with
+ * the scatter offset this gives the true on-screen point a leader line should
+ * touch, so every callout line clearly connects to its element.
+ */
+const CONTENT_CENTER: Record<LayerKey, { x: number; y: number }> = {
+  pump: { x: -0.02, y: -0.28 },
+  product: { x: 0.0, y: 0.0 },
+  element: { x: 0.0, y: 0.09 },
+  proposition: { x: 0.0, y: 0.18 },
+  bottle: { x: 0.0, y: 0.06 },
+}
+
+/**
+ * Where each component's leader-line label sits (fraction of a pack box from
+ * the centre pack's centre). Anchors fan just beyond each scattered part into
+ * the free space around the middle pack so the callouts never overlap.
+ */
+const LABEL_POS: Record<LayerKey, { x: number; y: number }> = {
+  pump: { x: -0.34, y: -0.62 },
+  product: { x: 0.66, y: -0.16 },
+  proposition: { x: 0.66, y: 0.44 },
+  element: { x: -0.66, y: 0.12 },
+  bottle: { x: 0.2, y: 0.66 },
+}
+// On phones every bottle owns one narrow vertical callout lane. This avoids
+// horizontal card collisions while preserving a line to all five elements.
+const MOBILE_LABEL_POS: Record<LayerKey, { x: number; y: number }> = {
+  pump: { x: 0, y: -0.96 },
+  product: { x: 0.1, y: -0.48 },
+  element: { x: -0.1, y: 0.55 },
+  proposition: { x: 0.1, y: 0.82 },
+  bottle: { x: 0, y: 1.09 },
+}
+const CALLOUT_KEYS: LayerKey[] = ["pump", "product", "proposition", "element", "bottle"]
 
 /**
  * All geometry is derived from the live viewport so the scene never crops and
- * bottles/tags never overlap — from an iPhone mini up to a wide desktop.
+ * nothing overlaps — from a small phone up to a wide desktop.
  *
- * The single-bottle states (intro + winner) use `soloBox` and can be large,
- * while the three-up scan uses `trioBox` (small enough that 3 packs + their
- * scattered parts + tags always fit the width). The bottle element is drawn at
- * `soloBox`; during the three-up phase the whole group is scaled by
- * `trioScale`, so one CSS size serves both without ever cropping.
+ * `heroBox` sizes the single centred pack (intro + winner). `packBox` sizes
+ * each pack in the three-up row; a pack is drawn at `heroBox` and the whole
+ * group is scaled by `packScale`, so one CSS size serves both states.
  */
 function computeStageMetrics(vw: number, vh: number) {
   const isMobile = vw < 768
+  const count = 3
   const pad = vw < 480 ? 12 : 24
-  const availW = Math.min(vw - pad * 2, 1080)
-  const usableHalf = availW / 2 - 6
+  const availW = Math.min(vw - pad * 2, 1180)
+  const half = availW / 2
 
-  const alpha = isMobile ? 0.9 : 0.92 // bottle spread as a fraction of trio box
+  // Single hero pack.
+  const heroByW = vw * (isMobile ? 0.6 : 0.32)
+  const heroByH = vh * (isMobile ? 0.36 : 0.46)
+  const heroMax = isMobile ? 260 : 360
+  const heroBox = Math.round(Math.max(150, Math.min(heroByW, heroByH, heroMax)))
 
-  // Three-up size: constrained by width (fit 3 + scatter) and height.
-  const trioByWidth = usableHalf / (alpha + H_REACH)
-  const trioByHeight = (vh * 0.46) / 1.15
-  const trioMax = isMobile ? 210 : 360
-  let trioBox = Math.max(90, Math.min(trioByWidth, trioByHeight, trioMax))
+  // Multi-up packs: must fit `count` across the width without touching.
+  const packByW = availW / (count * (isMobile ? 1.08 : 1.4))
+  const packByH = (vh * (isMobile ? 0.3 : 0.36)) / 1.15
+  const packMax = isMobile ? 118 : 205
+  let packBox = Math.round(Math.max(70, Math.min(packByW, packByH, packMax)))
+  if (packBox > heroBox) packBox = heroBox
+  const packScale = packBox / heroBox
 
-  // Single-bottle size: much larger, especially on phones.
-  const soloByWidth = vw * (isMobile ? 0.66 : 0.36)
-  const soloByHeight = vh * (isMobile ? 0.4 : 0.52)
-  const soloMax = isMobile ? 300 : 400
-  let soloBox = Math.min(soloByWidth, soloByHeight, soloMax)
-  soloBox = Math.max(soloBox, trioBox)
+  // Even, centred spread for the multi-up row (never lets packs touch).
+  const step = Math.min((availW - packBox) / (count - 1), packBox * (isMobile ? 1.14 : 1.58))
+  const positions = Array.from({ length: count }, (_, i) => Math.round((i - (count - 1) / 2) * step))
 
-  soloBox = Math.round(soloBox)
-  trioBox = Math.round(trioBox)
-  const trioScale = trioBox / soloBox
+  // Callouts for every element of every pack. Positions are local to each
+  // bottle lane, then clamped to the stage edges. This keeps all 15 labels
+  // readable without allowing them to sit over a bottle or another callout.
+  const edgeSafe = half - (isMobile ? 27 : 58)
+  const explode = positions.flatMap((baseX, bottleIndex) =>
+    CALLOUT_KEYS.map((key) => {
+      const s = SCATTER[key] ?? { x: 0, y: 0 }
+      const c = CONTENT_CENTER[key]
+      const visX = Math.round(baseX + (c.x + s.x) * packBox)
+      const visY = Math.round((c.y + s.y) * packBox)
+      const lp = isMobile ? MOBILE_LABEL_POS[key] : LABEL_POS[key]
+      const rawLabelX = baseX + lp.x * packBox
+      const labelX = Math.round(Math.max(-edgeSafe, Math.min(edgeSafe, rawLabelX)))
+      const labelY = Math.round(lp.y * packBox)
+      const dx = labelX - visX
+      const dy = labelY - visY
+      const lineLen = Math.round(Math.hypot(dx, dy))
+      const lineAngle = (Math.atan2(dy, dx) * 180) / Math.PI
+      return { bottleIndex, key, visX, visY, labelX, labelY, lineLen, lineAngle }
+    })
+  )
 
-  let spread = trioBox * alpha
-  const maxSpread = usableHalf - H_REACH * trioBox
-  if (spread > maxSpread) spread = Math.max(trioBox * 0.6, maxSpread)
-
-  const tagW = Math.max(72, Math.min(trioBox * 1.05, spread - (isMobile ? 6 : 14)))
-
-  // Vertical anchors (from stage centre).
-  const tagYTrio = Math.round(trioBox * 0.5 + 8)
-  const tagYSolo = Math.round(soloBox * 0.52 + 10)
-  const stageH = Math.round(soloBox * 1.3 + 40)
-  // Pull the whole scene up on phones so it sits just under the heading.
-  const stageShift = isMobile ? -Math.round(vh * 0.09) : 0
+  const scannerH = Math.round(packBox * 1.0)
+  const scanReach = Math.round(Math.abs(positions[positions.length - 1]) + packBox * 0.7)
+  const stageH = Math.round(heroBox * 1.72 + 40)
+  // Lift the complete three-bottle/callout cluster above short mobile browser
+  // chrome so the two upper and three lower callout rows remain visible.
+  const stageShift = isMobile ? -Math.round(vh * 0.1) : 0
 
   return {
-    soloBox,
-    trioBox,
-    trioScale,
-    spread: Math.round(spread),
-    tagW: Math.round(tagW),
-    tagYTrio,
-    tagYSolo,
+    isMobile,
+    count,
+    heroBox,
+    packBox,
+    packScale,
+    positions,
+    explode,
+    scannerH,
+    scanReach,
     stageH,
     stageShift,
   }
 }
+
+type StageMetrics = ReturnType<typeof computeStageMetrics>
 
 function Logo() {
   return (
@@ -220,11 +330,25 @@ export function LandingPage() {
   const word3MouseRef = useRef<HTMLDivElement>(null)
   const word4MouseRef = useRef<HTMLDivElement>(null)
 
+  // Three designs leave enough room to label every scattered element.
+  const count = metrics.count
+  const visibleDesigns = STORY_DESIGNS
+  const bestDisplay = Math.floor(count / 2)
+
+  // Per-element performance callout copy.
+  const calloutByKey = (key: LayerKey, bottleIndex: number) => ({
+    seg: STAT_LABELS[key].seg,
+    delta: STAT_LABELS[key].values[bottleIndex],
+  })
+
   // Object refs
   const bottleRefs = useRef<HTMLDivElement[]>([])
-  const layerRefs = useRef<HTMLDivElement[][]>([[], [], []])
-  const tagsRef = useRef<HTMLDivElement[]>([])
+  const layerRefs = useRef<HTMLDivElement[][]>([])
+  const mixedOverlayRefs = useRef<HTMLDivElement[]>([])
+  const calloutLabelRefs = useRef<HTMLDivElement[]>([])
+  const calloutLineRefs = useRef<HTMLDivElement[]>([])
   const scannerRef = useRef<HTMLDivElement>(null)
+  const winnerBadgeRef = useRef<HTMLDivElement>(null)
 
   useGSAP(() => {
     if (!wrapperRef.current) return
@@ -232,7 +356,7 @@ export function LandingPage() {
     const scrollConfig = {
       trigger: wrapperRef.current,
       start: "top top",
-      end: "+=500%",
+      end: "+=520%",
       scrub: 1,
       pin: true,
       anticipatePin: 1,
@@ -240,117 +364,189 @@ export function LandingPage() {
       invalidateOnRefresh: true,
     }
 
-    // All size-dependent values are function-based so `invalidateOnRefresh`
-    // recomputes them on resize — the pin itself is only ever built once.
+    // Size-dependent values are read live (function-based) so
+    // `invalidateOnRefresh` recomputes them on resize without rebuilding.
     const m = () => metricsRef.current
-    const bottleX = (b: number) => (b - BEST_INDEX) * m().spread
+    const hero = bestDisplay // winning (mink) pack — always dead-centre
+    const start = 0 // the single "starter" pack shown first
+    const layerOf = (b: number, key: LayerKey) => layerRefs.current[b]?.[RENDER_ORDER.indexOf(key)]
+    const scatterKeys: LayerKey[] = ["pump", "product", "proposition", "element"]
 
     const buildStoryTimeline = () => {
       const tl = gsap.timeline({ scrollTrigger: scrollConfig })
+      const total = bottleRefs.current.length || m().count
 
-      // Initial state: only Bottle 1 is visible, centered and large.
+      // ── Initial state: a single pack, centred and large ──
       bottleRefs.current.forEach((el, b) => {
+        if (!el) return
         gsap.set(el, {
           xPercent: -50,
           yPercent: -50,
           x: 0,
           y: 0,
-          opacity: b === 0 ? 1 : 0,
-          scale: b === 0 ? 1 : m().trioScale * 0.8,
-          filter: "drop-shadow(0 14px 26px rgba(15, 23, 42, 0.10))",
+          rotation: 0,
+          opacity: b === start ? 1 : 0,
+          scale: b === start ? 1 : m().packScale * 0.7,
+          filter: "drop-shadow(0 18px 30px rgba(15, 23, 42, 0.10))",
         })
         layerRefs.current[b]?.forEach((layer) => {
           if (layer) gsap.set(layer, { x: 0, y: 0, rotation: 0, opacity: 1 })
         })
       })
-      // Tags live at stage level (so they never inherit the group's scale).
-      gsap.set(tagsRef.current, { xPercent: -50, x: 0, y: () => m().tagYTrio, opacity: 0, scale: 0.9 })
-      gsap.set(scannerRef.current, { opacity: 0, scaleY: 0.6, x: () => -(m().spread + m().trioBox * 0.7) })
+      gsap.set(calloutLabelRefs.current, { opacity: 0, scale: 0.85 })
+      gsap.set(calloutLineRefs.current, { opacity: 0 })
+      gsap.set(mixedOverlayRefs.current, { opacity: 0 })
+      gsap.set(winnerBadgeRef.current, { opacity: 0, y: 12, scale: 0.9 })
+      gsap.set(scannerRef.current, { opacity: 0, x: () => -m().scanReach })
 
-      // ── Phase 1 → 2 : the single weak concept splits into three routes ──
-      tl.to(text1Ref.current, { opacity: 0, y: -20, duration: 1 })
-        .to(text2Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
-        .to(bottleRefs.current[0], { x: () => bottleX(0), scale: () => m().trioScale, duration: 1.5, ease: "power3.inOut" }, "<0.15")
-        .to(bottleRefs.current[2], { x: () => bottleX(2), opacity: 1, scale: () => m().trioScale, duration: 1.5, ease: "power3.inOut" }, "<")
-        .to(bottleRefs.current[1], { opacity: 1, scale: () => m().trioScale, duration: 1.1, ease: "power2.out" }, "<0.1")
+      // ── Phase 1 → 2 : one idea multiplies into testable alternatives ──
+      tl.to(text1Ref.current, { opacity: 0, y: -20, duration: 0.65 })
+        .to(text2Ref.current, { opacity: 1, y: 0, duration: 0.65 }, ">-0.1")
+        // starter pack shrinks into its row slot …
+        .to(
+          bottleRefs.current[start],
+          { x: () => m().positions[start], scale: () => m().packScale, duration: 1.2, ease: "power3.inOut" },
+          "<0.1"
+        )
+      // … and the other candidates fan out from the centre.
+      bottleRefs.current.forEach((el, b) => {
+        if (b === start || !el) return
+        tl.fromTo(
+          el,
+          { opacity: 0, x: 0, scale: () => m().packScale * 0.7 },
+          { opacity: 1, x: () => m().positions[b], scale: () => m().packScale, duration: 1.1, ease: "power3.out" },
+          `<${0.05 + Math.abs(b - start) * 0.06}`
+        )
+      })
 
-      // ── Phase 3 : scan sweeps left→right, deconstructing each pack ──
-      tl.to(text2Ref.current, { opacity: 0, y: -20, duration: 1 }, "+=0.4")
-        .to(text3Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
+      // ── Phase 3 : the scanner sweeps and EVERY pack comes apart ──
+      tl.to(text2Ref.current, { opacity: 0, y: -20, duration: 0.65 }, "+=0.4")
+        .to(text3Ref.current, { opacity: 1, y: 0, duration: 0.65 }, ">-0.1")
         .addLabel("scan")
-        .to(scannerRef.current, { opacity: 1, scaleY: 1, duration: 0.4 }, "scan")
+        .to(scannerRef.current, { opacity: 1, duration: 0.3 }, "scan")
         .fromTo(
           scannerRef.current,
-          { x: () => -(m().spread + m().trioBox * 0.7) },
-          { x: () => m().spread + m().trioBox * 0.7, duration: 2.6, ease: "none" },
+          { x: () => -m().scanReach },
+          { x: () => m().scanReach, duration: 2.6, ease: "none" },
           "scan"
         )
 
-      BOTTLES.forEach((_, b) => {
-        const at = `scan+=${0.35 + b * 0.72}`
-        // Child offsets are in soloBox px; the group's trioScale renders them
-        // at the correct trioBox distance.
-        layerRefs.current[b]?.forEach((layer, i) => {
-          const s = SCATTER[i]
-          if (!s || !layer) return
+      // Each pack's four detachable layers scatter as the scanner reaches it.
+      const spanStep = total > 1 ? 1.9 / (total - 1) : 0
+      bottleRefs.current.forEach((el, b) => {
+        if (!el) return
+        const at = `scan+=${0.35 + b * spanStep}`
+        scatterKeys.forEach((key) => {
+          const layer = layerOf(b, key)
+          const s = SCATTER[key]
+          if (!layer || !s) return
           tl.to(
             layer,
-            {
-              x: () => s.x * m().soloBox,
-              y: () => s.y * m().soloBox,
-              rotation: s.r,
-              duration: 1,
-              ease: "power2.out",
-            },
+            { x: () => s.x * m().heroBox, y: () => s.y * m().heroBox, rotation: s.r, duration: 0.9, ease: "power2.out" },
             at
           )
         })
-        if (tagsRef.current[b]) {
-          tl.fromTo(
-            tagsRef.current[b],
-            { x: () => bottleX(b), y: () => m().tagYTrio, opacity: 0, scale: 0.9 },
-            { x: () => bottleX(b), y: () => m().tagYTrio, opacity: 1, scale: 1, duration: 0.4, ease: "back.out(1.6)" },
-            `${at}+=0.45`
-          )
-        }
+      })
+
+      // Once everything is apart, all 15 minimalist callouts fan in — one for
+      // every part (including each bottle body) across all three candidates.
+      calloutLabelRefs.current.forEach((_, ci) => {
+        const line = calloutLineRefs.current[ci]
+        const label = calloutLabelRefs.current[ci]
+        if (line) tl.to(line, { opacity: 1, duration: 0.35, ease: "power2.out" }, `scan+=${2.25 + ci * 0.025}`)
+        if (label) tl.to(label, { opacity: 1, scale: 1, duration: 0.35, ease: "back.out(1.35)" }, `scan+=${2.32 + ci * 0.025}`)
       })
 
       tl.to(scannerRef.current, { opacity: 0, duration: 0.3 }, "scan+=2.6")
 
-      // ── Phase 4 : pieces snap back, then the losers slide away and the
-      //             winning pack glides to the middle and grows. ──
-      tl.to(text3Ref.current, { opacity: 0, y: -20, duration: 1 }, "+=0.5")
-        .to(text4Ref.current, { opacity: 1, y: 0, duration: 1 }, "<")
-        .addLabel("rebuild")
+      // ── Phase 4 : every element visibly changes bottle, then selected
+      // elements from the side candidates assemble the winning combination ──
+      tl.to(text3Ref.current, { opacity: 0, y: -20, duration: 0.65 }, "+=0.6")
+        .to(text4Ref.current, { opacity: 1, y: 0, duration: 0.65 }, ">-0.1")
+        .addLabel("mix")
 
-      BOTTLES.forEach((_, b) => {
-        layerRefs.current[b]?.forEach((layer, i) => {
-          if (i === 0 || !layer) return
-          tl.to(layer, { x: 0, y: 0, rotation: 0, duration: 1.2, ease: "power3.inOut" }, "rebuild")
+      // Labels retract.
+      tl.to(calloutLabelRefs.current, { opacity: 0, scale: 0.85, duration: 0.35 }, "mix")
+        .to(calloutLineRefs.current, { opacity: 0, duration: 0.35 }, "mix")
+
+      // Different layer types rotate in opposite directions and land on a
+      // DIFFERENT bottle. Two explicit legs make the exchange impossible to
+      // mistake for parts simply returning to their original coordinates.
+      bottleRefs.current.forEach((el, b) => {
+        if (!el) return
+        scatterKeys.forEach((key, i) => {
+          const layer = layerOf(b, key)
+          if (!layer) return
+          const destination = (b + MIX_SHIFT[key]) % total
+          const direction = destination > b ? 1 : -1
+          tl.to(
+            layer,
+            {
+              x: () => ((m().positions[destination] - m().positions[b]) / m().packScale) * 0.52,
+              // On phones keep every travel arc below the heading; desktop
+              // retains the wider alternating up/down choreography.
+              y: () =>
+                m().isMobile
+                  ? (i % 2 === 0 ? 0.18 : 0.4) * m().heroBox
+                  : (i % 2 === 0 ? -0.52 : 0.52) * m().heroBox,
+              rotation: direction * (105 + i * 18),
+              duration: 0.75,
+              ease: "power2.in",
+            },
+            `mix+=${0.2 + i * 0.05}`
+          )
+          tl.to(
+            layer,
+            {
+              x: () => (m().positions[destination] - m().positions[b]) / m().packScale,
+              y: 0,
+              // Complete the visible turn but settle upright so the incoming
+              // 1024² layer re-registers precisely on its new bottle.
+              rotation: direction * 360,
+              duration: 0.75,
+              ease: "power2.out",
+            },
+            `mix+=${0.95 + i * 0.05}`
+          )
         })
       })
 
-      tl.addLabel("choose", ">")
+      // Promote the completed combinations to stage-level overlays. This keeps
+      // every incoming element above every bottle body (independent of each
+      // bottle wrapper's stacking context).
+      const detachableLayers = layerRefs.current.flatMap((layers) =>
+        scatterKeys.map((key) => layers?.[RENDER_ORDER.indexOf(key)]).filter(Boolean)
+      )
+      tl.addLabel("mixed", "mix+=1.75")
+        .to(detachableLayers, { opacity: 0, duration: 0.18 }, "mixed")
+        .to(mixedOverlayRefs.current, { opacity: 1, duration: 0.18 }, "mixed")
 
-      // The two runner-up packs slide outward and fade out (no blur) …
+      // Hold all three complete combinations long enough to read them, then
+      // fade the alternatives in place. The centre cross-fades directly to
+      // the final best design; no side elements travel into the middle.
+      tl.addLabel("assemble", "mix+=3.2")
+
+      scatterKeys.forEach((key, i) => {
+        const winnerLayer = layerOf(hero, key)
+        if (!winnerLayer) return
+        tl.set(winnerLayer, { x: 0, y: 0, rotation: 0, opacity: 0 }, "assemble")
+        tl.to(winnerLayer, { opacity: 1, duration: 0.55 }, `assemble+=${0.2 + i * 0.05}`)
+      })
+
+      tl.to(mixedOverlayRefs.current[hero], { opacity: 0, duration: 0.55 }, "assemble+=0.15")
+
+      // Fade both complete side designs away exactly where they stand.
       bottleRefs.current.forEach((el, b) => {
-        if (b === BEST_INDEX) return
-        const dir = b < BEST_INDEX ? -1 : 1
-        tl.to(
-          el,
-          { x: () => dir * (m().spread + m().trioBox * 1.1), scale: () => m().trioScale * 0.7, opacity: 0, duration: 1.3, ease: "power3.inOut" },
-          "choose"
-        )
-      })
-      tagsRef.current.forEach((tag, b) => {
-        if (b === BEST_INDEX || !tag) return
-        const dir = b < BEST_INDEX ? -1 : 1
-        tl.to(tag, { x: () => dir * (m().spread + m().trioBox), opacity: 0, duration: 1, ease: "power3.inOut" }, "choose")
+        if (!el || b === hero) return
+        tl.to(el, { opacity: 0, duration: 0.75, ease: "power2.inOut" }, "assemble")
+        tl.to(mixedOverlayRefs.current[b], { opacity: 0, duration: 0.75, ease: "power2.inOut" }, "assemble")
       })
 
-      // … while the winner grows to full size at dead-centre.
+      // The winner glides to centre and grows.
+      tl.addLabel("choose", "assemble+=0.9")
+
       tl.to(
-        bottleRefs.current[BEST_INDEX],
+        bottleRefs.current[hero],
         {
           x: 0,
           y: -6,
@@ -361,21 +557,18 @@ export function LandingPage() {
         },
         "choose"
       )
-        .to(
-          tagsRef.current[BEST_INDEX],
-          { x: 0, y: () => m().tagYSolo, scale: 1.05, duration: 1.1, ease: "power2.out" },
-          "choose+=0.1"
-        )
-        .to(bottleRefs.current[BEST_INDEX], { y: -14, duration: 1.4, ease: "sine.inOut" }, ">-0.1")
+        .to(winnerBadgeRef.current, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "back.out(1.6)" }, "choose+=0.8")
+        .to(bottleRefs.current[hero], { y: -14, duration: 1.4, ease: "sine.inOut" }, ">-0.1")
 
       return tl
     }
 
-    const mm = gsap.matchMedia()
-    mm.add("(min-width: 320px)", () => buildStoryTimeline())
-
-    return () => mm.revert()
-  }, { scope: wrapperRef })
+    const tl = buildStoryTimeline()
+    return () => {
+      tl.scrollTrigger?.kill()
+      tl.kill()
+    }
+  }, { scope: wrapperRef, dependencies: [count] })
 
   // On viewport change: update the metrics the timeline reads, then ask
   // ScrollTrigger to recompute its function-based values (no pin rebuild).
@@ -424,15 +617,15 @@ export function LandingPage() {
           <div className="flex h-16 items-center justify-between">
             <Logo />
             <div className="hidden items-center space-x-8 md:flex">
-              <a href="#story" className="font-medium text-gray-600 transition-colors hover:text-[#1a5f96]">
+              <a href="#story" className="cursor-pointer font-medium text-gray-600 transition-colors hover:text-[#1a5f96]">
                 How it works
               </a>
-              <a href="#case-studies" className="font-medium text-gray-600 transition-colors hover:text-[#1a5f96]">
+              {/* <a href="#case-studies" className="cursor-pointer font-medium text-gray-600 transition-colors hover:text-[#1a5f96]">
                 Case Studies
-              </a>
+              </a> */}
               <Link
                 href={LOGIN_HREF}
-                className="rounded-full bg-[#1a5f96] px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#155a8a] hover:shadow-lg"
+                className="cursor-pointer rounded-full bg-[#1a5f96] px-5 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:bg-[#155a8a] hover:shadow-lg"
               >
                 Login / Create an account
               </Link>
@@ -440,13 +633,13 @@ export function LandingPage() {
             <div className="flex items-center gap-2 md:hidden">
               <Link
                 href={LOGIN_HREF}
-                className="rounded-full bg-[#1a5f96] px-3 py-2 text-xs font-semibold text-white"
+                className="cursor-pointer rounded-full bg-[#1a5f96] px-3 py-2 text-xs font-semibold text-white"
               >
                 Login
               </Link>
               <button
                 type="button"
-                className="rounded-lg p-2 text-slate-700 hover:bg-slate-100"
+                className="cursor-pointer rounded-lg p-2 text-slate-700 hover:bg-slate-100"
                 onClick={() => setMenuOpen(!menuOpen)}
               >
                 {menuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
@@ -459,12 +652,12 @@ export function LandingPage() {
             <nav className="flex flex-col gap-3">
               {[
                 ["#story", "How it works"],
-                ["#case-studies", "Case Studies"],
+                // ["#case-studies", "Case Studies"],
               ].map(([href, label]) => (
                 <a
                   key={href}
                   href={href}
-                  className="text-base font-medium text-gray-700"
+                  className="cursor-pointer text-base font-medium text-gray-700"
                   onClick={() => setMenuOpen(false)}
                 >
                   {label}
@@ -472,7 +665,7 @@ export function LandingPage() {
               ))}
               <Link
                 href={LOGIN_HREF}
-                className="mt-2 rounded-full bg-[#1a5f96] py-3 text-center text-sm font-semibold text-white"
+                className="mt-2 cursor-pointer rounded-full bg-[#1a5f96] py-3 text-center text-sm font-semibold text-white"
                 onClick={() => setMenuOpen(false)}
               >
                 Login / Create an account
@@ -518,14 +711,14 @@ export function LandingPage() {
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
               href={LOGIN_HREF}
-              className="inline-flex h-12 items-center justify-center rounded-full bg-[#1a5f96] px-8 text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-1 hover:bg-[#155a8a] hover:shadow-xl"
+              className="inline-flex h-12 cursor-pointer items-center justify-center rounded-full bg-[#1a5f96] px-8 text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-1 hover:bg-[#155a8a] hover:shadow-xl"
               style={{ boxShadow: `0 10px 25px rgba(${BRAND_BLUE_RGB}, 0.35)` }}
             >
               Login / Create an account
             </Link>
             <Link
-              href={LOGIN_HREF}
-              className="inline-flex h-12 items-center justify-center rounded-full border border-gray-200 bg-white px-8 text-sm font-medium text-gray-800 transition-all hover:bg-gray-50"
+              href={CONTACT_MAILTO}
+              className="inline-flex h-12 cursor-pointer items-center justify-center rounded-full border border-gray-200 bg-white px-8 text-sm font-medium text-gray-800 transition-all hover:bg-gray-50"
             >
               Contact Us
             </Link>
@@ -538,18 +731,18 @@ export function LandingPage() {
         <div ref={containerRef} className="flex h-screen w-full flex-col items-center justify-center overflow-hidden">
 
           {/* Text Container */}
-          <div className="absolute top-[8%] z-20 w-full px-4 text-center sm:top-[12%]">
+          <div className="absolute top-[88px] z-20 w-full px-4 text-center sm:top-[12%]">
             <h2 ref={text1Ref} className="text-2xl font-medium tracking-tight text-slate-900 sm:text-3xl md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
-              Why does one design win?
+              How is a winning design built?
             </h2>
             <h2 ref={text2Ref} className="absolute left-0 top-0 w-full px-4 text-2xl font-medium tracking-tight text-slate-900 opacity-0 sm:text-3xl md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
-              Break the weak concept into testable alternatives.
+              One idea becomes three testable combinations.
             </h2>
             <h2 ref={text3Ref} className="absolute left-0 top-0 w-full px-4 text-2xl font-medium tracking-tight text-slate-900 opacity-0 sm:text-3xl md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
-              Scan what people actually respond to.
+              Every element reveals what audiences prefer.
             </h2>
             <h2 ref={text4Ref} className="absolute left-0 top-0 w-full px-4 text-2xl font-medium tracking-tight text-slate-900 opacity-0 sm:text-3xl md:text-5xl" style={{ letterSpacing: '-0.03em' }}>
-              Choose the strongest design for each segment.
+              Winning elements recombine into the strongest design.
             </h2>
           </div>
 
@@ -564,60 +757,147 @@ export function LandingPage() {
               ref={scannerRef}
               className="absolute left-1/2 top-1/2 z-30 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full"
               style={{
-                height: metrics.trioBox * 0.86,
+                height: metrics.scannerH,
                 backgroundColor: BRAND_BLUE,
                 boxShadow: `0 0 22px 3px rgba(${BRAND_BLUE_RGB}, 0.75)`,
               }}
             />
 
-            {/* Bottles — each a stack of 9 layers (z-0 base + z-1..z-8 elements) */}
-            {BOTTLES.map((bottle, b) => (
+            {/* Packs — each a stack of 5 registered layers
+                (bottle base + element + product + proposition + pump) */}
+            {visibleDesigns.map((design, b) => {
+              if (!layerRefs.current[b]) layerRefs.current[b] = []
+              return (
+                <div
+                  key={design.key}
+                  ref={(el) => {
+                    if (el) bottleRefs.current[b] = el
+                  }}
+                  className="absolute left-1/2 top-1/2"
+                  style={{ height: metrics.heroBox, width: metrics.heroBox }}
+                >
+                  {RENDER_ORDER.map((key, i) => (
+                    <div
+                      key={key}
+                      ref={(el) => {
+                        if (el) layerRefs.current[b][i] = el
+                      }}
+                      className="absolute inset-0 will-change-transform"
+                      style={{ filter: layerFilter(key) }}
+                    >
+                      <Image
+                        src={assetSrc(key, design[key])}
+                        alt={key === "bottle" ? `${design.key} design` : ""}
+                        fill
+                        sizes="(max-width: 768px) 60vw, 360px"
+                        className="object-contain"
+                        priority={b === bestDisplay && key === "bottle"}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+
+            {/* Stage-level mixed layers. Keeping these outside the transformed
+                bottle wrappers guarantees every swapped element paints above
+                its destination bottle, including the third design. */}
+            {visibleDesigns.map((design, b) => (
               <div
-                key={bottle.folder}
+                key={`mixed-${design.key}`}
                 ref={(el) => {
-                  if (el) bottleRefs.current[b] = el
+                  if (el) mixedOverlayRefs.current[b] = el
                 }}
-                className="absolute left-1/2 top-1/2"
-                style={{ height: metrics.soloBox, width: metrics.soloBox }}
+                className="pointer-events-none absolute left-1/2 top-1/2 z-[25] opacity-0"
+                style={{
+                  height: metrics.heroBox,
+                  width: metrics.heroBox,
+                  transform: `translate(-50%, -50%) translateX(${metrics.positions[b]}px) scale(${metrics.packScale})`,
+                }}
               >
-                {Array.from({ length: LAYER_COUNT }).map((_, i) => (
-                  <div
-                    key={i}
-                    ref={(el) => {
-                      if (el) layerRefs.current[b][i] = el
-                    }}
-                    className="absolute inset-0 will-change-transform"
-                  >
+                {RENDER_ORDER.filter((key) => key !== "bottle").map((key) => (
+                  <div key={key} className="absolute inset-0" style={{ filter: layerFilter(key) }}>
                     <Image
-                      src={`/landing-page/${bottle.folder}/z-${i}.webp`}
-                      alt={i === 0 ? `${bottle.segment} design` : ""}
+                      src={assetSrc(key, mixedAsset(b, key))}
+                      alt=""
                       fill
-                      sizes="(max-width: 768px) 66vw, 400px"
+                      sizes="(max-width: 768px) 40vw, 220px"
                       className="object-contain"
-                      priority={b === 0}
                     />
                   </div>
                 ))}
               </div>
             ))}
 
-            {/* Segment tags — positioned at stage level so they keep a fixed,
-                readable size regardless of the bottle group's scale. */}
-            {BOTTLES.map((bottle, b) => (
+            {/* Leader lines — thin connectors that clearly attach each element
+                (dot end) to its callout label */}
+            {metrics.explode.map((e, ci) => (
               <div
-                key={`tag-${bottle.folder}`}
+                key={`line-${e.bottleIndex}-${e.key}`}
                 ref={(el) => {
-                  if (el) tagsRef.current[b] = el
+                  if (el) calloutLineRefs.current[ci] = el
                 }}
-                className="pointer-events-none absolute left-1/2 top-1/2 rounded-xl border border-slate-200 bg-white px-2 py-1 text-center opacity-0 shadow-md sm:rounded-2xl sm:px-3 sm:py-1.5"
-                style={{ width: metrics.tagW }}
+                className="pointer-events-none absolute left-1/2 top-1/2 z-20 opacity-0"
+                style={{ transform: `translate(${e.visX}px, ${e.visY}px)` }}
               >
-                <div className="text-[10px] font-semibold leading-tight text-slate-900 sm:text-xs">{bottle.segment}</div>
-                <div className={`mt-0.5 text-[10px] font-semibold leading-tight sm:text-xs ${bottle.isBest ? "text-[#1a5f96]" : "text-slate-500"}`}>
-                  {bottle.score} lift
-                </div>
+                {/* dot on the element */}
+                <div className="absolute h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-500" />
+                {/* connector to the label */}
+                <div
+                  className="absolute h-px bg-slate-400"
+                  style={{ width: e.lineLen, transform: `rotate(${e.lineAngle}deg)`, transformOrigin: "0 50%" }}
+                />
               </div>
             ))}
+
+            {/* One callout for every component across all three designs */}
+            {metrics.explode.map((e, ci) => {
+              const c = calloutByKey(e.key, e.bottleIndex)
+              return (
+                <div
+                  key={`label-${e.bottleIndex}-${e.key}`}
+                  className="pointer-events-none absolute left-1/2 top-1/2 z-40"
+                  style={{ transform: `translate(${e.labelX}px, ${e.labelY}px) translate(-50%, -50%)` }}
+                >
+                  <div
+                    ref={(el) => {
+                      if (el) calloutLabelRefs.current[ci] = el
+                    }}
+                    className="whitespace-nowrap rounded-md bg-white/95 px-1.5 py-1 text-center opacity-0 shadow-sm ring-1 ring-slate-100 sm:px-2"
+                  >
+                    {metrics.isMobile ? (
+                      <div className="text-[7px] font-semibold uppercase leading-none tracking-[0.03em]" style={{ color: BRAND_BLUE }}>
+                        {c.seg} {c.delta}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="text-[8px] font-medium uppercase leading-none tracking-[0.12em] text-slate-400">
+                          Liked by {c.seg}
+                        </div>
+                        <div className="mt-0.5 text-[11px] font-semibold leading-none" style={{ color: BRAND_BLUE }}>
+                          {c.delta}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+
+            {/* Winner badge (final phase) */}
+            <div
+              className="pointer-events-none absolute left-1/2 top-1/2 z-40"
+              style={{ transform: `translate(0px, ${Math.round(metrics.heroBox * 0.6)}px) translate(-50%, -50%)` }}
+            >
+              <div
+                ref={winnerBadgeRef}
+                className="flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold text-white opacity-0 shadow-lg"
+                style={{ backgroundColor: BRAND_BLUE }}
+              >
+                <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+                Best design
+              </div>
+            </div>
           </div>
         </div>
       </section>
@@ -630,8 +910,8 @@ export function LandingPage() {
         <LandingDesignConfigurator />
       </div>
 
-      {/* Case Studies / Proof */}
-      <CaseStudies />
+      {/* Case Studies / Proof — temporarily hidden */}
+      {/* <CaseStudies /> */}
 
       {/* Final CTA */}
       <section id="cta" className="relative overflow-hidden py-24" style={{ backgroundColor: BRAND_BLUE }}>
@@ -650,14 +930,22 @@ export function LandingPage() {
             Stop relying on guesswork and surface-level data. Let&apos;s design an experiment that gives you the
             precise answers you need to scale confidently.
           </p>
-          <Link
-            href={LOGIN_HREF}
-            className="inline-flex items-center justify-center rounded-full bg-white px-8 py-4 text-xl font-bold shadow-xl transition-all duration-300 hover:-translate-y-1 hover:bg-gray-50 hover:shadow-2xl"
-            style={{ color: BRAND_BLUE }}
-          >
-            Login / Create an account
-            <ArrowRight className="ml-2 h-5 w-5" strokeWidth={2} />
-          </Link>
+          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
+            <Link
+              href={LOGIN_HREF}
+              className="inline-flex cursor-pointer items-center justify-center rounded-full bg-white px-8 py-4 text-xl font-bold shadow-xl transition-all duration-300 hover:-translate-y-1 hover:bg-gray-50 hover:shadow-2xl"
+              style={{ color: BRAND_BLUE }}
+            >
+              Login / Create an account
+              <ArrowRight className="ml-2 h-5 w-5" strokeWidth={2} />
+            </Link>
+            <Link
+              href={CONTACT_MAILTO}
+              className="inline-flex cursor-pointer items-center justify-center rounded-full border-2 border-white/80 bg-transparent px-8 py-4 text-xl font-bold text-white transition-all duration-300 hover:-translate-y-1 hover:bg-white/10"
+            >
+              Contact Us
+            </Link>
+          </div>
         </div>
       </section>
 
