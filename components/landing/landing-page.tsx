@@ -9,6 +9,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger"
 import { useGSAP } from "@gsap/react"
 // import { CaseStudies } from "./case-studies"
 import { BrandLogo } from "@/components/brand/BrandLogo"
+import { LandingContact } from "./landing-contact"
 import { LandingDesignConfigurator } from "./landing-design-configurator"
 
 if (typeof window !== "undefined") {
@@ -16,7 +17,6 @@ if (typeof window !== "undefined") {
 }
 
 const LOGIN_HREF = "/login"
-const CONTACT_MAILTO = "mailto:jbrown@tikuntech.com"
 const BRAND_BLUE = "#1a5f96"
 const BRAND_BLUE_HOVER = "#155a8a"
 const BRAND_BLUE_RGB = "26, 89, 150"
@@ -245,6 +245,7 @@ function Logo() {
 
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
+  const [contactOpen, setContactOpen] = useState(false)
   const [text, setText] = useState("")
   const [isDeleting, setIsDeleting] = useState(false)
   const [loopNum, setLoopNum] = useState(0)
@@ -714,12 +715,13 @@ export function LandingPage() {
             >
               Login / Create an account
             </Link>
-            <Link
-              href={CONTACT_MAILTO}
+            <button
+              type="button"
+              onClick={() => setContactOpen(true)}
               className="inline-flex h-12 cursor-pointer items-center justify-center rounded-full border border-gray-200 bg-white px-8 text-sm font-medium text-gray-800 transition-all hover:bg-gray-50"
             >
               Contact Us
-            </Link>
+            </button>
           </div>
         </div>
       </section>
@@ -937,12 +939,13 @@ export function LandingPage() {
               Login / Create an account
               <ArrowRight className="ml-2 h-5 w-5" strokeWidth={2} />
             </Link>
-            <Link
-              href={CONTACT_MAILTO}
+            <button
+              type="button"
+              onClick={() => setContactOpen(true)}
               className="inline-flex cursor-pointer items-center justify-center rounded-full border-2 border-white/80 bg-transparent px-8 py-4 text-xl font-bold text-white transition-all duration-300 hover:-translate-y-1 hover:bg-white/10"
             >
               Contact Us
-            </Link>
+            </button>
           </div>
         </div>
       </section>
@@ -952,6 +955,7 @@ export function LandingPage() {
         <p className="text-sm text-gray-500">&copy; 2026 TikunTech. All Rights Reserved.</p>
       </footer>
 
+      <LandingContact open={contactOpen} onOpenChange={setContactOpen} />
     </div>
   )
 }
