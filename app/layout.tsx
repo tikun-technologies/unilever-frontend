@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { getBrand } from "@/lib/config/brand";
+import { inter } from "@/lib/fonts/studyFonts";
 
 const brand = getBrand();
 
@@ -29,7 +30,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} font-sans antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} ${inter.variable} font-sans antialiased`}
       >
         <Providers>
           {children}

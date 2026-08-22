@@ -27,7 +27,7 @@ import {
   Indie_Flower,
 } from "next/font/google"
 
-const inter = Inter({
+export const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
   weight: ["300", "400", "600", "700"],
