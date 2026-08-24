@@ -146,7 +146,6 @@
     --blur-sm: 8px;
     --blur-md: 12px;
     --blur-lg: 16px;
-    --blur-xl: 24px;
     --blur-3xl: 64px;
     --default-transition-duration: 150ms;
     --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
@@ -1714,6 +1713,9 @@
   .overflow-y-auto {
     overflow-y: auto;
   }
+  .overflow-y-hidden {
+    overflow-y: hidden;
+  }
   .overflow-y-scroll {
     overflow-y: scroll;
   }
@@ -3014,6 +3016,10 @@
     --tw-tracking: 0.03em;
     letter-spacing: 0.03em;
   }
+  .tracking-\[0\.06em\] {
+    --tw-tracking: 0.06em;
+    letter-spacing: 0.06em;
+  }
   .tracking-\[0\.08em\] {
     --tw-tracking: 0.08em;
     letter-spacing: 0.08em;
@@ -4311,33 +4317,11 @@
     .max-md\:bottom-3 {
       bottom: calc(var(--spacing) * 3);
     }
-    .max-md\:-mt-1 {
-      margin-top: calc(var(--spacing) * -1);
-    }
     .max-md\:hidden {
       display: none;
     }
-    .max-md\:-translate-y-\[4\%\] {
-      --tw-translate-y: calc(4% * -1);
-      translate: var(--tw-translate-x) var(--tw-translate-y);
-    }
-    .max-md\:flex-row {
-      flex-direction: row;
-    }
-    .max-md\:flex-wrap {
-      flex-wrap: wrap;
-    }
-    .max-md\:justify-center {
-      justify-content: center;
-    }
-    .max-md\:gap-3 {
-      gap: calc(var(--spacing) * 3);
-    }
     .max-md\:px-1 {
       padding-inline: var(--spacing);
-    }
-    .max-md\:px-3 {
-      padding-inline: calc(var(--spacing) * 3);
     }
   }
   @media (width >= 420px) {
@@ -4382,6 +4366,9 @@
     .sm\:mt-1 {
       margin-top: var(--spacing);
     }
+    .sm\:mt-2 {
+      margin-top: calc(var(--spacing) * 2);
+    }
     .sm\:mt-7 {
       margin-top: calc(var(--spacing) * 7);
     }
@@ -4411,6 +4398,9 @@
     }
     .sm\:block {
       display: block;
+    }
+    .sm\:flex {
+      display: flex;
     }
     .sm\:hidden {
       display: none;
@@ -4523,6 +4513,9 @@
     }
     .sm\:grid-cols-\[1fr_auto\] {
       grid-template-columns: 1fr auto;
+    }
+    .sm\:flex-col {
+      flex-direction: column;
     }
     .sm\:flex-row {
       flex-direction: row;
@@ -4678,6 +4671,9 @@
     }
     .sm\:pb-12 {
       padding-bottom: calc(var(--spacing) * 12);
+    }
+    .sm\:text-left {
+      text-align: left;
     }
     .sm\:text-right {
       text-align: right;

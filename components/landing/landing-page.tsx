@@ -12,6 +12,10 @@ import { LandingDesignConfigurator } from "./landing-design-configurator"
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, useGSAP)
+  // Mobile browser toolbars resize the visual viewport while the user scrolls.
+  // Refreshing a long pinned timeline for those height-only changes can move
+  // the document back into the pin, especially during a fast reverse swipe.
+  ScrollTrigger.config({ ignoreMobileResize: true })
 }
 
 const LOGIN_HREF = "/login"
@@ -287,13 +291,14 @@ const LABEL_POS: Record<LayerKey, { x: number; y: number }> = {
 }
 // On phones every bottle owns one narrow vertical callout lane. This avoids
 // horizontal card collisions while preserving a line to all five elements.
-// Tighter coefficient callouts on mobile — stay around the bottle, not below factorial.
-const MOBILE_COEF_LABEL_POS: Record<LayerKey, { x: number; y: number }> = {
-  pump: { x: -0.62, y: -0.48 },
-  product: { x: 0.62, y: -0.28 },
-  element: { x: -0.62, y: 0.06 },
-  proposition: { x: 0.62, y: 0.32 },
-  bottle: { x: 0, y: 0.44 },
+// Mobile has no leader lines, so each coefficient must remain beside the
+// scattered artwork it describes instead of floating at the viewport edge.
+const MOBILE_COEF_LABEL_OFFSET: Record<LayerKey, { x: number; y: number }> = {
+  pump: { x: 0.18, y: 0.08 },
+  product: { x: 0.13, y: -0.12 },
+  element: { x: -0.14, y: 0.02 },
+  proposition: { x: 0.13, y: 0.12 },
+  bottle: { x: 0, y: 0.28 },
 }
 const CALLOUT_KEYS: LayerKey[] = ["pump", "product", "proposition", "element", "bottle"]
 
@@ -326,17 +331,20 @@ function computeStageMetrics(vw: number, vh: number) {
     const carouselBox = Math.round(Math.min(vw * 0.72, heroBox * 0.9))
     const segmentBox = Math.round(Math.min(heroBox * 0.38, vw * 0.28))
     const compareShiftX = Math.round(availW * 0.22)
-    const edgeSafe = half - 16
+    // Account for the badge width as well as the viewport edge.
+    const edgeSafe = half - 54
     const explode = Array.from({ length: count }, (_, bottleIndex) =>
       CALLOUT_KEYS.map((key) => {
         const s = SCATTER[key] ?? { x: 0, y: 0 }
         const c = CONTENT_CENTER[key]
-        const visX = Math.round((c.x + s.x) * heroBox)
-        const visY = Math.round((c.y + s.y) * heroBox)
-        const lp = MOBILE_COEF_LABEL_POS[key]
-        const rawLabelX = lp.x * heroBox
+        // Mobile scatters layers at 85% of the desktop distance (see timeline).
+        // Use that same geometry here so coefficient badges track the artwork.
+        const visX = Math.round((c.x + s.x * 0.85) * heroBox)
+        const visY = Math.round((c.y + s.y * 0.85) * heroBox)
+        const offset = MOBILE_COEF_LABEL_OFFSET[key]
+        const rawLabelX = visX + offset.x * heroBox
         const labelX = Math.round(Math.max(-edgeSafe, Math.min(edgeSafe, rawLabelX)))
-        const labelY = Math.round(lp.y * heroBox)
+        const labelY = Math.round(visY + offset.y * heroBox)
         const dx = labelX - visX
         const dy = labelY - visY
         const lineLen = Math.round(Math.hypot(dx, dy))
@@ -462,30 +470,38 @@ export function LandingPage() {
   const [viewportReady, setViewportReady] = useState(false)
 
   useLayoutEffect(() => {
-    const measure = () => {
+    const measure = (force = false) => {
       const w = window.innerWidth
       const h = window.innerHeight
-      setViewport({ w, h })
+      setViewport((prev) => {
+        const widthChanged = Math.abs(prev.w - w) >= 24
+        const staysMobile = prev.w < 768 && w < 768
+
+        // On phones, the address bar appearing/disappearing changes only the
+        // height. Keep the original story geometry so ScrollTrigger does not
+        // recalculate the pin in the middle of a swipe.
+        if (!force && staysMobile && !widthChanged) return prev
+        if (!force && !widthChanged && Math.abs(prev.h - h) < 40) return prev
+
+        return { w, h }
+      })
       setViewportReady(true)
     }
-    measure()
+    measure(true)
     let raf = 0
-    const onResize = () => {
+    const scheduleMeasure = (force = false) => {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
-        setViewport((prev) => {
-          const w = window.innerWidth
-          const h = window.innerHeight
-          if (Math.abs(prev.w - w) < 24 && Math.abs(prev.h - h) < 40) return prev
-          return { w, h }
-        })
+        measure(force)
       })
     }
+    const onResize = () => scheduleMeasure(false)
+    const onOrientationChange = () => scheduleMeasure(true)
     window.addEventListener("resize", onResize)
-    window.addEventListener("orientationchange", onResize)
+    window.addEventListener("orientationchange", onOrientationChange)
     return () => {
       window.removeEventListener("resize", onResize)
-      window.removeEventListener("orientationchange", onResize)
+      window.removeEventListener("orientationchange", onOrientationChange)
       cancelAnimationFrame(raf)
     }
   }, [])
@@ -679,7 +695,7 @@ export function LandingPage() {
               tl.fromTo(
                 bottleRefs.current[0],
                 { autoAlpha: 1, x: () => m().mobileStride * 0.55, scale: 1 },
-                { x: 0, duration: 0.4, ease: "power2.out" },
+                { x: 0, duration: 0.4, ease: "power2.out", immediateRender: false },
                 at
               )
             } else {
@@ -694,7 +710,7 @@ export function LandingPage() {
             tl.fromTo(
               bottleRefs.current[i],
               { autoAlpha: 1, x: () => m().mobileStride * 0.55, scale: 1 },
-              { x: 0, duration: 0.4, ease: "power2.out" },
+              { x: 0, duration: 0.4, ease: "power2.out", immediateRender: false },
               at
             )
           }
@@ -808,7 +824,7 @@ export function LandingPage() {
             tl.fromTo(
               bottleRefs.current[b],
               { x: () => m().mobileStride * 0.55, autoAlpha: 1, scale: 1 },
-              { x: 0, duration: 0.4, ease: "power2.out" },
+              { x: 0, duration: 0.4, ease: "power2.out", immediateRender: false },
               at
             )
           } else {
