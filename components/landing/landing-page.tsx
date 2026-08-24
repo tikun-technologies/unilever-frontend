@@ -64,14 +64,6 @@ const CONFIG_BASE = "/landing-page/configurator"
 const assetSrc = (type: LayerKey, name: string) => `/landing-page/story/${type}/${name}.webp`
 const configuratorSrc = (type: LayerKey, name: string) => `${CONFIG_BASE}/${type}/${name}.webp`
 
-const ELEMENT_COUNTS = { bottle: 21, element: 18, product: 5, proposition: 24, pump: 22 }
-const FACTORIAL_TOTAL =
-  ELEMENT_COUNTS.bottle *
-  ELEMENT_COUNTS.element *
-  ELEMENT_COUNTS.product *
-  ELEMENT_COUNTS.proposition *
-  ELEMENT_COUNTS.pump
-
 const CLUSTER_PUMPS = [
   "A-light", "A-dark", "A-neutral", "B-light", "B-dark", "B-neutral",
   "C-light", "C-dark", "C-neutral", "D-light", "D-neutral", "E-light",
@@ -200,10 +192,12 @@ function buildCarouselCombinations(): Design[] {
 const CAROUSEL_COMBINATIONS = buildCarouselCombinations()
 
 const SEGMENT_VARIANTS = [
-  { key: "women", label: "Women", design: DESIGNS[3] },
-  { key: "young", label: "Young people", design: DESIGNS[1] },
-  { key: "eco", label: "Eco-conscious", design: DESIGNS[4] },
+  { key: "women", label: "Women", coefficient: "+15", design: DESIGNS[3] },
+  { key: "young", label: "Young people", coefficient: "+12", design: DESIGNS[1] },
+  { key: "eco", label: "Eco-conscious", coefficient: "+10", design: DESIGNS[4] },
 ] as const
+
+const ORIGINAL_COEFFICIENT = "+20"
 
 const HERO_INDEX = DESIGNS.findIndex((d) => d.isBest) // mink — the opening complete product
 
@@ -369,6 +363,7 @@ function computeStageMetrics(vw: number, vh: number) {
       stageH,
       stageShift,
       carouselBox,
+      carouselMaxWidth: carouselBox + 32,
       segmentBox,
       compareShiftX,
       mobileStride,
@@ -376,15 +371,16 @@ function computeStageMetrics(vw: number, vh: number) {
     }
   }
 
-  // Single hero pack (desktop).
+  // Single hero pack (desktop / tablet). Bottle row gets a modest bump on large screens only.
+  const isLargeScreen = vw >= 1024
   const heroByW = vw * 0.32
   const heroByH = vh * 0.46
   const heroMax = 360
   const heroBox = Math.round(Math.max(140, Math.min(heroByW, heroByH, heroMax)))
 
-  const packByW = availW / (count * 1.22)
+  const packByW = availW / (count * (isLargeScreen ? 1.18 : 1.22))
   const packByH = (vh * 0.34) / 1.15
-  const packMax = 175
+  const packMax = isLargeScreen ? 200 : 175
   let packBox = Math.round(Math.max(64, Math.min(packByW, packByH, packMax)))
   if (packBox > heroBox) packBox = heroBox
   const packScale = packBox / heroBox
@@ -392,7 +388,10 @@ function computeStageMetrics(vw: number, vh: number) {
   const step = Math.min((availW - packBox) / (count - 1), packBox * 1.38)
   const positions = Array.from({ length: count }, (_, i) => Math.round((i - (count - 1) / 2) * step))
 
-  const carouselBox = Math.round(Math.max(56, Math.min(heroBox * 0.72, 150)))
+  const carouselBox = Math.round(
+    Math.max(56, Math.min(heroBox * (isLargeScreen ? 0.76 : 0.72), isLargeScreen ? 180 : 150))
+  )
+  const carouselMaxWidth = isLargeScreen ? 780 : 720
   const segmentBox = Math.round(Math.max(52, Math.min(heroBox * 0.62, 130)))
   const compareShiftX = Math.round(availW * 0.28)
 
@@ -433,6 +432,7 @@ function computeStageMetrics(vw: number, vh: number) {
     stageH,
     stageShift,
     carouselBox,
+    carouselMaxWidth,
     segmentBox,
     compareShiftX,
     mobileStride: 0,
@@ -1392,7 +1392,7 @@ export function LandingPage() {
               ref={carouselRef}
               className="pointer-events-none absolute inset-0 z-[18] flex items-center justify-center opacity-0 max-md:px-1"
             >
-              <div className="relative w-full overflow-hidden" style={{ maxWidth: metrics.isMobile ? metrics.carouselBox + 32 : 720 }}>
+              <div className="relative w-full overflow-hidden" style={{ maxWidth: metrics.carouselMaxWidth }}>
                 <div
                   ref={carouselTrackRef}
                   className="flex items-center will-change-transform"
@@ -1426,11 +1426,8 @@ export function LandingPage() {
               className="pointer-events-none absolute bottom-2 left-0 right-0 z-[19] text-center opacity-0 max-md:bottom-3 sm:bottom-6"
             >
               <p className="text-sm font-semibold tracking-tight text-slate-900 sm:text-2xl">
-                {FACTORIAL_TOTAL.toLocaleString()}
-                <span className="text-slate-500"> possible combinations</span>
-              </p>
-              <p className="mt-0.5 text-[9px] font-medium uppercase tracking-[0.1em] text-slate-400 sm:mt-1 sm:text-xs">
-                {ELEMENT_COUNTS.bottle} bottles × {ELEMENT_COUNTS.element} elements × {ELEMENT_COUNTS.product} products × {ELEMENT_COUNTS.proposition} claims × {ELEMENT_COUNTS.pump} caps
+                Thousands
+                <span className="text-slate-500"> of possible combinations</span>
               </p>
             </div>
 
@@ -1439,8 +1436,8 @@ export function LandingPage() {
               ref={compareRef}
               className="pointer-events-none absolute inset-0 z-[22] flex items-center justify-center opacity-0 px-3"
             >
-              <div className="flex w-full max-w-lg flex-col items-center gap-3 sm:max-w-none sm:flex-row sm:gap-10">
-                <div className="flex flex-col items-center">
+              <div className="flex w-full max-w-lg flex-col items-center gap-3 sm:max-w-none sm:flex-row sm:gap-10 lg:mx-auto lg:w-auto lg:justify-center lg:gap-14">
+                <div className="flex shrink-0 flex-col items-center">
                   <div
                     ref={originalBottleRef}
                     className="relative opacity-0"
@@ -1461,19 +1458,23 @@ export function LandingPage() {
                       </div>
                     ))}
                   </div>
-                  <span className="mt-1 text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:mt-2 sm:text-xs">
-                    Original
+                  <span className="mt-2 whitespace-nowrap text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-xs">
+                    Original{" "}
+                    <span style={{ color: BRAND_BLUE }}>{ORIGINAL_COEFFICIENT}</span>
                   </span>
                 </div>
 
-                <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:flex-col sm:gap-4">
+                <div className="grid w-full grid-cols-3 gap-2 sm:flex sm:w-auto sm:flex-col sm:gap-4 lg:gap-5">
                   {SEGMENT_VARIANTS.map((segment, i) => (
-                    <div key={segment.key} className="flex flex-col items-center gap-1 sm:flex-row sm:gap-3">
+                    <div
+                      key={segment.key}
+                      className="flex flex-col items-center gap-1.5 sm:flex-row sm:items-center sm:gap-3 lg:gap-5"
+                    >
                       <div
                         ref={(el) => {
                           if (el) segmentBottleRefs.current[i] = el
                         }}
-                        className="relative opacity-0"
+                        className="relative shrink-0 opacity-0"
                         style={{ width: metrics.segmentBox, height: metrics.segmentBox }}
                       >
                         {RENDER_ORDER.map((key) => (
@@ -1488,8 +1489,9 @@ export function LandingPage() {
                           </div>
                         ))}
                       </div>
-                      <span className="max-w-[72px] text-center text-[8px] font-semibold uppercase leading-tight tracking-[0.06em] text-[#1a5f96] sm:text-left sm:text-[10px] sm:tracking-[0.12em]">
-                        {segment.label}
+                      <span className="max-w-[76px] text-center text-[8px] font-semibold uppercase leading-tight tracking-[0.06em] text-slate-600 sm:max-w-none sm:whitespace-nowrap sm:text-left sm:text-[10px] sm:tracking-[0.12em]">
+                        {segment.label}{" "}
+                        <span style={{ color: BRAND_BLUE }}>{segment.coefficient}</span>
                       </span>
                     </div>
                   ))}
