@@ -1,11 +1,10 @@
 "use client"
 
 import { useEffect, useId, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react"
-import { Mail, X } from "lucide-react"
+import { X } from "lucide-react"
 import { getBrand } from "@/lib/config/brand"
 
 const BRAND_BLUE = "#1a5f96"
-const BRAND_BLUE_HOVER = "#155a8a"
 
 type LandingContactProps = {
   open: boolean
@@ -101,24 +100,6 @@ export function LandingContact({ open, onOpenChange }: LandingContactProps) {
 
   return (
     <>
-      {!open && (
-        <button
-          type="button"
-          onClick={() => onOpenChange(true)}
-          className="fixed bottom-5 right-5 z-[60] inline-flex cursor-pointer items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-0.5 hover:shadow-xl sm:bottom-6 sm:right-6"
-          style={{ backgroundColor: BRAND_BLUE }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = BRAND_BLUE_HOVER
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = BRAND_BLUE
-          }}
-        >
-          <Mail className="h-4 w-4" />
-          Contact Us
-        </button>
-      )}
-
       {open && (
         <div className="fixed inset-0 z-[70] flex items-end justify-center p-4 sm:items-center">
           <button
