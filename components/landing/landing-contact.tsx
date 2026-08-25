@@ -71,18 +71,42 @@ export function LandingContact({ open, onOpenChange }: LandingContactProps) {
     setError("")
     setIsSubmitting(true)
     try {
-      const res = await fetch("/api/contact", {
+      // Prefer direct backend call (one hop). Fall back to Next proxy if unset.
+      const apiBase = process.env.NEXT_PUBLIC_BASE_URL?.replace(/\/$/, "")
+      const endpoint = apiBase ? `${apiBase}/contact` : "/api/contact"
+      const res = await fetch(endpoint, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(
+          apiBase
+            ? {
+                name: form.name,
+                company: form.company || null,
+                email: form.email,
+                message: form.message,
+                website: form.website || null,
+                source: "landing",
+              }
+            : form
+        ),
       })
-      const data = (await res.json().catch(() => null)) as { error?: string } | null
-      if (!res.ok) {
-        setError(data?.error || "Could not send your inquiry. Please try again.")
+      if (res.ok) {
+        setSent(true)
+        setForm(EMPTY_FORM)
         return
       }
-      setSent(true)
-      setForm(EMPTY_FORM)
+      const data = (await res.json().catch(() => null)) as {
+        error?: string
+        detail?: string | { msg?: string }[]
+      } | null
+      const detail = data?.detail
+      const detailMsg =
+        typeof detail === "string"
+          ? detail
+          : Array.isArray(detail) && typeof detail[0]?.msg === "string"
+            ? detail[0].msg
+            : undefined
+      setError(data?.error || detailMsg || "Could not send your inquiry. Please try again.")
     } catch {
       setError("Could not send your inquiry. Please try again.")
     } finally {
@@ -135,7 +159,7 @@ export function LandingContact({ open, onOpenChange }: LandingContactProps) {
 
             {sent ? (
               <div className="px-5 py-8 text-center sm:px-6">
-                <p className="text-base font-semibold text-slate-900">Inquiry sent</p>
+                <p className="text-base font-semibold text-slate-900">Your enquiry has been sent</p>
                 <p className="mt-2 text-sm text-slate-500">
                   Thanks for reaching out to {brand.displayName}. Our team will reply shortly.
                 </p>

@@ -8,6 +8,7 @@ import gsap from "gsap"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
 import { useGSAP } from "@gsap/react"
 // import { CaseStudies } from "./case-studies"
+import { getBrand } from "@/lib/config/brand"
 import { LandingContact } from "./landing-contact"
 import { LandingDesignConfigurator } from "./landing-design-configurator"
 
@@ -443,6 +444,7 @@ function computeStageMetrics(vw: number, vh: number) {
 type StageMetrics = ReturnType<typeof computeStageMetrics>
 
 function Logo() {
+  const brand = getBrand()
   return (
     <button
       type="button"
@@ -450,8 +452,8 @@ function Logo() {
       className="flex shrink-0 cursor-pointer items-center gap-3 text-left"
     >
       <span className="text-xl font-semibold tracking-tight sm:text-2xl">
-        <span style={{ color: BRAND_BLUE }}>Mind</span>
-        <span className="text-gray-800">Surve</span>
+        <span style={{ color: BRAND_BLUE }}>{brand.prefix}</span>
+        <span className="text-gray-800">{brand.suffix}</span>
       </span>
     </button>
   )

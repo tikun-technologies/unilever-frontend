@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getBrand } from "@/lib/config/brand"
 
-const TEAM_EMAIL = process.env.CONTACT_TEAM_EMAIL || "jbrown@tikuntech.com"
-const RESEND_API_KEY = process.env.RESEND_API_KEY
+const API_BASE_URL = process.env.NEXT_PUBLIC_BASE_URL
 
 const MAX_NAME = 120
 const MAX_COMPANY = 120
@@ -48,78 +46,19 @@ function isRateLimited(ip: string): boolean {
   return false
 }
 
-function buildEmailText(input: {
-  name: string
-  company: string
-  email: string
-  message: string
-}): string {
-  return [
-    "New study inquiry from the landing page.",
-    "",
-    `Name: ${input.name}`,
-    `Company: ${input.company || "—"}`,
-    `Email: ${input.email}`,
-    "",
-    "Message:",
-    input.message,
-  ].join("\n")
-}
-
-async function sendWithResend(input: {
-  name: string
-  company: string
-  email: string
-  message: string
-  subject: string
-}): Promise<boolean> {
-  if (!RESEND_API_KEY) return false
-
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: `${getBrand().displayName} <onboarding@resend.dev>`,
-      to: [TEAM_EMAIL],
-      reply_to: input.email,
-      subject: input.subject,
-      text: buildEmailText(input),
-    }),
-  })
-
-  return res.ok
-}
-
-async function sendWithFormSubmit(input: {
-  name: string
-  company: string
-  email: string
-  message: string
-  subject: string
-}): Promise<boolean> {
-  const res = await fetch(`https://formsubmit.co/ajax/${encodeURIComponent(TEAM_EMAIL)}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Accept: "application/json",
-    },
-    body: JSON.stringify({
-      name: input.name,
-      company: input.company,
-      email: input.email,
-      message: input.message,
-      _subject: input.subject,
-      _template: "table",
-      _replyto: input.email,
-    }),
-  })
-
-  if (!res.ok) return false
-  const data = (await res.json().catch(() => null)) as { success?: string } | null
-  return data?.success === "true" || res.ok
+function backendErrorMessage(data: unknown): string {
+  if (!data || typeof data !== "object") {
+    return "Could not send your inquiry. Please try again."
+  }
+  const detail = (data as { detail?: unknown; error?: unknown }).detail
+  const error = (data as { error?: unknown }).error
+  if (typeof error === "string" && error.trim()) return error
+  if (typeof detail === "string" && detail.trim()) return detail
+  if (Array.isArray(detail) && detail.length > 0) {
+    const first = detail[0] as { msg?: unknown }
+    if (typeof first?.msg === "string") return first.msg
+  }
+  return "Could not send your inquiry. Please try again."
 }
 
 export async function POST(req: NextRequest) {
@@ -130,6 +69,13 @@ export async function POST(req: NextRequest) {
     )
   }
 
+  if (!API_BASE_URL) {
+    return NextResponse.json(
+      { error: "Could not send your inquiry. Please try again." },
+      { status: 502 }
+    )
+  }
+
   let body: ContactBody
   try {
     body = (await req.json()) as ContactBody
@@ -137,6 +83,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 })
   }
 
+  // Honeypot — bots fill this; pretend success without hitting the API
   if (asTrimmedString(body.website)) {
     return NextResponse.json({ ok: true })
   }
@@ -156,21 +103,42 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Please enter a valid email." }, { status: 400 })
   }
   if (message.length < 10 || message.length > MAX_MESSAGE) {
-    return NextResponse.json({ error: "Please enter a message (at least 10 characters)." }, { status: 400 })
+    return NextResponse.json(
+      { error: "Please enter a message (at least 10 characters)." },
+      { status: 400 }
+    )
   }
 
-  const subject = `${getBrand().displayName} study inquiry from ${name}`
-  const payload = { name, company, email, message, subject }
-
   try {
-    const sent = (await sendWithResend(payload)) || (await sendWithFormSubmit(payload))
-    if (!sent) {
-      return NextResponse.json(
-        { error: "Could not send your inquiry. Please try again." },
-        { status: 502 }
-      )
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8_000)
+    const res = await fetch(`${API_BASE_URL}/contact`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "X-Forwarded-For": clientIp(req),
+      },
+      body: JSON.stringify({
+        name,
+        company: company || null,
+        email,
+        message,
+        source: "landing",
+      }),
+      signal: controller.signal,
+      cache: "no-store",
+    }).finally(() => clearTimeout(timeout))
+
+    if (res.ok) {
+      return NextResponse.json({ ok: true })
     }
-    return NextResponse.json({ ok: true })
+
+    const data = await res.json().catch(() => null)
+    return NextResponse.json(
+      { error: backendErrorMessage(data) },
+      { status: res.status >= 400 && res.status < 600 ? res.status : 502 }
+    )
   } catch {
     return NextResponse.json(
       { error: "Could not send your inquiry. Please try again." },
