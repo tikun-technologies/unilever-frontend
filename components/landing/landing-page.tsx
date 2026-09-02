@@ -3,14 +3,16 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useRef, useState, useEffect, useLayoutEffect, useMemo } from "react"
-import { ArrowRight, Check, Menu, X } from "lucide-react"
+import { CalendarDays, Check, ChevronDown, Menu, X } from "lucide-react"
 import gsap from "gsap"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
 import { useGSAP } from "@gsap/react"
 // import { CaseStudies } from "./case-studies"
 import { getBrand } from "@/lib/config/brand"
-import { LandingContact } from "./landing-contact"
+import { LandingContactSection } from "./landing-contact-section"
 import { LandingDesignConfigurator } from "./landing-design-configurator"
+import { ProblemStorySection } from "./problem-story/problem-story-section"
+import { FromResearchToDecision } from "./research-workflow/from-research-to-decision"
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, useGSAP)
@@ -21,6 +23,9 @@ if (typeof window !== "undefined") {
 }
 
 const LOGIN_HREF = "/login"
+/** External scheduling link (e.g. Calendly/HubSpot). Falls back to the on-page
+ * contact section when unset so "Schedule a call" always has a destination. */
+const CALENDAR_URL = process.env.NEXT_PUBLIC_CALENDAR_URL?.trim() || ""
 const BRAND_BLUE = "#1a5f96"
 const BRAND_BLUE_HOVER = "#155a8a"
 const BRAND_BLUE_RGB = "26, 89, 150"
@@ -460,8 +465,17 @@ function Logo() {
 }
 
 export function LandingPage() {
-  const [contactOpen, setContactOpen] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
+
+  // "Schedule a call" is the primary action: open the external calendar in a new
+  // tab if configured, otherwise smooth-scroll to the on-page contact section.
+  const handleScheduleCall = () => {
+    if (CALENDAR_URL) {
+      window.open(CALENDAR_URL, "_blank", "noopener,noreferrer")
+      return
+    }
+    document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" })
+  }
   const [text, setText] = useState("")
   const [isDeleting, setIsDeleting] = useState(false)
   const [loopNum, setLoopNum] = useState(0)
@@ -1095,6 +1109,9 @@ export function LandingPage() {
               <a href="#story" className="cursor-pointer font-medium text-gray-600 transition-colors hover:text-[#1a5f96]">
                 How it works
               </a>
+              <a href="#contact" className="cursor-pointer font-medium text-gray-600 transition-colors hover:text-[#1a5f96]">
+                Contact
+              </a>
               {/* <a href="#case-studies" className="cursor-pointer font-medium text-gray-600 transition-colors hover:text-[#1a5f96]">
                 Case Studies
               </a> */}
@@ -1127,6 +1144,7 @@ export function LandingPage() {
             <nav className="flex flex-col gap-3">
               {[
                 ["#story", "How it works"],
+                ["#contact", "Contact"],
                 // ["#case-studies", "Case Studies"],
               ].map(([href, label]) => (
                 <a
@@ -1151,7 +1169,7 @@ export function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <section ref={heroRef} id="hero" className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 pt-20 text-center bg-white">
+      <section ref={heroRef} id="hero" className="relative flex min-h-[88vh] flex-col items-center justify-center overflow-hidden px-4 pb-16 pt-24 text-center bg-white">
         {/* Background Elements */}
         <div className="absolute inset-0 z-0 h-full w-full pointer-events-none overflow-hidden text-slate-100 font-black uppercase leading-none select-none flex flex-col justify-around py-20" style={{ color: '#F1F5F9' }}>
           <div ref={word1ScrollRef} className="w-full text-left pl-[5%] md:pl-[10%]" style={{ fontSize: 'clamp(3.5rem, 11vw, 12rem)' }}>
@@ -1179,28 +1197,43 @@ export function LandingPage() {
               </span>
             </span>
           </h1>
-          <p className="mx-auto mb-10 max-w-2xl text-lg font-normal tracking-tight text-slate-500 md:text-xl">
+          <p className="mx-auto mb-8 max-w-2xl text-lg font-normal tracking-tight text-slate-500 md:text-xl">
             Reveal the hidden drivers behind customer decisions using Mind Genomics.
             Stop guessing. Start knowing.
           </p>
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link
-              href={LOGIN_HREF}
-              className="inline-flex h-12 cursor-pointer items-center justify-center rounded-full bg-[#1a5f96] px-8 text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-1 hover:bg-[#155a8a] hover:shadow-xl"
-              style={{ boxShadow: `0 10px 25px rgba(${BRAND_BLUE_RGB}, 0.35)` }}
-            >
-              Login / Create an account
-            </Link>
             <button
               type="button"
-              onClick={() => setContactOpen(true)}
+              onClick={handleScheduleCall}
+              className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-full bg-[#1a5f96] px-8 text-sm font-semibold text-white shadow-lg transition-all duration-300 hover:-translate-y-1 hover:bg-[#155a8a] hover:shadow-xl"
+              style={{ boxShadow: `0 10px 25px rgba(${BRAND_BLUE_RGB}, 0.35)` }}
+            >
+              <CalendarDays className="h-4 w-4" strokeWidth={2} />
+              Schedule a call
+            </button>
+            <a
+              href="#story"
               className="inline-flex h-12 cursor-pointer items-center justify-center rounded-full border border-gray-200 bg-white px-8 text-sm font-medium text-gray-800 transition-all hover:bg-gray-50"
             >
-              Contact Us
-            </button>
+              See how it works
+            </a>
           </div>
         </div>
+
+        {/* Scroll cue — signals the page continues below the fold */}
+        <a
+          href="#explore"
+          aria-label="Scroll to explore"
+          className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1.5 text-slate-400 transition-colors hover:text-[#1a5f96]"
+        >
+          <span className="text-[11px] font-medium uppercase tracking-[0.18em]">Scroll to explore</span>
+          <ChevronDown className="h-5 w-5 animate-bounce" strokeWidth={2} />
+        </a>
       </section>
+
+      <ProblemStorySection />
+
+      <FromResearchToDecision />
 
       {/* Pinned Scroll Story */}
       <section id="story" ref={wrapperRef} className="relative z-30 w-full bg-white">
@@ -1578,7 +1611,7 @@ export function LandingPage() {
       </section>
 
       {/* Spacer to prevent abrupt transition from pinned story */}
-      <div className="relative z-0 h-56 w-full bg-white md:h-[35vh]"></div>
+      <div className="relative z-0 h-24 w-full bg-white md:h-[18vh]"></div>
 
       {/* Design Configurator */}
       <div className="bg-slate-50/50 border-t border-slate-100">
@@ -1587,6 +1620,9 @@ export function LandingPage() {
 
       {/* Case Studies / Proof — temporarily hidden */}
       {/* <CaseStudies /> */}
+
+      {/* Contact — proper inline form + schedule a call */}
+      <LandingContactSection calendarUrl={CALENDAR_URL} />
 
       {/* Final CTA */}
       <section id="cta" className="relative overflow-hidden py-24" style={{ backgroundColor: BRAND_BLUE }}>
@@ -1605,21 +1641,15 @@ export function LandingPage() {
             Stop relying on guesswork and surface-level data. Let&apos;s design an experiment that gives you the
             precise answers you need to scale confidently.
           </p>
-          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link
-              href={LOGIN_HREF}
-              className="inline-flex cursor-pointer items-center justify-center rounded-full bg-white px-8 py-4 text-xl font-bold shadow-xl transition-all duration-300 hover:-translate-y-1 hover:bg-gray-50 hover:shadow-2xl"
-              style={{ color: BRAND_BLUE }}
-            >
-              Login / Create an account
-              <ArrowRight className="ml-2 h-5 w-5" strokeWidth={2} />
-            </Link>
+          <div className="flex flex-col items-center justify-center">
             <button
               type="button"
-              onClick={() => setContactOpen(true)}
-              className="inline-flex cursor-pointer items-center justify-center rounded-full border-2 border-white/80 bg-transparent px-8 py-4 text-xl font-bold text-white transition-all duration-300 hover:-translate-y-1 hover:bg-white/10"
+              onClick={handleScheduleCall}
+              className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-full bg-white px-8 py-4 text-xl font-bold shadow-xl transition-all duration-300 hover:-translate-y-1 hover:bg-gray-50 hover:shadow-2xl"
+              style={{ color: BRAND_BLUE }}
             >
-              Contact Us
+              <CalendarDays className="h-5 w-5" strokeWidth={2} />
+              Schedule a call
             </button>
           </div>
         </div>
@@ -1629,8 +1659,6 @@ export function LandingPage() {
       <footer className="border-t border-gray-800 bg-[#1A1A1A] py-8 text-center">
         <p className="text-sm text-gray-500">&copy; 2026 TikunTech. All Rights Reserved.</p>
       </footer>
-
-      <LandingContact open={contactOpen} onOpenChange={setContactOpen} />
     </div>
   )
 }
