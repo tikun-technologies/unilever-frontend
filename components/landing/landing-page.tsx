@@ -3,7 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useRef, useState, useEffect, useLayoutEffect, useMemo } from "react"
-import { CalendarDays, Check, ChevronDown, Menu, X } from "lucide-react"
+import { CalendarDays, Check, Menu, X } from "lucide-react"
 import gsap from "gsap"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
 import { useGSAP } from "@gsap/react"
@@ -11,8 +11,6 @@ import { useGSAP } from "@gsap/react"
 import { getBrand } from "@/lib/config/brand"
 import { LandingContactSection } from "./landing-contact-section"
 import { LandingDesignConfigurator } from "./landing-design-configurator"
-import { ProblemStorySection } from "./problem-story/problem-story-section"
-import { FromResearchToDecision } from "./research-workflow/from-research-to-decision"
 
 if (typeof window !== "undefined") {
   gsap.registerPlugin(ScrollTrigger, useGSAP)
@@ -23,8 +21,6 @@ if (typeof window !== "undefined") {
 }
 
 const LOGIN_HREF = "/login"
-/** External scheduling link (e.g. Calendly/HubSpot). Falls back to the on-page
- * contact section when unset so "Schedule a call" always has a destination. */
 const CALENDAR_URL = process.env.NEXT_PUBLIC_CALENDAR_URL?.trim() || ""
 const BRAND_BLUE = "#1a5f96"
 const BRAND_BLUE_HOVER = "#155a8a"
@@ -466,9 +462,6 @@ function Logo() {
 
 export function LandingPage() {
   const [menuOpen, setMenuOpen] = useState(false)
-
-  // "Schedule a call" is the primary action: open the external calendar in a new
-  // tab if configured, otherwise smooth-scroll to the on-page contact section.
   const handleScheduleCall = () => {
     if (CALENDAR_URL) {
       window.open(CALENDAR_URL, "_blank", "noopener,noreferrer")
@@ -1169,7 +1162,7 @@ export function LandingPage() {
       </nav>
 
       {/* Hero Section */}
-      <section ref={heroRef} id="hero" className="relative flex min-h-[88vh] flex-col items-center justify-center overflow-hidden px-4 pb-16 pt-24 text-center bg-white">
+      <section ref={heroRef} id="hero" className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 pt-20 text-center bg-white">
         {/* Background Elements */}
         <div className="absolute inset-0 z-0 h-full w-full pointer-events-none overflow-hidden text-slate-100 font-black uppercase leading-none select-none flex flex-col justify-around py-20" style={{ color: '#F1F5F9' }}>
           <div ref={word1ScrollRef} className="w-full text-left pl-[5%] md:pl-[10%]" style={{ fontSize: 'clamp(3.5rem, 11vw, 12rem)' }}>
@@ -1197,7 +1190,7 @@ export function LandingPage() {
               </span>
             </span>
           </h1>
-          <p className="mx-auto mb-8 max-w-2xl text-lg font-normal tracking-tight text-slate-500 md:text-xl">
+          <p className="mx-auto mb-10 max-w-2xl text-lg font-normal tracking-tight text-slate-500 md:text-xl">
             Reveal the hidden drivers behind customer decisions using Mind Genomics.
             Stop guessing. Start knowing.
           </p>
@@ -1219,21 +1212,7 @@ export function LandingPage() {
             </a>
           </div>
         </div>
-
-        {/* Scroll cue — signals the page continues below the fold */}
-        <a
-          href="#explore"
-          aria-label="Scroll to explore"
-          className="absolute bottom-6 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center gap-1.5 text-slate-400 transition-colors hover:text-[#1a5f96]"
-        >
-          <span className="text-[11px] font-medium uppercase tracking-[0.18em]">Scroll to explore</span>
-          <ChevronDown className="h-5 w-5 animate-bounce" strokeWidth={2} />
-        </a>
       </section>
-
-      <ProblemStorySection />
-
-      <FromResearchToDecision />
 
       {/* Pinned Scroll Story */}
       <section id="story" ref={wrapperRef} className="relative z-30 w-full bg-white">
@@ -1611,7 +1590,7 @@ export function LandingPage() {
       </section>
 
       {/* Spacer to prevent abrupt transition from pinned story */}
-      <div className="relative z-0 h-24 w-full bg-white md:h-[18vh]"></div>
+      <div className="relative z-0 h-56 w-full bg-white md:h-[35vh]"></div>
 
       {/* Design Configurator */}
       <div className="bg-slate-50/50 border-t border-slate-100">
@@ -1621,7 +1600,6 @@ export function LandingPage() {
       {/* Case Studies / Proof — temporarily hidden */}
       {/* <CaseStudies /> */}
 
-      {/* Contact — proper inline form + schedule a call */}
       <LandingContactSection calendarUrl={CALENDAR_URL} />
 
       {/* Final CTA */}
@@ -1659,6 +1637,7 @@ export function LandingPage() {
       <footer className="border-t border-gray-800 bg-[#1A1A1A] py-8 text-center">
         <p className="text-sm text-gray-500">&copy; 2026 TikunTech. All Rights Reserved.</p>
       </footer>
+
     </div>
   )
 }

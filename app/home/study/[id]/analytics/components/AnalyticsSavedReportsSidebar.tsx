@@ -168,7 +168,7 @@ export function AnalyticsSavedReportsSidebar({
 							<div className="mx-2 rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-8 text-center">
 								<p className="text-sm font-medium text-slate-700">No saved reports yet</p>
 								<p className="text-xs text-slate-500 mt-1">
-									Use Advanced Filter → Save and Run Analysis to save one.
+									Use Filters → Save this filter to save one.
 								</p>
 							</div>
 						)

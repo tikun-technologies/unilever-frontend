@@ -1,3 +1,4 @@
+import type { StudyFilterPayload } from "@/lib/api/ResponseAPI"
 import { listSavedDesigns, type SavedDesignPayload } from "@/lib/api/StudyAPI"
 import { prepareSavedDesignsForExport } from "@/lib/export/savedDesignLocalStorage"
 import type { ApiDesignConstraint } from "@/lib/utils/designConstraintsStorage"
@@ -14,6 +15,7 @@ export interface DesignConfiguratorExportPayload {
     configurator: SavedDesignPayload[]
     input: SavedDesignPayload[]
   }
+  appliedFilters?: StudyFilterPayload["filters"] | null
 }
 
 export async function buildDesignConfiguratorPayload(input: {
@@ -23,6 +25,7 @@ export async function buildDesignConfiguratorPayload(input: {
   analysisData: any
   designConstraints?: ApiDesignConstraint[]
   studyLayers?: any[]
+  appliedFilters?: StudyFilterPayload["filters"] | null
 }): Promise<DesignConfiguratorExportPayload> {
   const [configurator, inputDesigns] = await Promise.all([
     listSavedDesigns(input.studyId, "configurator").catch(() => []),
@@ -41,5 +44,6 @@ export async function buildDesignConfiguratorPayload(input: {
       configurator,
       input: inputDesigns,
     }),
+    appliedFilters: input.appliedFilters ?? null,
   }
 }

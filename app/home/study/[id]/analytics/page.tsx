@@ -20,13 +20,14 @@ import {
     type StudyFilterPayload,
 } from "@/lib/api/ResponseAPI"
 import {
-    describeAppliedFilters,
+    countAppliedFilters,
     filtersEqual,
     hasAnyFilterSelection,
     isEmptyFilterResponse,
+    listAppliedFilterChips,
 } from "@/lib/utils/filterAnalysisMerge"
 import { AnimatePresence, motion } from "framer-motion"
-import { ArrowLeft, BarChart3, ChevronDown, Download, Filter, LayoutDashboard, Settings2, Sparkles, X } from "lucide-react"
+import { ArrowLeft, BarChart3, ChevronDown, Download, FileCode2, Filter, LayoutDashboard, Settings2, Sparkles, X } from "lucide-react"
 import { exportDesignConfiguratorHtml, ExportHtmlStage } from "@/lib/export/designConfiguratorHtmlExport"
 import Link from "next/link"
 import { AnalyticsToolbar } from "./components/AnalyticsToolbar"
@@ -50,6 +51,30 @@ import { createSavedDesign } from "@/lib/api/StudyAPI"
 import type { AssistantAction, AssistantQueryResponse } from "@/lib/types/analyticsAssistant"
 import { downloadAnalyticsAssistantPpt } from "@/lib/api/AnalyticsAssistantAPI"
 
+const HTML_EXPORT_STAGE_MESSAGES: Record<ExportHtmlStage, string[]> = {
+    preparing: [
+        "Gathering your analytics…",
+        "Packing Overview, Detail, and Configurator…",
+        "Collecting charts and tables…",
+        "Loading the export engine…",
+        "Something good is cooking…",
+    ],
+    embedding: [
+        "Embedding images so it works offline…",
+        "Folding images into the file…",
+        "Hang tight — large studies take a minute…",
+        "Still packing images…",
+        "Making every chart travel with the file…",
+    ],
+    generating: [
+        "Building your HTML file…",
+        "Stitching styles and data…",
+        "Preparing the download…",
+        "Almost ready…",
+    ],
+    done: ["Ready — downloading…"],
+}
+
 export default function StudyAnalyticsPage() {
     const params = useParams()
     const router = useRouter()
@@ -72,6 +97,8 @@ export default function StudyAnalyticsPage() {
     const scrollContainerRef = useRef<HTMLDivElement | null>(null)
     const [exportingHtml, setExportingHtml] = useState(false)
     const [exportHtmlStage, setExportHtmlStage] = useState<ExportHtmlStage>("preparing")
+    const [exportHtmlMessageIndex, setExportHtmlMessageIndex] = useState(0)
+    const [exportHtmlEmbedProgress, setExportHtmlEmbedProgress] = useState<{ done: number; total: number } | null>(null)
     const [analysisData, setAnalysisData] = useState<any>(null)
     const [fullAnalysisData, setFullAnalysisData] = useState<any>(null)
     const [analysisLoading, setAnalysisLoading] = useState(true)
@@ -308,7 +335,7 @@ export default function StudyAnalyticsPage() {
     }
 
     const buildHtmlExport = async () => {
-        if (!study || !analysisData) return
+        if (!study || !analysisData || exportingHtml) return
 
         const exportTitle =
             study.title || analysisData?.["Information Block"]?.["Study Title"] || "Study Analytics"
@@ -316,8 +343,11 @@ export default function StudyAnalyticsPage() {
             (study.study_type || analysisData?.["Information Block"]?.["Study Type"] || "text").toLowerCase()
 
         try {
+            setExportMenuOpen(true)
             setExportingHtml(true)
             setExportHtmlStage("preparing")
+            setExportHtmlMessageIndex(0)
+            setExportHtmlEmbedProgress(null)
             await exportDesignConfiguratorHtml({
                 studyId,
                 studyTitle: exportTitle,
@@ -325,7 +355,12 @@ export default function StudyAnalyticsPage() {
                 analysisData,
                 designConstraints: study.design_constraints || [],
                 studyLayers: study.study_layers || [],
-                onStageChange: setExportHtmlStage,
+                appliedFilters: isFilterActive && hasAnyFilterSelection(activeFilters) ? activeFilters : null,
+                onStageChange: (stage) => {
+                    setExportHtmlStage(stage)
+                    setExportHtmlMessageIndex(0)
+                },
+                onEmbedProgress: (done, total) => setExportHtmlEmbedProgress({ done, total }),
             })
         } catch (e) {
             console.error("Export HTML failed:", e)
@@ -333,10 +368,29 @@ export default function StudyAnalyticsPage() {
         } finally {
             setExportingHtml(false)
             setExportHtmlStage("preparing")
+            setExportHtmlMessageIndex(0)
+            setExportHtmlEmbedProgress(null)
         }
     }
 
     const hasFilteredExport = isFilterActive && hasAnyFilterSelection(activeFilters)
+    const appliedFilterChips = useMemo(
+        () => (isFilterActive ? listAppliedFilterChips(activeFilters) : []),
+        [isFilterActive, activeFilters]
+    )
+    const appliedFilterCount = appliedFilterChips.length || countAppliedFilters(isFilterActive ? activeFilters : null)
+    const showExportMenu = true
+
+    const openFilterModal = () => {
+        setFilterError(null)
+        setSaveReportError(null)
+        setAdvancedFilterOpen(true)
+    }
+    const htmlExportStageMessages = HTML_EXPORT_STAGE_MESSAGES[exportHtmlStage] ?? HTML_EXPORT_STAGE_MESSAGES.preparing
+    const htmlExportMessage =
+        exportHtmlStage === "embedding" && exportHtmlEmbedProgress && exportHtmlEmbedProgress.total > 0
+            ? `Embedding images ${exportHtmlEmbedProgress.done} of ${exportHtmlEmbedProgress.total}`
+            : htmlExportStageMessages[exportHtmlMessageIndex % htmlExportStageMessages.length]
 
     const safeFileNamePart = (value: string | null | undefined, fallback: string) => {
         const cleaned = (value || fallback)
@@ -349,7 +403,7 @@ export default function StudyAnalyticsPage() {
     }
 
     useEffect(() => {
-        if (!exportMenuOpen) return
+        if (!exportMenuOpen || exportingHtml) return
 
         const handlePointerDown = (event: MouseEvent) => {
             if (!exportMenuRef.current?.contains(event.target as Node)) {
@@ -359,7 +413,17 @@ export default function StudyAnalyticsPage() {
 
         document.addEventListener("mousedown", handlePointerDown)
         return () => document.removeEventListener("mousedown", handlePointerDown)
-    }, [exportMenuOpen])
+    }, [exportMenuOpen, exportingHtml])
+
+    useEffect(() => {
+        if (!exportingHtml) return
+        const messages = HTML_EXPORT_STAGE_MESSAGES[exportHtmlStage] ?? HTML_EXPORT_STAGE_MESSAGES.preparing
+        if (messages.length <= 1) return
+        const timer = window.setInterval(() => {
+            setExportHtmlMessageIndex((index) => (index + 1) % messages.length)
+        }, 1600)
+        return () => window.clearInterval(timer)
+    }, [exportingHtml, exportHtmlStage])
 
     const downloadCsv = async (
         filters: StudyFilterPayload["filters"] | null | undefined,
@@ -691,15 +755,24 @@ export default function StudyAnalyticsPage() {
                 {/* Header Section */}
                 <div className="relative z-10 text-white overflow-visible" style={{ backgroundColor: '#2674BA' }}>
                     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-5 lg:py-6">
-                        {/* Breadcrumbs */}
-                        <nav className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] sm:text-xs md:text-sm mb-3 sm:mb-4">
-                            <Link href={homeHref} className="text-blue-200 hover:text-white transition-colors shrink-0">Dashboard</Link>
-                            <span className="text-blue-300 opacity-50 shrink-0">/</span>
-                            <Link href={homeHref} className="text-blue-200 hover:text-white transition-colors shrink-0">Studies</Link>
-                            <span className="text-blue-300 opacity-50 shrink-0">/</span>
-                            <span className="text-white font-medium break-words">
-                                {studyType === "grid" ? "Grid Study" : studyType === "hybrid" ? "Hybrid Study" : studyType === "text" ? "Text Study" : "Layer Study"} Analytics
-                            </span>
+                        {/* Breadcrumbs + back */}
+                        <nav className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 text-[10px] sm:mb-4 sm:text-xs md:text-sm">
+                            <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                                <Link href={homeHref} className="shrink-0 text-blue-200 transition-colors hover:text-white">Dashboard</Link>
+                                <span className="shrink-0 text-blue-300 opacity-50">/</span>
+                                <Link href={homeHref} className="shrink-0 text-blue-200 transition-colors hover:text-white">Studies</Link>
+                                <span className="shrink-0 text-blue-300 opacity-50">/</span>
+                                <span className="break-words font-medium text-white">
+                                    {studyType === "grid" ? "Grid Study" : studyType === "hybrid" ? "Hybrid Study" : studyType === "text" ? "Text Study" : "Layer Study"} Analytics
+                                </span>
+                            </div>
+                            <Link
+                                href={studyHref}
+                                className="inline-flex shrink-0 items-center gap-1.5 text-blue-200 transition-colors hover:text-white"
+                            >
+                                <ArrowLeft className="h-3.5 w-3.5" />
+                                <span>Back to Study</span>
+                            </Link>
                         </nav>
 
                         {/* Title and Actions — stack until content is wide enough; never crush title beside a button row */}
@@ -720,25 +793,24 @@ export default function StudyAnalyticsPage() {
 
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        setFilterError(null)
-                                        setSaveReportError(null)
-                                        setAdvancedFilterOpen(true)
-                                    }}
-                                    className="cursor-pointer flex w-full items-center justify-center gap-1.5 px-3 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs @md/analytics:text-sm font-semibold @5xl/analytics:w-auto @5xl/analytics:gap-2 @5xl/analytics:px-4"
-                                    style={{ borderColor: 'rgba(255, 255, 255, 0.3)', color: '#FFFFFF' }}
+                                    onClick={openFilterModal}
+                                    className="cursor-pointer flex w-full items-center justify-center gap-1.5 px-3 py-2.5 border rounded-lg transition-all duration-200 active:scale-95 text-xs @md/analytics:text-sm font-semibold @5xl/analytics:w-auto @5xl/analytics:gap-2 @5xl/analytics:px-4"
+                                    style={
+                                        appliedFilterCount > 0
+                                            ? { backgroundColor: "#FFFFFF", borderColor: "#FFFFFF", color: "#2674BA" }
+                                            : { borderColor: "rgba(255, 255, 255, 0.3)", color: "#FFFFFF" }
+                                    }
                                 >
                                     <Filter className="w-4 h-4 shrink-0" />
-                                    <span className="truncate">Advanced Filter</span>
-                                </button>
-
-                                <button
-                                    onClick={() => router.push(studyHref)}
-                                    className="cursor-pointer flex w-full items-center justify-center gap-1.5 px-3 py-2.5 border rounded-lg transition-all duration-200 hover:bg-white/10 active:scale-95 text-xs @md/analytics:text-sm font-semibold @5xl/analytics:w-auto @5xl/analytics:gap-2 @5xl/analytics:px-4"
-                                    style={{ borderColor: 'rgba(255, 255, 255, 0.3)', color: '#FFFFFF' }}
-                                >
-                                    <ArrowLeft className="w-4 h-4 shrink-0" />
-                                    <span className="truncate">Back to Study</span>
+                                    <span className="truncate">Filters</span>
+                                    {appliedFilterCount > 0 ? (
+                                        <span
+                                            className="inline-flex min-w-5 items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none"
+                                            style={{ backgroundColor: "#2674BA", color: "#FFFFFF" }}
+                                        >
+                                            {appliedFilterCount}
+                                        </span>
+                                    ) : null}
                                 </button>
 
                                 <div
@@ -753,7 +825,7 @@ export default function StudyAnalyticsPage() {
                                         <button
                                             type="button"
                                             onClick={() => void buildCsvAndDownload()}
-                                            disabled={exporting || !study}
+                                            disabled={exporting || exportingHtml || !study}
                                             className="cursor-pointer flex min-w-0 flex-1 items-center justify-center gap-1.5 px-3 py-2.5 transition-all duration-200 active:scale-[0.98] font-bold text-xs @md/analytics:text-sm disabled:cursor-not-allowed disabled:opacity-70 @5xl/analytics:flex-none @5xl/analytics:gap-2 @5xl/analytics:px-4"
                                             style={{ color: '#2674BA' }}
                                         >
@@ -774,13 +846,16 @@ export default function StudyAnalyticsPage() {
                                                 </>
                                             )}
                                         </button>
-                                        {hasFilteredExport && (
+                                        {showExportMenu && (
                                             <>
                                                 <div className="w-px shrink-0 bg-[#2674BA]/12 self-stretch my-2" aria-hidden="true" />
                                                 <button
                                                     type="button"
-                                                    onClick={() => setExportMenuOpen((open) => !open)}
-                                                    disabled={exporting || !study}
+                                                    onClick={() => {
+                                                        if (exportingHtml) return
+                                                        setExportMenuOpen((open) => !open)
+                                                    }}
+                                                    disabled={(exporting && !exportingHtml) || !study}
                                                     className={`cursor-pointer flex shrink-0 items-center justify-center px-2.5 py-2.5 transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
                                                         exportMenuOpen ? "bg-[#2674BA]/8" : "hover:bg-[#2674BA]/6"
                                                     }`}
@@ -795,28 +870,61 @@ export default function StudyAnalyticsPage() {
                                         )}
                                     </div>
                                     <AnimatePresence>
-                                        {hasFilteredExport && exportMenuOpen && (
+                                        {showExportMenu && exportMenuOpen && (
                                             <motion.div
                                                 initial={{ opacity: 0, y: -8 }}
                                                 animate={{ opacity: 1, y: 0 }}
                                                 exit={{ opacity: 0, y: -8 }}
                                                 transition={{ duration: 0.15, ease: "easeOut" }}
                                                 role="menu"
-                                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[200] w-72 overflow-hidden rounded-xl border border-slate-200/90 bg-white p-1.5 shadow-2xl"
+                                                className="absolute right-0 top-[calc(100%+0.5rem)] z-[200] w-80 overflow-visible rounded-xl border border-slate-200/90 bg-white p-1.5 shadow-2xl"
                                             >
+                                                {hasFilteredExport && (
+                                                    <button
+                                                        type="button"
+                                                        role="menuitem"
+                                                        onClick={() => void buildCsvAndDownload("complete")}
+                                                        disabled={exporting || exportingHtml}
+                                                        className="cursor-pointer flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    >
+                                                        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
+                                                            <Download className="h-4 w-4" />
+                                                        </span>
+                                                        <span className="min-w-0">
+                                                            <span className="block text-sm font-semibold text-slate-900">Export complete CSV</span>
+                                                            <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
+                                                                Download the full study report without any filters applied.
+                                                            </span>
+                                                        </span>
+                                                    </button>
+                                                )}
                                                 <button
                                                     type="button"
                                                     role="menuitem"
-                                                    onClick={() => void buildCsvAndDownload("complete")}
-                                                    className="cursor-pointer flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-50"
+                                                    onClick={() => void buildHtmlExport()}
+                                                    disabled={exporting || exportingHtml || !analysisData}
+                                                    className={`cursor-pointer flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors disabled:cursor-wait ${
+                                                        exportingHtml ? "bg-[#2674BA]/6" : "hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    }`}
                                                 >
-                                                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                                                        <Download className="h-4 w-4" />
+                                                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#2674BA]/10 text-[#2674BA]">
+                                                        {exportingHtml ? (
+                                                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#2674BA] border-t-transparent" />
+                                                        ) : (
+                                                            <FileCode2 className="h-4 w-4" />
+                                                        )}
                                                     </span>
-                                                    <span className="min-w-0">
-                                                        <span className="block text-sm font-semibold text-slate-900">Export complete CSV</span>
-                                                        <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
-                                                            Download the full study report without any filters applied.
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="block text-sm font-semibold text-slate-900">
+                                                            {exportingHtml ? "Exporting HTML" : "Export HTML"}
+                                                        </span>
+                                                        <span
+                                                            className="mt-0.5 block min-h-[2.5rem] text-xs leading-5 text-slate-500"
+                                                            aria-live="polite"
+                                                        >
+                                                            {exportingHtml
+                                                                ? htmlExportMessage
+                                                                : "Download the full analytics page as a standalone HTML file."}
                                                         </span>
                                                     </span>
                                                 </button>
@@ -845,27 +953,36 @@ export default function StudyAnalyticsPage() {
                         </div>
                     )}
 
-                    {isFilterActive && activeFilters && !analysisLoading && (
-                        <div className="mb-6 flex flex-col @3xl/analytics:flex-row @3xl/analytics:items-center @3xl/analytics:justify-between gap-3 rounded-xl border border-[#2674BA]/25 bg-[#2674BA]/5 px-4 py-3">
-                            <div className="flex items-start gap-3 min-w-0">
-                                <div className="shrink-0 w-9 h-9 rounded-lg bg-[#2674BA]/15 flex items-center justify-center">
-                                    <Filter className="w-4 h-4 text-[#2674BA]" />
-                                </div>
-                                <div className="min-w-0">
-                                    <p className="text-sm font-semibold text-[#2674BA]">Filtered analysis active</p>
-                                    <p className="text-sm text-gray-600 truncate">
-                                        {describeAppliedFilters(activeFilters)}
-                                    </p>
-                                </div>
+                    {isFilterActive && appliedFilterChips.length > 0 && !analysisLoading && (
+                        <div className="mb-6 flex flex-col gap-3 rounded-xl border border-[#2674BA]/25 bg-[#2674BA]/5 px-4 py-3 @3xl/analytics:flex-row @3xl/analytics:items-center @3xl/analytics:justify-between">
+                            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                                {appliedFilterChips.map((chip, index) => (
+                                    <span
+                                        key={`${chip}-${index}`}
+                                        className="inline-flex items-center rounded-full border border-[#2674BA]/20 bg-white px-2.5 py-1 text-xs font-semibold text-[#2674BA]"
+                                    >
+                                        {chip}
+                                    </span>
+                                ))}
                             </div>
-                            <button
-                                type="button"
-                                onClick={() => void clearActiveFilter()}
-                                className="cursor-pointer inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 shrink-0"
-                            >
-                                <X className="w-3.5 h-3.5" />
-                                Clear filter
-                            </button>
+                            <div className="flex shrink-0 items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={openFilterModal}
+                                    className="cursor-pointer inline-flex items-center justify-center gap-1.5 rounded-lg border border-[#2674BA]/25 bg-white px-3 py-2 text-sm font-semibold text-[#2674BA] hover:bg-[#2674BA]/5"
+                                >
+                                    <Filter className="h-3.5 w-3.5" />
+                                    Edit
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => void clearActiveFilter()}
+                                    className="cursor-pointer inline-flex items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50"
+                                >
+                                    <X className="h-3.5 w-3.5" />
+                                    Clear
+                                </button>
+                            </div>
                         </div>
                     )}
 
@@ -1025,6 +1142,7 @@ export default function StudyAnalyticsPage() {
                                     onExportHtml={() => void buildHtmlExport()}
                                     isExportingHtml={exportingHtml}
                                     exportHtmlStage={exportHtmlStage}
+                                    exportHtmlMessage={htmlExportMessage}
                                 />
                             </div>
                             </div>

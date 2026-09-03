@@ -1,4 +1,25 @@
 @import "tailwindcss";
 
-@source "../app/home/study/[id]/analytics/components/AnalyticsDesignConfigurator.tsx";
-@source "../lib/export/ExportConfiguratorRoot.tsx";
+@source "../../app/home/study/[id]/analytics/components/*.tsx";
+@source "./ExportConfiguratorRoot.tsx";
+@source "../../components/brand/BrandLogo.tsx";
+@source "../../components/ui/ImageLightboxModal.tsx";
+
+html,
+body {
+  margin: 0;
+  background: #f9fafb;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.thin-scrollbar {
+  scrollbar-width: thin;
+}

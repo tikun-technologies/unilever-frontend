@@ -5,6 +5,14 @@
  * Used for KPI cards, response time charts, top/bottom performers, pie charts, etc.
  */
 
+/** Live URLs and offline export data-URLs both count as viewable images. */
+export function isViewableImageUrl(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:image/"))
+  )
+}
+
 const METRIC_KEYS: Record<string, string> = {
   "Top Down": "(T)",
   "Bottom Up": "(B)",
@@ -165,7 +173,23 @@ export function getElementImageUrl(
   const elType = (el.element_type ?? el.elementType ?? "").toString().toLowerCase()
   if (elType === "text") return null
   const url = el.content ?? el.imageUrl ?? el.imageLink ?? el.image ?? null
-  return url && typeof url === "string" && url.startsWith("http") ? url : null
+  return isViewableImageUrl(url) ? url : null
+}
+
+/** Map of "category|element" → image URL from Information Block. */
+export function getElementContentMap(analysis: any): Record<string, string> {
+  const map: Record<string, string> = {}
+  const categories = analysis?.["Information Block"]?.Categories || []
+  for (const cat of categories) {
+    const categoryName = String(cat?.name || "").trim()
+    for (const el of cat?.elements || []) {
+      const elementName = String(el?.name || "").trim()
+      if (!categoryName || !elementName) continue
+      const url = getElementImageUrl(analysis, categoryName, elementName)
+      if (url) map[`${categoryName}|${elementName}`] = url
+    }
+  }
+  return map
 }
 
 /** Top and bottom N elements from Overall section. Includes imageUrl for layer studies. */
@@ -189,10 +213,9 @@ export function getTopBottomPerformers(
       const imageUrl = skipImage
         ? null
         : el.content ?? el.imageUrl ?? el.imageLink ?? el.image ?? null
-      const resolved =
-        imageUrl && typeof imageUrl === "string" && imageUrl.startsWith("http")
-          ? imageUrl
-          : getElementImageUrl(analysis, cat.name || "", el.name || "")
+      const resolved = isViewableImageUrl(imageUrl)
+        ? imageUrl
+        : getElementImageUrl(analysis, cat.name || "", el.name || "")
       all.push({
         name: el.name || "",
         value: v,

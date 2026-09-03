@@ -1,8 +1,10 @@
 "use client"
 
-import React from "react"
+import React, { useCallback, useMemo, useState } from "react"
 import { motion } from "framer-motion"
+import { ImageLightboxModal } from "@/components/ui/ImageLightboxModal"
 import { transformAnalysisForView, groupPrelimCategories } from "@/lib/utils/analysisTransform"
+import { getElementContentMap, isViewableImageUrl } from "@/lib/utils/analysisDashboard"
 import type { StudyFilterPayload } from "@/lib/api/ResponseAPI"
 
 interface AnalyticsGraphProps {
@@ -40,6 +42,25 @@ export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({
     )
     const isLayerStudy = (studyType || "").toLowerCase() === "layer"
     const isPrelim = activeTab === "Prelim"
+    const resolvedContentMap = useMemo(() => {
+        if (elementContentMap && Object.keys(elementContentMap).length > 0) return elementContentMap
+        return getElementContentMap(analysisData)
+    }, [analysisData, elementContentMap])
+    const [lightbox, setLightbox] = useState<{ isOpen: boolean; src: string | null; alt: string }>({
+        isOpen: false,
+        src: null,
+        alt: "",
+    })
+    const handleElementClick = useCallback(
+        (contentUrl: string, elementName: string) => {
+            if (onElementClick) {
+                onElementClick(contentUrl, elementName)
+                return
+            }
+            setLightbox({ isOpen: true, src: contentUrl, alt: elementName })
+        },
+        [onElementClick]
+    )
 
     const parseCount = (subLabel?: string) => {
         if (!subLabel) return 0
@@ -90,8 +111,8 @@ export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({
                             (yMin + yRange * 0.25).toFixed(1),
                             yMin.toFixed(1),
                         ]
-                        const contentUrl = elementContentMap?.[`${category.title}|${row.response}`]
-                        const hasContent = !!contentUrl && contentUrl.startsWith("http")
+                        const contentUrl = resolvedContentMap?.[`${category.title}|${row.response}`]
+                        const hasContent = isViewableImageUrl(contentUrl)
 
                         return (
                             <div
@@ -99,10 +120,10 @@ export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({
                                 className={`bg-white rounded-xl border border-gray-200 shadow-sm p-6 flex flex-col hover:shadow-md transition-shadow shrink-0 ${cardMinWidth}`}
                             >
                                 <h4 className="text-sm font-bold text-gray-700 mb-8 whitespace-normal break-words leading-relaxed min-h-[3rem]">
-                                    {hasContent && onElementClick ? (
+                                    {hasContent ? (
                                         <button
                                             type="button"
-                                            onClick={() => onElementClick(contentUrl, String(row.response))}
+                                            onClick={() => handleElementClick(contentUrl, String(row.response))}
                                             className="underline cursor-pointer text-left hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-[#2674BA]/30 rounded"
                                             style={{ color: "#2674BA" }}
                                         >
@@ -222,6 +243,15 @@ export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({
         )
     }
 
+    const lightboxModal = (
+        <ImageLightboxModal
+            src={lightbox.src}
+            alt={lightbox.alt}
+            isOpen={lightbox.isOpen}
+            onClose={() => setLightbox((prev) => ({ ...prev, isOpen: false }))}
+        />
+    )
+
     if (isPrelim) {
         const questionGroups = groupPrelimCategories(categories)
         return (
@@ -237,6 +267,7 @@ export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({
                         </div>
                     </div>
                 ))}
+                {lightboxModal}
             </div>
         )
     }
@@ -244,6 +275,7 @@ export const AnalyticsGraph: React.FC<AnalyticsGraphProps> = ({
     return (
         <div className="w-full space-y-12 pb-12">
             {categories.map((category) => renderGraphSection(category))}
+            {lightboxModal}
         </div>
     )
 }

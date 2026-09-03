@@ -1,8 +1,10 @@
 "use client"
 
-import React from "react"
+import React, { useCallback, useMemo, useState } from "react"
 import { motion } from "framer-motion"
+import { ImageLightboxModal } from "@/components/ui/ImageLightboxModal"
 import { transformAnalysisForView, groupPrelimCategories } from "@/lib/utils/analysisTransform"
+import { getElementContentMap, isViewableImageUrl } from "@/lib/utils/analysisDashboard"
 import type { StudyFilterPayload } from "@/lib/api/ResponseAPI"
 
 interface AnalyticsHeatmapProps {
@@ -38,6 +40,25 @@ export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({
     )
     const isLayerStudy = (studyType || "").toLowerCase() === "layer"
     const isPrelim = activeTab === "Prelim"
+    const resolvedContentMap = useMemo(() => {
+        if (elementContentMap && Object.keys(elementContentMap).length > 0) return elementContentMap
+        return getElementContentMap(analysisData)
+    }, [analysisData, elementContentMap])
+    const [lightbox, setLightbox] = useState<{ isOpen: boolean; src: string | null; alt: string }>({
+        isOpen: false,
+        src: null,
+        alt: "",
+    })
+    const handleElementClick = useCallback(
+        (contentUrl: string, elementName: string) => {
+            if (onElementClick) {
+                onElementClick(contentUrl, elementName)
+                return
+            }
+            setLightbox({ isOpen: true, src: contentUrl, alt: elementName })
+        },
+        [onElementClick]
+    )
 
     const parseCount = (subLabel?: string) => {
         if (!subLabel) return 0
@@ -117,14 +138,14 @@ export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({
                     <div className="flex flex-col md:flex-row">
                         <div className="w-full md:w-[30%] space-y-1 md:pr-6 md:pt-10 mb-4 md:mb-0">
                             {category.data.map((row, i) => {
-                                const contentUrl = elementContentMap?.[`${category.title}|${row.response}`]
-                                const hasContent = !!contentUrl && contentUrl.startsWith("http")
+                                const contentUrl = resolvedContentMap?.[`${category.title}|${row.response}`]
+                                const hasContent = isViewableImageUrl(contentUrl)
                                 return (
                                     <div key={i} className="h-12 md:h-24 flex items-center md:justify-end md:text-right">
-                                        {hasContent && onElementClick ? (
+                                        {hasContent ? (
                                             <button
                                                 type="button"
-                                                onClick={() => onElementClick(contentUrl, String(row.response))}
+                                                onClick={() => handleElementClick(contentUrl, String(row.response))}
                                                 className="text-[10px] md:text-xs font-bold leading-tight md:max-w-[200px] underline cursor-pointer text-left hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-[#2674BA]/30 rounded"
                                                 style={{ color: "#2674BA" }}
                                             >
@@ -239,6 +260,15 @@ export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({
         )
     }
 
+    const lightboxModal = (
+        <ImageLightboxModal
+            src={lightbox.src}
+            alt={lightbox.alt}
+            isOpen={lightbox.isOpen}
+            onClose={() => setLightbox((prev) => ({ ...prev, isOpen: false }))}
+        />
+    )
+
     if (isPrelim) {
         const questionGroups = groupPrelimCategories(categories)
         return (
@@ -271,9 +301,15 @@ export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({
                         </div>
                     </div>
                 ))}
+                {lightboxModal}
             </div>
         )
     }
 
-    return <div className="space-y-12 pb-12">{categories.map((category) => renderHeatmap(category))}</div>
+    return (
+        <div className="space-y-12 pb-12">
+            {categories.map((category) => renderHeatmap(category))}
+            {lightboxModal}
+        </div>
+    )
 }

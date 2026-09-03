@@ -31,6 +31,7 @@ await esbuild.build({
   },
   define: {
     "process.env.NODE_ENV": '"production"',
+    "process.env.NEXT_PUBLIC_BRAND_NAME": JSON.stringify(process.env.NEXT_PUBLIC_BRAND_NAME || "mindsurve"),
   },
   banner: {
     js: "globalThis.process=globalThis.process||{env:{NODE_ENV:'production'}};",

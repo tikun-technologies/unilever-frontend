@@ -23,6 +23,7 @@ import {
 	type FilterByCategory,
 } from "@/lib/api/ResponseAPI"
 import { transformAnalysisForView } from "@/lib/utils/analysisTransform"
+import { isViewableImageUrl } from "@/lib/utils/analysisDashboard"
 import { AnalyticsTable } from "./AnalyticsTable"
 import { AnalyticsHeatmap } from "./AnalyticsHeatmap"
 import { AnalyticsGraph } from "./AnalyticsGraph"
@@ -204,7 +205,7 @@ function FilterResultTableByCategory({
 								<tbody className="divide-y divide-gray-50">
 									{(cat.elements || []).map((el, idx) => {
 										const value = typeof (el as any)[valueKey] === "number" ? (el as any)[valueKey] : 0
-										const hasContent = !!el.content && el.content.startsWith("http")
+										const hasContent = isViewableImageUrl(el.content)
 										return (
 											<tr key={idx} className="hover:bg-gray-50 transition-colors">
 												<td className="px-4 md:px-6 py-4 text-gray-700 font-medium text-xs md:text-sm">

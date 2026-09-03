@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion } from "framer-motion"
-import { Filter, Loader2, Users, CalendarRange, HelpCircle, MessageSquareText } from "lucide-react"
+import { Filter, Loader2 } from "lucide-react"
 import { getStudyDetails } from "@/lib/api/StudyAPI"
 import type { ClassificationQuestionPayload } from "@/lib/api/StudyAPI"
 import type { SavedFilterReport, StudyFilterPayload } from "@/lib/api/ResponseAPI"
@@ -30,16 +30,12 @@ function FilterChip({
 		<button
 			type="button"
 			onClick={onClick}
-			className={`cursor-pointer px-4 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors duration-150 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2674BA]/40 ${
+			className={`cursor-pointer rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors ${
 				selected
-					? "text-white border-transparent shadow-md"
-					: "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+					? "border-transparent text-white"
+					: "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50"
 			}`}
-			style={
-				selected
-					? { backgroundColor: BRAND_BLUE, boxShadow: `0 4px 14px ${BRAND_BLUE}40` }
-					: undefined
-			}
+			style={selected ? { backgroundColor: BRAND_BLUE } : undefined}
 		>
 			{label}
 		</button>
@@ -47,51 +43,19 @@ function FilterChip({
 }
 
 function FilterSection({
-	icon: Icon,
 	title,
-	subtitle,
 	children,
-	badge,
 	headerAction,
-	hideSubtitleOnMobile = false,
 }: {
-	icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>
 	title: string
-	subtitle: string
 	children: React.ReactNode
-	badge?: string
 	headerAction?: React.ReactNode
-	hideSubtitleOnMobile?: boolean
 }) {
 	return (
-		<div className="rounded-2xl border border-gray-200/80 bg-gradient-to-br from-white to-gray-50/60 p-4 sm:p-5 shadow-sm">
-			<div className="flex items-start gap-3 mb-4">
-				<div
-					className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
-					style={{ backgroundColor: `${BRAND_BLUE}14` }}
-				>
-					<Icon className="w-5 h-5" style={{ color: BRAND_BLUE }} />
-				</div>
-				<div className="min-w-0 flex-1">
-					<div className="flex items-start justify-between gap-3">
-						<div className="min-w-0 flex-1">
-							<div className="flex items-center gap-2 flex-wrap">
-								<h3 className="text-base font-bold text-gray-900">{title}</h3>
-								{badge ? (
-									<span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">
-										{badge}
-									</span>
-								) : null}
-							</div>
-							<p
-								className={`text-sm text-gray-500 mt-0.5 ${hideSubtitleOnMobile ? "hidden lg:block" : ""}`}
-							>
-								{subtitle}
-							</p>
-						</div>
-						{headerAction ? <div className="shrink-0">{headerAction}</div> : null}
-					</div>
-				</div>
+		<div className="space-y-2.5">
+			<div className="flex items-start justify-between gap-2">
+				<h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+				{headerAction}
 			</div>
 			{children}
 		</div>
@@ -201,7 +165,7 @@ export function AnalyticsAdvancedFilterPanel({
 	savedReports = [],
 	onRunAnalysis,
 	onSaveAndRun,
-	onCancel,
+	onCancel: _unusedCancel,
 	isRunning = false,
 	error = null,
 	saveError = null,
@@ -334,181 +298,122 @@ export function AnalyticsAdvancedFilterPanel({
 		)
 	}
 
+	const choiceQuestions = classificationQuestions.filter((q) => !isOpenTextQuestion(q))
+
 	return (
-		<div className="space-y-5">
-			<div className="pr-0 sm:pr-2 sm:-mr-2 sm:max-h-[min(52vh,520px)] sm:overflow-y-auto">
-				<div className="space-y-4">
-					<FilterSection
-						icon={Users}
-						title="Gender"
-						subtitle="Choose who to include in your segment. Leave empty to include all."
-					>
-						<div className="flex flex-wrap gap-2">
-							{GENDERS.map((g) => (
-								<FilterChip
-									key={g}
-									label={g}
-									selected={genders.includes(g)}
-									onClick={() => toggleGender(g)}
-								/>
-							))}
-						</div>
-					</FilterSection>
+		<div className="flex min-h-full flex-col">
+			<div className="flex-1 space-y-5">
+				<FilterSection title="Gender">
+					<div className="flex flex-wrap gap-2">
+						{GENDERS.map((g) => (
+							<FilterChip
+								key={g}
+								label={g}
+								selected={genders.includes(g)}
+								onClick={() => toggleGender(g)}
+							/>
+						))}
+					</div>
+				</FilterSection>
 
-					<FilterSection
-						icon={CalendarRange}
-						title="Age Group"
-						subtitle="Select one or more age ranges. Leave empty to include all ages."
-					>
-						<div className="flex flex-wrap gap-2">
-							{FILTER_AGE_GROUPS.map((age) => (
-								<FilterChip
-									key={age}
-									label={age}
-									selected={ageGroups.includes(age)}
-									onClick={() => toggleAge(age)}
-								/>
-							))}
-						</div>
-					</FilterSection>
+				<FilterSection title="Age">
+					<div className="flex flex-wrap gap-2">
+						{FILTER_AGE_GROUPS.map((age) => (
+							<FilterChip
+								key={age}
+								label={age}
+								selected={ageGroups.includes(age)}
+								onClick={() => toggleAge(age)}
+							/>
+						))}
+					</div>
+				</FilterSection>
 
-					{classificationQuestions.length > 0 ? (
-						classificationQuestions.map((q) => {
-							const isOpen = isOpenTextQuestion(q)
-							const options = q.answer_options ?? []
-							const optionTexts = options.map((opt) => opt.text)
-							const selected = classificationFilters[q.question_text] ?? []
-							const allSelected =
-								optionTexts.length > 0 && optionTexts.every((text) => selected.includes(text))
-							const someSelected = selected.length > 0 && !allSelected
-							return (
-								<FilterSection
-									key={q.question_id}
-									icon={isOpen ? MessageSquareText : HelpCircle}
-									title={q.question_text}
-									hideSubtitleOnMobile={!isOpen && optionTexts.length > 0}
-									subtitle={
-										isOpen
-											? "Open-ended response — shown for context; filter by choice-based answers below."
-											: optionTexts.length > 0
-												? `${selected.length} of ${optionTexts.length} selected · Select one or more answers to narrow your segment.`
-												: "Select one or more answers to narrow your segment."
-									}
-									badge={isOpen ? "Open question" : undefined}
-									headerAction={
-										!isOpen && optionTexts.length > 0 ? (
-											<QuestionFilterActions
-												allSelected={allSelected}
-												someSelected={someSelected}
-												selectedCount={selected.length}
-												onSelectAll={() => toggleSelectAllForQuestion(q.question_text, optionTexts)}
-												onClearAll={() => clearQuestionSelections(q.question_text)}
-												disabled={isRunning}
+				{choiceQuestions.length > 0 ? (
+					choiceQuestions.map((q) => {
+						const options = q.answer_options ?? []
+						const optionTexts = options.map((opt) => opt.text)
+						const selected = classificationFilters[q.question_text] ?? []
+						const allSelected =
+							optionTexts.length > 0 && optionTexts.every((text) => selected.includes(text))
+						const someSelected = selected.length > 0 && !allSelected
+						return (
+							<FilterSection
+								key={q.question_id}
+								title={q.question_text}
+								headerAction={
+									optionTexts.length > 0 ? (
+										<QuestionFilterActions
+											allSelected={allSelected}
+											someSelected={someSelected}
+											selectedCount={selected.length}
+											onSelectAll={() => toggleSelectAllForQuestion(q.question_text, optionTexts)}
+											onClearAll={() => clearQuestionSelections(q.question_text)}
+											disabled={isRunning}
+										/>
+									) : undefined
+								}
+							>
+								{options.length > 0 ? (
+									<div className="flex flex-wrap gap-2">
+										{options.map((opt) => (
+											<FilterChip
+												key={opt.id}
+												label={opt.text}
+												selected={selected.includes(opt.text)}
+												onClick={() => toggleClassificationOption(q.question_text, opt.text)}
 											/>
-										) : undefined
-									}
-								>
-									{isOpen ? (
-										<div className="rounded-xl border border-dashed border-gray-200 bg-white/80 px-4 py-3 text-sm text-gray-500">
-											Responses to this question are free text and are not used as filter criteria.
-										</div>
-									) : options.length > 0 ? (
-										<div className="flex flex-wrap gap-2">
-											{options.map((opt) => (
-												<FilterChip
-													key={opt.id}
-													label={opt.text}
-													selected={selected.includes(opt.text)}
-													onClick={() => toggleClassificationOption(q.question_text, opt.text)}
-												/>
-											))}
-										</div>
-									) : (
-										<p className="text-sm text-gray-500">No answer options configured.</p>
-									)}
-								</FilterSection>
-							)
-						})
-					) : (
-						<FilterSection
-							icon={HelpCircle}
-							title="Classification Questions"
-							subtitle="No classification questions are configured for this study."
-						>
-							<p className="text-sm text-gray-500">
-								Add classification questions in study setup to filter by them here.
-							</p>
-						</FilterSection>
-					)}
-				</div>
+										))}
+									</div>
+								) : (
+									<p className="text-xs text-gray-500">No options for this question.</p>
+								)}
+							</FilterSection>
+						)
+					})
+				) : (
+					<p className="text-xs text-gray-500">No question filters on this study.</p>
+				)}
 			</div>
 
-			<div className="sticky bottom-0 pt-2 border-t border-gray-100 bg-white/95 backdrop-blur-sm">
-				<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pt-3">
-					<p className="text-xs text-gray-500">
-						{activeFilterCount > 0
-							? `${activeFilterCount} filter${activeFilterCount === 1 ? "" : "s"} selected`
-							: "No filters selected — all respondents will be included"}
-					</p>
-					<div className="grid grid-cols-2 gap-2 w-full sm:flex sm:flex-row sm:w-auto">
-						{onCancel ? (
-							<button
-								type="button"
-								onClick={onCancel}
-								disabled={isRunning}
-								className="cursor-pointer inline-flex items-center justify-center gap-2 w-full sm:w-auto px-3 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-sm text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
-							>
-								Cancel
-							</button>
-						) : null}
-						<button
-							type="button"
-							onClick={handleClearAllFilters}
-							disabled={isRunning || activeFilterCount === 0}
-							className="cursor-pointer inline-flex items-center justify-center gap-2 w-full sm:w-auto px-3 sm:px-5 py-2.5 sm:py-3 rounded-xl font-semibold text-sm text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed"
-						>
-							Clear all filters
-						</button>
-						<motion.button
-							type="button"
-							onClick={handleRunAnalysis}
-							disabled={isRunning || filtersUnchanged}
-							whileHover={!isRunning && !filtersUnchanged ? { scale: 1.02 } : undefined}
-							whileTap={!isRunning && !filtersUnchanged ? { scale: 0.98 } : undefined}
-							className="cursor-pointer inline-flex items-center justify-center gap-2 w-full sm:w-auto px-3 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold text-sm text-white shadow-lg hover:shadow-xl transition-all duration-200 disabled:opacity-80 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2674BA]/40"
-							style={{
-								backgroundColor: BRAND_BLUE,
-								boxShadow: filtersUnchanged ? undefined : `0 8px 28px ${BRAND_BLUE}45`,
-							}}
-						>
-							{isRunning ? (
-								<Loader2 className="w-4 h-4 animate-spin" />
-							) : (
-								<Filter className="w-4 h-4" />
-							)}
-							{filtersUnchanged && !isRunning ? "Already applied" : "Run Analysis"}
-						</motion.button>
-						{onSaveAndRun ? (
-							<motion.button
-								type="button"
-								onClick={openSaveStep}
-								disabled={isRunning || activeFilterCount === 0}
-								whileHover={!isRunning && activeFilterCount > 0 ? { scale: 1.02 } : undefined}
-								whileTap={!isRunning && activeFilterCount > 0 ? { scale: 0.98 } : undefined}
-								className="cursor-pointer inline-flex items-center justify-center gap-2 w-full sm:w-auto px-3 sm:px-6 py-2.5 sm:py-3 rounded-xl font-bold text-sm border-2 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2674BA]/40"
-								style={{
-									borderColor: BRAND_BLUE,
-									color: BRAND_BLUE,
-									backgroundColor: "white",
-								}}
-							>
-								Save and Run Analysis
-							</motion.button>
-						) : null}
-					</div>
+			<div className="sticky bottom-0 mt-6 border-t border-gray-100 bg-white pt-3">
+				<p className="mb-3 text-xs text-gray-500">
+					{activeFilterCount > 0
+						? `${activeFilterCount} selected`
+						: "Leave empty to include everyone"}
+				</p>
+				<div className="flex items-center gap-2">
+					<button
+						type="button"
+						onClick={handleClearAllFilters}
+						disabled={isRunning || activeFilterCount === 0}
+						className="cursor-pointer rounded-lg px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						Clear
+					</button>
+					<motion.button
+						type="button"
+						onClick={handleRunAnalysis}
+						disabled={isRunning || filtersUnchanged}
+						className="cursor-pointer inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-bold text-white disabled:cursor-not-allowed disabled:opacity-70"
+						style={{ backgroundColor: BRAND_BLUE }}
+					>
+						{isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Filter className="h-4 w-4" />}
+						{filtersUnchanged && !isRunning ? "Applied" : "Apply"}
+					</motion.button>
 				</div>
+				{onSaveAndRun ? (
+					<button
+						type="button"
+						onClick={openSaveStep}
+						disabled={isRunning || activeFilterCount === 0}
+						className="mt-2 w-full cursor-pointer py-1.5 text-center text-xs font-semibold text-[#2674BA] hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						Save this filter
+					</button>
+				) : null}
 				{error && !saveStepOpen ? (
-					<p className="text-sm text-red-600 mt-2" role="alert">
+					<p className="mt-2 text-sm text-red-600" role="alert">
 						{error}
 					</p>
 				) : null}

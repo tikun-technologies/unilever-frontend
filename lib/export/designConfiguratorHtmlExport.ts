@@ -51,6 +51,7 @@ function toExportConfiguratorPayload(payload: DesignConfiguratorExportPayload): 
     designConstraints: payload.designConstraints || [],
     studyLayers: payload.studyLayers || [],
     savedDesigns: payload.savedDesigns,
+    appliedFilters: payload.appliedFilters ?? null,
   }
 }
 
@@ -68,7 +69,7 @@ export function generateDesignConfiguratorHtml(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${title} - Design Configurator</title>
+  <title>${title} - Analytics</title>
   <style>${assets.css}</style>
 </head>
 <body>
@@ -87,7 +88,9 @@ export async function exportDesignConfiguratorHtml(input: {
   analysisData: any
   designConstraints?: ApiDesignConstraint[]
   studyLayers?: any[]
+  appliedFilters?: DesignConfiguratorExportPayload["appliedFilters"]
   onStageChange?: (stage: ExportHtmlStage) => void
+  onEmbedProgress?: (done: number, total: number) => void
 }): Promise<{ fileName: string }> {
   input.onStageChange?.("preparing")
   const [payload, assets] = await Promise.all([
@@ -96,11 +99,17 @@ export async function exportDesignConfiguratorHtml(input: {
   ])
 
   input.onStageChange?.("embedding")
-  const imageUrls = collectHttpUrls(payload.analysisData)
-  const { map } = await buildImageDataUrlMap(imageUrls)
+  const imageUrls = collectHttpUrls({
+    analysisData: payload.analysisData,
+    studyLayers: payload.studyLayers,
+    savedDesigns: payload.savedDesigns,
+  })
+  const { map } = await buildImageDataUrlMap(imageUrls, input.onEmbedProgress)
   const exportPayload: DesignConfiguratorExportPayload = {
     ...payload,
     analysisData: await embedImagesInValue(payload.analysisData, map),
+    studyLayers: await embedImagesInValue(payload.studyLayers || [], map),
+    savedDesigns: await embedImagesInValue(payload.savedDesigns, map),
   }
 
   input.onStageChange?.("generating")

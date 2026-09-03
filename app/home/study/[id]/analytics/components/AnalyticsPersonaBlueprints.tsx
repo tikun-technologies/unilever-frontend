@@ -12,7 +12,7 @@ import {
   type PersonaBlueprint,
   type BlueprintMetric,
 } from "@/lib/utils/personaBlueprints"
-import { getElementImageUrl } from "@/lib/utils/analysisDashboard"
+import { getElementImageUrl, isViewableImageUrl } from "@/lib/utils/analysisDashboard"
 import { ImageLightboxModal } from "@/components/ui/ImageLightboxModal"
 
 interface AnalyticsPersonaBlueprintsProps {
@@ -32,6 +32,63 @@ const METRIC_OPTIONS: { value: BlueprintMetric; label: string }[] = [
   { value: "Bottom Up", label: "Bottom Up" },
   { value: "Response Time", label: "Response Time" },
 ]
+
+function BlueprintElementRow({
+  name,
+  category,
+  value,
+  imageUrl,
+  studyType,
+  tone,
+  badge,
+  onOpenImage,
+}: {
+  name: string
+  category: string
+  value: number
+  imageUrl: string | null
+  studyType: StudyType
+  tone: "use" | "avoid"
+  badge: React.ReactNode
+  onOpenImage: (src: string, alt: string) => void
+}) {
+  const hasLink = isViewableImageUrl(imageUrl)
+  return (
+    <li className="flex gap-3 items-start text-sm">
+      {badge}
+      {hasLink ? (
+        <button
+          type="button"
+          onClick={() => onOpenImage(imageUrl, name)}
+          className="h-10 w-10 shrink-0 overflow-hidden rounded-md border border-gray-200 bg-gray-50 cursor-pointer hover:border-[#2674BA]/40 focus:outline-none focus:ring-2 focus:ring-[#2674BA]/30"
+          aria-label={`View ${name}`}
+        >
+          <img src={imageUrl} alt={name} className="h-full w-full object-contain" />
+        </button>
+      ) : null}
+      <div className="min-w-0 flex-1">
+        <p className={tone === "use" ? "text-gray-800 leading-snug" : "text-gray-700 leading-snug"}>
+          {hasLink ? (
+            <button
+              type="button"
+              onClick={() => onOpenImage(imageUrl, name)}
+              className="underline cursor-pointer text-left hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-[#2674BA]/30 rounded"
+              style={{ color: "#2674BA" }}
+            >
+              {name}
+            </button>
+          ) : (
+            name
+          )}
+        </p>
+        <p className="text-xs text-gray-500 mt-0.5">
+          {studyType === "layer" ? `Layer: ${category}` : category}
+        </p>
+      </div>
+      <span className="flex-shrink-0 text-xs font-medium text-gray-500 tabular-nums">{value}</span>
+    </li>
+  )
+}
 
 export function AnalyticsPersonaBlueprints({
   analysisData,
@@ -202,42 +259,23 @@ export function AnalyticsPersonaBlueprints({
                   </h4>
                 </div>
                 <ul className="space-y-3">
-                  {blueprint.use.map((el, i) => {
-                    const imageUrl = getImageUrl(el.category, el.name)
-                    const hasLink = !!imageUrl && imageUrl.startsWith("http")
-                    return (
-                      <li
-                        key={`${el.category}-${el.name}-${i}`}
-                        className="flex gap-3 items-start text-sm"
-                      >
+                  {blueprint.use.map((el, i) => (
+                    <BlueprintElementRow
+                      key={`${el.category}-${el.name}-${i}`}
+                      name={el.name}
+                      category={el.category}
+                      value={el.value}
+                      imageUrl={getImageUrl(el.category, el.name)}
+                      studyType={studyType}
+                      tone="use"
+                      badge={
                         <span className="flex-shrink-0 w-6 h-6 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-bold">
                           {el.priority ?? i + 1}
                         </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-gray-800 leading-snug">
-                            {hasLink ? (
-                              <button
-                                type="button"
-                                onClick={() => openLightbox(imageUrl, el.name)}
-                                className="underline cursor-pointer text-left hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-[#2674BA]/30 rounded"
-                                style={{ color: "#2674BA" }}
-                              >
-                                {el.name}
-                              </button>
-                            ) : (
-                              el.name
-                            )}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {studyType === "layer" ? `Layer: ${el.category}` : el.category}
-                          </p>
-                        </div>
-                        <span className="flex-shrink-0 text-xs font-medium text-gray-500 tabular-nums">
-                          {el.value}
-                        </span>
-                      </li>
-                    )
-                  })}
+                      }
+                      onOpenImage={openLightbox}
+                    />
+                  ))}
                 </ul>
               </div>
 
@@ -249,42 +287,23 @@ export function AnalyticsPersonaBlueprints({
                   </h4>
                 </div>
                 <ul className="space-y-3">
-                  {blueprint.avoid.map((el, i) => {
-                    const imageUrl = getImageUrl(el.category, el.name)
-                    const hasLink = !!imageUrl && imageUrl.startsWith("http")
-                    return (
-                      <li
-                        key={`avoid-${el.category}-${el.name}-${i}`}
-                        className="flex gap-3 items-start text-sm"
-                      >
+                  {blueprint.avoid.map((el, i) => (
+                    <BlueprintElementRow
+                      key={`avoid-${el.category}-${el.name}-${i}`}
+                      name={el.name}
+                      category={el.category}
+                      value={el.value}
+                      imageUrl={getImageUrl(el.category, el.name)}
+                      studyType={studyType}
+                      tone="avoid"
+                      badge={
                         <span className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-xs font-bold">
                           –
                         </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="text-gray-700 leading-snug">
-                            {hasLink ? (
-                              <button
-                                type="button"
-                                onClick={() => openLightbox(imageUrl, el.name)}
-                                className="underline cursor-pointer text-left hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-[#2674BA]/30 rounded"
-                                style={{ color: "#2674BA" }}
-                              >
-                                {el.name}
-                              </button>
-                            ) : (
-                              el.name
-                            )}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {studyType === "layer" ? `Layer: ${el.category}` : el.category}
-                          </p>
-                        </div>
-                        <span className="flex-shrink-0 text-xs font-medium text-gray-500 tabular-nums">
-                          {el.value}
-                        </span>
-                      </li>
-                    )
-                  })}
+                      }
+                      onOpenImage={openLightbox}
+                    />
+                  ))}
                 </ul>
               </div>
             </div>

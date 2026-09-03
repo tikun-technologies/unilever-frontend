@@ -1833,6 +1833,7 @@ interface AnalyticsDesignConfiguratorProps {
   onExportHtml?: () => void
   isExportingHtml?: boolean
   exportHtmlStage?: "preparing" | "embedding" | "generating" | "done"
+  exportHtmlMessage?: string
 }
 
 export function AnalyticsDesignConfigurator({
@@ -1848,6 +1849,7 @@ export function AnalyticsDesignConfigurator({
   onExportHtml,
   isExportingHtml = false,
   exportHtmlStage = "preparing",
+  exportHtmlMessage,
 }: AnalyticsDesignConfiguratorProps) {
   const isLocalPersistence = persistence === "local"
   const initialSavedDesignsRef = useRef<LocalSavedDesignsStore>(
@@ -2544,10 +2546,11 @@ export function AnalyticsDesignConfigurator({
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   <span>
-                    {exportHtmlStage === "preparing" && "Preparing..."}
-                    {exportHtmlStage === "embedding" && "Embedding images..."}
-                    {exportHtmlStage === "generating" && "Generating HTML..."}
-                    {exportHtmlStage === "done" && "Done"}
+                    {exportHtmlMessage
+                      || (exportHtmlStage === "preparing" && "Preparing...")
+                      || (exportHtmlStage === "embedding" && "Embedding images...")
+                      || (exportHtmlStage === "generating" && "Generating HTML...")
+                      || (exportHtmlStage === "done" && "Done")}
                   </span>
                 </>
               ) : (
