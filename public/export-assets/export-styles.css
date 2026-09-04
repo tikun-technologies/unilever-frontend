@@ -1215,6 +1215,9 @@
   .min-h-\[1\.15em\] {
     min-height: 1.15em;
   }
+  .min-h-\[2\.5rem\] {
+    min-height: 2.5rem;
+  }
   .min-h-\[3rem\] {
     min-height: 3rem;
   }
@@ -1478,6 +1481,9 @@
   }
   .max-w-\[76px\] {
     max-width: 76px;
+  }
+  .max-w-\[78px\] {
+    max-width: 78px;
   }
   .max-w-\[90vw\] {
     max-width: 90vw;
@@ -2838,9 +2844,6 @@
   .bg-gray-600 {
     background-color: var(--color-gray-600);
   }
-  .bg-gray-700 {
-    background-color: var(--color-gray-700);
-  }
   .bg-gray-800 {
     background-color: var(--color-gray-800);
   }
@@ -3662,6 +3665,10 @@
   .tracking-\[0\.03em\] {
     --tw-tracking: 0.03em;
     letter-spacing: 0.03em;
+  }
+  .tracking-\[0\.04em\] {
+    --tw-tracking: 0.04em;
+    letter-spacing: 0.04em;
   }
   .tracking-\[0\.06em\] {
     --tw-tracking: 0.06em;

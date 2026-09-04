@@ -199,8 +199,6 @@ const SEGMENT_VARIANTS = [
   { key: "eco", label: "Eco-conscious", coefficient: "+10", design: DESIGNS[4] },
 ] as const
 
-const ORIGINAL_COEFFICIENT = "+20"
-
 const HERO_INDEX = DESIGNS.findIndex((d) => d.isBest) // mink — the opening complete product
 
 // The pump art is light; a hairline shadow keeps its edge on white. The printed
@@ -224,13 +222,13 @@ function layerFilter(key: LayerKey): string | undefined {
  * gets its own segment + utility lift so the deconstruction reads like real
  * results rather than plain part names.
  */
-/** Mind Genomics appeal coefficients (not percentages). */
+/** Mind Genomics appeal lifts (whole-number points, not percentages). */
 const COEFFICIENT_LABELS: Record<LayerKey, { seg: string; values: string[] }> = {
-  element: { seg: "Gen Z", values: ["+0.12", "+0.22", "+0.11", "+0.09", "+0.08"] },
-  product: { seg: "Millennials", values: ["+0.09", "+0.15", "+0.12", "+0.10", "+0.11"] },
-  proposition: { seg: "Females", values: ["+0.13", "+0.17", "+0.08", "+0.14", "+0.10"] },
-  pump: { seg: "Males", values: ["+0.10", "+0.12", "+0.07", "+0.09", "+0.11"] },
-  bottle: { seg: "Overall", values: ["+0.12", "+0.19", "+0.10", "+0.15", "+0.11"] },
+  element: { seg: "Gen Z", values: ["+12", "+22", "+11", "+9", "+8"] },
+  product: { seg: "Millennials", values: ["+9", "+15", "+12", "+10", "+11"] },
+  proposition: { seg: "Females", values: ["+13", "+17", "+8", "+14", "+10"] },
+  pump: { seg: "Males", values: ["+10", "+12", "+7", "+9", "+11"] },
+  bottle: { seg: "Overall", values: ["+12", "+19", "+10", "+15", "+11"] },
 }
 
 /**
@@ -556,7 +554,6 @@ export function LandingPage() {
 
   // Text refs
   const text1Ref = useRef<HTMLHeadingElement>(null)
-  const text2Ref = useRef<HTMLHeadingElement>(null)
   const text3Ref = useRef<HTMLHeadingElement>(null)
   const text4Ref = useRef<HTMLHeadingElement>(null)
   const text5Ref = useRef<HTMLHeadingElement>(null)
@@ -607,7 +604,7 @@ export function LandingPage() {
     const scrollConfig = {
       trigger: wrapperRef.current,
       start: "top top",
-      end: () => (m().isMobile ? "+=1250%" : "+=820%"),
+      end: () => (m().isMobile ? "+=1000%" : "+=700%"),
       scrub: 1,
       pin: true,
       anticipatePin: 1,
@@ -618,7 +615,6 @@ export function LandingPage() {
     const mobileStory = metrics.isMobile
     const storyHeadings = [
       text1Ref.current,
-      text2Ref.current,
       text3Ref.current,
       text4Ref.current,
       text5Ref.current,
@@ -634,7 +630,6 @@ export function LandingPage() {
 
     const buildStoryTimeline = () => {
       const tl = gsap.timeline({ scrollTrigger: scrollConfig })
-      const total = bottleRefs.current.length || m().count
 
       // ── Initial state: a single pack, centred and large ──
       bottleRefs.current.forEach((el, b) => {
@@ -666,7 +661,7 @@ export function LandingPage() {
         gsap.set(el, {
           xPercent: -50,
           yPercent: -50,
-          x: () => (m().isMobile ? 0 : m().positions[layout.originBottle]),
+          x: 0,
           y: 0,
           autoAlpha: 0,
           scale: 0.12,
@@ -685,61 +680,23 @@ export function LandingPage() {
         if (el) gsap.set(el, { autoAlpha: 0, y: 0 })
       })
 
-      // ── Phase 1 → 2 ──
-      tl.to(text1Ref.current, { autoAlpha: 0, y: -12, duration: 0.55 })
-        .to(text2Ref.current, { autoAlpha: 1, y: 0, duration: 0.55 }, ">-0.1")
-
+      // ── Phase 1 → breakdown : the hero pack drops and bursts into parts ──
       if (mobileStory) {
-        // Mobile: one large centred pack at a time — slide through all five ideas.
-        // (A multi-pack row was getting clipped / left off-screen on narrow viewports.)
-        tl.addLabel("multiCarousel", "+=0.1")
-        for (let i = 0; i < total; i++) {
-          const at = i === 0 ? "multiCarousel" : `multiCarousel+=${i * 0.55}`
-          if (i === 0) {
-            if (start !== 0) {
-              tl.to(
-                bottleRefs.current[start],
-                { autoAlpha: 0, x: () => -m().mobileStride * 0.55, duration: 0.35, ease: "power2.in" },
-                at
-              )
-              tl.fromTo(
-                bottleRefs.current[0],
-                { autoAlpha: 1, x: () => m().mobileStride * 0.55, scale: 1 },
-                { x: 0, duration: 0.4, ease: "power2.out", immediateRender: false },
-                at
-              )
-            } else {
-              tl.set(bottleRefs.current[0], { autoAlpha: 1, x: 0, scale: 1 }, at)
-            }
-          } else {
-            tl.to(
-              bottleRefs.current[i - 1],
-              { autoAlpha: 0, x: () => -m().mobileStride * 0.55, duration: 0.35, ease: "power2.in" },
-              at
-            )
-            tl.fromTo(
-              bottleRefs.current[i],
-              { autoAlpha: 1, x: () => m().mobileStride * 0.55, scale: 1 },
-              { x: 0, duration: 0.4, ease: "power2.out", immediateRender: false },
-              at
-            )
-          }
-        }
-
-        // ── Phase 2 → 3 : one category pops per scroll segment ──
-        tl.to(text2Ref.current, { autoAlpha: 0, y: -12, duration: 0.55 }, "+=0.25")
+        tl.to(text1Ref.current, { autoAlpha: 0, y: -12, duration: 0.55 })
           .to(text3Ref.current, { autoAlpha: 1, y: 0, duration: 0.55 }, ">-0.1")
           .addLabel("clusters")
           .set(carouselRef.current, { autoAlpha: 0 }, "clusters")
           .set(factorialRef.current, { autoAlpha: 0 }, "clusters")
           .set(carouselTrackRef.current, { x: 0 }, "clusters")
-          .to(bottleRefs.current, { autoAlpha: 0, duration: 0.3 }, "clusters")
+          .to(
+            bottleRefs.current[start],
+            { y: () => m().heroBox * 0.2, duration: 0.55, ease: "power2.inOut" },
+            "clusters"
+          )
           .to(clusterRef.current, { autoAlpha: 1, duration: 0.2 }, "clusters")
 
         CLUSTER_CATEGORIES.forEach((_, ci) => {
-          const catAt = `clusters+=${ci * 0.72}`
-          tl.set(bottleRefs.current, { autoAlpha: 0, x: 0 }, catAt)
-          tl.to(bottleRefs.current[ci], { autoAlpha: 0.35, x: 0, scale: 1, duration: 0.25 }, catAt)
+          const catAt = `clusters+=${0.35 + ci * 0.72}`
           const label = clusterLabelRefs.current[ci]
           if (label) tl.to(label, { autoAlpha: 1, y: 0, scale: 1, duration: 0.35, ease: "back.out(1.5)" }, catAt)
           clusterItemRefs.current.forEach((el, i) => {
@@ -747,7 +704,7 @@ export function LandingPage() {
             if (!el || !layout || layout.originBottle !== ci) return
             tl.fromTo(
               el,
-              { x: 0, y: 0, autoAlpha: 0, scale: 0.12, rotation: 0 },
+              { x: 0, y: () => m().heroBox * 0.2, autoAlpha: 0, scale: 0.12, rotation: 0 },
               {
                 x: () => layout.finalX,
                 y: () => layout.finalY,
@@ -761,7 +718,7 @@ export function LandingPage() {
             )
           })
           if (ci < CLUSTER_CATEGORIES.length - 1) {
-            const hideAt = `clusters+=${(ci + 1) * 0.72 - 0.06}`
+            const hideAt = `clusters+=${0.35 + (ci + 1) * 0.72 - 0.06}`
             tl.to(
               clusterItemRefs.current.filter((_, i) => cl().layouts[i]?.originBottle === ci),
               { autoAlpha: 0, scale: 0.85, duration: 0.22 },
@@ -770,7 +727,12 @@ export function LandingPage() {
             if (label) tl.to(label, { autoAlpha: 0, duration: 0.18 }, hideAt)
           }
         })
-        tl.to(bottleRefs.current, { autoAlpha: 0, duration: 0.35 }, "clusters+=3.55")
+        tl.to(
+          bottleRefs.current[start],
+          { autoAlpha: 0, scale: 0.75, duration: 0.4, ease: "power2.in" },
+          "clusters+=0.55"
+        )
+        tl.to(bottleRefs.current, { autoAlpha: 0, y: 0, duration: 0.35 }, "clusters+=3.9")
 
         // ── Phase 3 → 4 : carousel ──
         tl.to(text3Ref.current, { autoAlpha: 0, y: -12, duration: 0.55 }, "+=0.35")
@@ -803,8 +765,8 @@ export function LandingPage() {
           .to(factorialRef.current, { autoAlpha: 0, duration: 0.25 }, "<")
           .set(carouselTrackRef.current, { x: 0 }, "<")
           .addLabel("coef")
-          .set(bottleRefs.current, { autoAlpha: 0, x: 0 }, "coef")
-          .set(bottleRefs.current[0], { autoAlpha: 1, x: 0, scale: 1 }, "coef")
+          .set(bottleRefs.current, { autoAlpha: 0, x: 0, y: 0 }, "coef")
+          .set(bottleRefs.current[0], { autoAlpha: 1, x: 0, y: 0, scale: 1 }, "coef")
 
         COEFFICIENT_INDICES.forEach((b, bi) => {
           const block = 1.35
@@ -869,26 +831,15 @@ export function LandingPage() {
           }
         })
       } else {
-        // Desktop: multi-up row, radial clusters, all-five coefficient scan
-        tl.to(
-          bottleRefs.current[start],
-          { x: () => m().positions[start], scale: () => m().packScale, duration: 1.2, ease: "power3.inOut" },
-          "<0.1"
-        )
-        bottleRefs.current.forEach((el, b) => {
-          if (b === start || !el) return
-          tl.fromTo(
-            el,
-            { autoAlpha: 0, x: 0, scale: () => m().packScale * 0.7 },
-            { autoAlpha: 1, x: () => m().positions[b], scale: () => m().packScale, duration: 1.1, ease: "power3.out" },
-            `<${0.05 + Math.abs(b - start) * 0.05}`
-          )
-        })
-
-        tl.to(text2Ref.current, { autoAlpha: 0, y: -20, duration: 0.65 }, "+=0.35")
+        // Desktop: hero pack drops and bursts into radial component clusters
+        tl.to(text1Ref.current, { autoAlpha: 0, y: -20, duration: 0.65 })
           .to(text3Ref.current, { autoAlpha: 1, y: 0, duration: 0.65 }, ">-0.1")
           .addLabel("clusters")
-          .to(bottleRefs.current, { autoAlpha: 0.4, duration: 0.35, ease: "power2.out" }, "clusters")
+          .to(
+            bottleRefs.current[start],
+            { y: () => m().heroBox * 0.26, duration: 0.75, ease: "power2.inOut" },
+            "clusters"
+          )
           .to(clusterRef.current, { autoAlpha: 1, duration: 0.2 }, "clusters")
 
         clusterItemRefs.current.forEach((el, i) => {
@@ -896,28 +847,34 @@ export function LandingPage() {
           const layout = cl().layouts[i]
           if (!layout) return
           const catIndex = layout.originBottle
-          tl.to(
+          tl.fromTo(
             el,
+            { x: 0, y: () => m().heroBox * 0.26, autoAlpha: 0, scale: 0.12, rotation: 0 },
             {
               x: () => cl().layouts[i]?.finalX ?? 0,
               y: () => cl().layouts[i]?.finalY ?? 0,
               autoAlpha: 1,
               scale: 1,
               rotation: () => cl().layouts[i]?.rotation ?? 0,
-              duration: 0.62,
-              ease: "back.out(2.4)",
+              duration: 0.7,
+              ease: "back.out(2.2)",
+              immediateRender: false,
             },
-            `clusters+=${0.06 + catIndex * 0.1 + (i % 8) * 0.028}`
+            `clusters+=${0.4 + catIndex * 0.1 + (i % 8) * 0.028}`
           )
         })
 
         cl().labelPositions.forEach((_, ci) => {
           const label = clusterLabelRefs.current[ci]
           if (!label) return
-          tl.to(label, { autoAlpha: 1, y: 0, scale: 1, duration: 0.45, ease: "back.out(1.6)" }, `clusters+=${0.28 + ci * 0.09}`)
+          tl.to(label, { autoAlpha: 1, y: 0, scale: 1, duration: 0.45, ease: "back.out(1.6)" }, `clusters+=${0.62 + ci * 0.09}`)
         })
 
-        tl.to(bottleRefs.current, { autoAlpha: 0, duration: 0.5, ease: "power2.in" }, "clusters+=0.35")
+        tl.to(
+          bottleRefs.current[start],
+          { autoAlpha: 0, scale: 0.75, duration: 0.5, ease: "power2.in" },
+          "clusters+=0.55"
+        )
 
         tl.to(text3Ref.current, { autoAlpha: 0, y: -20, duration: 0.65 }, "+=0.5")
           .to(text4Ref.current, { autoAlpha: 1, y: 0, duration: 0.65 }, ">-0.1")
@@ -949,7 +906,7 @@ export function LandingPage() {
         tl.addLabel("coefPrep")
         bottleRefs.current.forEach((el, b) => {
           if (!el) return
-          tl.set(el, { x: () => m().positions[b], scale: () => m().packScale, autoAlpha: 1 }, "coefPrep")
+          tl.set(el, { x: () => m().positions[b], y: 0, scale: () => m().packScale, autoAlpha: 1 }, "coefPrep")
           layerRefs.current[b]?.forEach((layer) => {
             if (layer) tl.set(layer, { x: 0, y: 0, rotation: 0, opacity: 1 }, "coefPrep")
           })
@@ -1229,13 +1186,6 @@ export function LandingPage() {
                 How is a winning design built?
               </h2>
               <h2
-                ref={text2Ref}
-                className="absolute inset-0 flex items-center justify-center px-1 text-center text-[15px] font-medium leading-tight tracking-tight text-slate-900 opacity-0 invisible sm:px-2 sm:text-3xl md:text-5xl"
-                style={{ letterSpacing: "-0.03em" }}
-              >
-                One product, but multiple ideas.
-              </h2>
-              <h2
                 ref={text3Ref}
                 className="absolute inset-0 flex items-center justify-center px-1 text-center text-[15px] font-medium leading-tight tracking-tight text-slate-900 opacity-0 invisible sm:px-2 sm:text-3xl md:text-5xl"
                 style={{ letterSpacing: "-0.03em" }}
@@ -1254,7 +1204,7 @@ export function LandingPage() {
                 className="absolute inset-0 flex items-center justify-center px-1 text-center text-[15px] font-medium leading-tight tracking-tight text-slate-900 opacity-0 invisible sm:px-2 sm:text-3xl md:text-5xl"
                 style={{ letterSpacing: "-0.03em" }}
               >
-                Every element reveals its appeal coefficient.
+                Every element reveals how appeal increased.
               </h2>
               <h2
                 ref={text6Ref}
@@ -1355,7 +1305,7 @@ export function LandingPage() {
               </div>
             ))}
 
-            {/* Component clusters — five radial bursts popping from each product */}
+            {/* Component clusters — pieces burst out of the single hero pack */}
             <div
               ref={clusterRef}
               className="pointer-events-none absolute inset-0 z-[15] opacity-0"
@@ -1473,8 +1423,7 @@ export function LandingPage() {
                     ))}
                   </div>
                   <span className="mt-2 whitespace-nowrap text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-500 sm:text-xs">
-                    Original{" "}
-                    <span style={{ color: BRAND_BLUE }}>{ORIGINAL_COEFFICIENT}</span>
+                    Original
                   </span>
                 </div>
 
@@ -1547,16 +1496,16 @@ export function LandingPage() {
                     ref={(el) => {
                       if (el) calloutLabelRefs.current[ci] = el
                     }}
-                    className="whitespace-nowrap rounded-md bg-white/95 px-1.5 py-1 text-center opacity-0 shadow-sm ring-1 ring-slate-100 sm:px-2"
+                    className="rounded-md bg-white/95 px-1.5 py-1 text-center opacity-0 shadow-sm ring-1 ring-slate-100 sm:px-2"
                   >
                     {metrics.isMobile ? (
-                      <div className="text-[7px] font-semibold uppercase leading-none tracking-[0.03em]" style={{ color: BRAND_BLUE }}>
+                      <div className="whitespace-nowrap text-[7px] font-semibold uppercase leading-none tracking-[0.03em]" style={{ color: BRAND_BLUE }}>
                         {c.coef} · {c.seg}
                       </div>
                     ) : (
                       <>
-                        <div className="text-[8px] font-medium uppercase leading-none tracking-[0.12em] text-slate-400">
-                          Coefficient
+                        <div className="max-w-[78px] text-[7px] font-medium uppercase leading-tight tracking-[0.04em] text-slate-400">
+                          Appeal increased by
                         </div>
                         <div className="mt-0.5 text-[11px] font-semibold leading-none" style={{ color: BRAND_BLUE }}>
                           {c.coef}
