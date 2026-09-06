@@ -3,7 +3,7 @@
 import Image from "next/image"
 import Link from "next/link"
 import { useRef, useState, useEffect, useLayoutEffect, useMemo } from "react"
-import { CalendarDays, Check, Menu, X } from "lucide-react"
+import { CalendarDays, Check, ChevronDown, Menu, X } from "lucide-react"
 import gsap from "gsap"
 import { ScrollTrigger } from "gsap/ScrollTrigger"
 import { useGSAP } from "@gsap/react"
@@ -1118,8 +1118,8 @@ export function LandingPage() {
         )}
       </nav>
 
-      {/* Hero Section */}
-      <section ref={heroRef} id="hero" className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 pt-20 text-center bg-white">
+      {/* Hero Section — short of full viewport so the next section peeks and signals scroll */}
+      <section ref={heroRef} id="hero" className="relative flex min-h-[82dvh] flex-col items-center justify-center overflow-hidden px-4 pb-10 pt-20 text-center bg-white">
         {/* Background Elements */}
         <div className="absolute inset-0 z-0 h-full w-full pointer-events-none overflow-hidden text-slate-100 font-black uppercase leading-none select-none flex flex-col justify-around py-20" style={{ color: '#F1F5F9' }}>
           <div ref={word1ScrollRef} className="w-full text-left pl-[5%] md:pl-[10%]" style={{ fontSize: 'clamp(3.5rem, 11vw, 12rem)' }}>
@@ -1169,6 +1169,14 @@ export function LandingPage() {
             </a>
           </div>
         </div>
+
+        <a
+          href="#story"
+          aria-label="Scroll to see how it works"
+          className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center text-slate-400 transition-colors hover:text-[#1a5f96] sm:bottom-4"
+        >
+          <ChevronDown className="h-5 w-5 animate-bounce" strokeWidth={2} />
+        </a>
       </section>
 
       {/* Pinned Scroll Story */}
@@ -1176,7 +1184,7 @@ export function LandingPage() {
         <div ref={containerRef} className="flex h-[100dvh] w-full flex-col overflow-x-hidden overflow-y-hidden">
 
           {/* Headline — fixed slot so titles never overlap the stage */}
-          <div className="relative z-20 shrink-0 px-3 pt-14 pb-1 sm:px-4 sm:pt-[12%] sm:pb-0">
+          <div className="relative z-20 shrink-0 px-3 pt-8 pb-1 sm:px-4 sm:pt-12 sm:pb-0 md:pt-16">
             <div className="relative mx-auto h-11 w-full max-w-3xl sm:h-20 md:h-24">
               <h2
                 ref={text1Ref}
