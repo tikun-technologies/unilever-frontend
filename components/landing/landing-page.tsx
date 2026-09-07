@@ -1118,8 +1118,8 @@ export function LandingPage() {
         )}
       </nav>
 
-      {/* Hero Section — short of full viewport so the next section peeks and signals scroll */}
-      <section ref={heroRef} id="hero" className="relative flex min-h-[82dvh] flex-col items-center justify-center overflow-hidden px-4 pb-10 pt-20 text-center bg-white">
+      {/* Hero — full viewport on mobile so copy is not clipped; desktop peeks the next section */}
+      <section ref={heroRef} id="hero" className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 pt-20 text-center bg-white max-md:min-h-[calc(100svh-2.5rem)] md:min-h-[82dvh] md:pb-10">
         {/* Background Elements */}
         <div className="absolute inset-0 z-0 h-full w-full pointer-events-none overflow-hidden text-slate-100 font-black uppercase leading-none select-none flex flex-col justify-around py-20" style={{ color: '#F1F5F9' }}>
           <div ref={word1ScrollRef} className="w-full text-left pl-[5%] md:pl-[10%]" style={{ fontSize: 'clamp(3.5rem, 11vw, 12rem)' }}>
@@ -1136,7 +1136,7 @@ export function LandingPage() {
           </div>
         </div>
 
-        <div className="relative z-10 mx-auto max-w-4xl px-4 sm:px-6">
+        <div className="relative z-10 mx-auto max-w-4xl -mt-0.5 px-4 sm:px-6 md:mt-0">
           <h1 className="mb-6 text-5xl font-semibold tracking-tighter text-slate-900 md:text-7xl lg:text-8xl" style={{ letterSpacing: '-0.04em' }}>
             Understand Why <br className="hidden md:block" /> People{" "}
             <br className="md:hidden" />
@@ -1168,12 +1168,19 @@ export function LandingPage() {
               See how it works
             </a>
           </div>
+          <a
+            href="#story"
+            aria-label="Scroll to see how it works"
+            className="mt-8 flex flex-col items-center text-slate-400 transition-colors hover:text-[#1a5f96] md:hidden"
+          >
+            <ChevronDown className="h-5 w-5 animate-bounce" strokeWidth={2} />
+          </a>
         </div>
 
         <a
           href="#story"
           aria-label="Scroll to see how it works"
-          className="absolute bottom-3 left-1/2 z-10 flex -translate-x-1/2 flex-col items-center text-slate-400 transition-colors hover:text-[#1a5f96] sm:bottom-4"
+          className="absolute bottom-3 left-1/2 z-10 hidden -translate-x-1/2 flex-col items-center text-slate-400 transition-colors hover:text-[#1a5f96] md:flex md:bottom-4"
         >
           <ChevronDown className="h-5 w-5 animate-bounce" strokeWidth={2} />
         </a>
@@ -1184,7 +1191,7 @@ export function LandingPage() {
         <div ref={containerRef} className="flex h-[100dvh] w-full flex-col overflow-x-hidden overflow-y-hidden">
 
           {/* Headline — fixed slot so titles never overlap the stage */}
-          <div className="relative z-20 shrink-0 px-3 pt-8 pb-1 sm:px-4 sm:pt-12 sm:pb-0 md:pt-16">
+          <div className="relative z-20 shrink-0 px-3 pt-14 pb-1 sm:px-4 sm:pt-[12%] sm:pb-0 md:pt-16">
             <div className="relative mx-auto h-11 w-full max-w-3xl sm:h-20 md:h-24">
               <h2
                 ref={text1Ref}
