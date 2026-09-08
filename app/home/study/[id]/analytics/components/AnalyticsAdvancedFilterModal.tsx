@@ -66,7 +66,7 @@ export function AnalyticsAdvancedFilterModal({
 						animate={{ x: 0, opacity: 1 }}
 						exit={{ x: 24, opacity: 0 }}
 						transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
-						className="absolute inset-y-0 right-0 flex w-full max-w-[420px] flex-col bg-white shadow-2xl"
+						className="absolute inset-y-0 right-0 flex h-dvh max-h-dvh w-full max-w-[420px] flex-col bg-white shadow-2xl"
 						onClick={(e) => e.stopPropagation()}
 					>
 						<div className="flex shrink-0 items-center justify-between gap-3 border-b border-gray-100 px-4 py-3">
@@ -84,7 +84,7 @@ export function AnalyticsAdvancedFilterModal({
 							</button>
 						</div>
 
-						<div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+						<div className="min-h-0 flex-1 overflow-hidden">
 							<AnalyticsAdvancedFilterPanel
 								key={panelKey}
 								studyId={studyId}

@@ -19,6 +19,7 @@ interface AnalyticsSavedReportsSidebarProps {
 	downloadingId?: string | null
 	/** Hide the mobile menu launcher while the analytics assistant is open. */
 	assistantOpen?: boolean
+	readOnly?: boolean
 }
 
 export function AnalyticsSavedReportsSidebar({
@@ -32,6 +33,7 @@ export function AnalyticsSavedReportsSidebar({
 	applyingId = null,
 	downloadingId = null,
 	assistantOpen = false,
+	readOnly = false,
 }: AnalyticsSavedReportsSidebarProps) {
 	const [isCollapsed, setIsCollapsed] = useState(true)
 	const [isMobile, setIsMobile] = useState(false)
@@ -290,6 +292,8 @@ export function AnalyticsSavedReportsSidebar({
 															<Download className="w-3.5 h-3.5 text-emerald-600" />
 														)}
 													</button>
+													{readOnly ? null : (
+													<>
 													<button
 														type="button"
 														onClick={() => startEdit(report)}
@@ -308,6 +312,8 @@ export function AnalyticsSavedReportsSidebar({
 													>
 														<Trash2 className="w-3.5 h-3.5 text-red-500" />
 													</button>
+													</>
+													)}
 												</div>
 											</>
 										)}

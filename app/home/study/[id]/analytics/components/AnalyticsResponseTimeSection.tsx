@@ -109,11 +109,13 @@ export function AnalyticsResponseTimeSection({ analysisData, rawDataOverride }: 
         {taskData.length > 0 ? (
           <div className="h-[280px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={taskData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+              <BarChart data={taskData} margin={{ top: 10, right: 16, left: 12, bottom: 4 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                 <XAxis dataKey="name" tick={{ fontSize: 12, fill: "#64748b" }} />
                 <YAxis
+                  width={78}
                   tick={{ fontSize: 12, fill: "#64748b" }}
+                  tickMargin={6}
                   tickFormatter={(v) => `${(v * 1000).toFixed(0)}ms`}
                 />
                 <Tooltip

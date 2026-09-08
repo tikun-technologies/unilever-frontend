@@ -17,7 +17,7 @@ import { JobNotificationBell } from "@/components/notifications/JobNotificationB
 import { BrandLogo } from "@/components/brand/BrandLogo"
 import { checkIsTemplateManager } from "@/lib/config/specialCreators"
 
-export function DashboardHeader() {
+export function DashboardHeader({ variant = "default" }: { variant?: "default" | "shared" }) {
   const { user, logout } = useAuth()
   const [showDropdown, setShowDropdown] = useState(false)
   const [isShareModalOpen, setIsShareModalOpen] = useState(false)
@@ -154,6 +154,14 @@ export function DashboardHeader() {
       >
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4 h-14 sm:h-16 min-w-0">
 
+          {variant === "shared" ? (
+            <div className="flex min-w-0 items-center gap-3">
+              <BrandLogo className="text-lg sm:text-2xl" />
+              <span className="hidden rounded-full bg-[#2674BA]/10 px-2.5 py-1 text-[11px] font-semibold text-[#2674BA] sm:inline">
+                Shared analytics
+              </span>
+            </div>
+          ) : (
           <Link href={homeHref} className="shrink-0">
             <div className="flex items-center">
               <motion.div whileHover={{ scale: 1.05 }} className="whitespace-nowrap">
@@ -161,8 +169,9 @@ export function DashboardHeader() {
               </motion.div>
             </div>
           </Link>
+          )}
 
-          {/* Right side */}
+          {variant !== "shared" && (
           <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
             {/* View Detail + Share (Create Study Route Only) */}
             {isCreateStudyRoute && (
@@ -305,6 +314,7 @@ export function DashboardHeader() {
               )}
             </div>
           </div>
+          )}
         </div>
       </motion.header>
 

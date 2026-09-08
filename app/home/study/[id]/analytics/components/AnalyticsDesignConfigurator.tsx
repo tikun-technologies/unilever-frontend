@@ -5,7 +5,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
-import { CheckCircle2, ChevronDown, Download, Eye, FileCode2, GitCompare, ImageIcon, Loader2, RotateCcw, Save, Sparkles, Trash2, Type, X } from "lucide-react"
+import { CheckCircle2, ChevronDown, Crown, Download, Eye, FileCode2, GitCompare, ImageIcon, Loader2, RotateCcw, Save, Sparkles, Trash2, Type, X } from "lucide-react"
 import { renderLayersToCanvas } from "@/lib/canvas-export"
 import {
   compareSavedDesigns,
@@ -1389,6 +1389,7 @@ function SavedDesignComparePanel({
   onToggle,
   onCompare,
   onDelete,
+  canDelete = true,
 }: {
   isOpen: boolean
   savedDesigns: SavedDesignPayload[]
@@ -1400,6 +1401,7 @@ function SavedDesignComparePanel({
   onToggle: (designId: string) => void
   onCompare: () => void
   onDelete: (designId: string) => void
+  canDelete?: boolean
 }) {
   if (!isOpen) return null
 
@@ -1461,6 +1463,7 @@ function SavedDesignComparePanel({
                           {formatValue(design.total_coefficient ?? design.configuration?.total_coefficient ?? 0, design.metric)}
                         </span>
                       )}
+                      {canDelete ? (
                       <button
                         type="button"
                         onClick={() => onDelete(design.id)}
@@ -1468,6 +1471,7 @@ function SavedDesignComparePanel({
                       >
                         <Trash2 className="h-3.5 w-3.5" /> Delete
                       </button>
+                      ) : null}
                     </div>
                   </div>
                 )
@@ -1552,6 +1556,14 @@ function SavedInputDesignInsights({
   )
 }
 
+function getDesignMetric(design: SavedDesignPayload): Metric {
+  return resolveMetricLabel(design.metric) || "Top Down"
+}
+
+function getDesignTotal(design: SavedDesignPayload): number {
+  return toNumber(design.total_coefficient ?? design.configuration?.total_coefficient, 0)
+}
+
 function SavedDesignCompareOverlay({
   designs,
   analysisData,
@@ -1568,6 +1580,17 @@ function SavedDesignCompareOverlay({
   const [previewDesign, setPreviewDesign] = useState<SavedDesignPayload | null>(null)
   const [downloadingDesignId, setDownloadingDesignId] = useState<string | null>(null)
   const [highlightedElementKey, setHighlightedElementKey] = useState<string | null>(null)
+  const [openElementLists, setOpenElementLists] = useState<Record<string, boolean>>({})
+  const [expandedElementKey, setExpandedElementKey] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (designs.length === 0) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [designs.length])
 
   const handleDownloadLayerDesign = async (design: SavedDesignPayload) => {
     if (design.study_type !== "layer" || downloadingDesignId) return
@@ -1588,133 +1611,490 @@ function SavedDesignCompareOverlay({
     }
   }
 
+  const designElements = useMemo(
+    () =>
+      designs.map((design) => ({
+        design,
+        elements: getSavedDesignElements(design, elementMediaLookup),
+        total: getDesignTotal(design),
+        metric: getDesignMetric(design),
+      })),
+    [designs, elementMediaLookup]
+  )
+
+  const comparisonRows = useMemo(() => {
+    const seen = new Set<string>()
+    const categories: string[] = []
+    for (const { elements } of designElements) {
+      for (const element of elements) {
+        const category = element.category || "Selection"
+        if (!seen.has(category)) {
+          seen.add(category)
+          categories.push(category)
+        }
+      }
+    }
+    return categories.map((category) => {
+      const cells = designElements.map(({ elements, metric }) => {
+        const match = elements.find((element) => (element.category || "Selection") === category) || null
+        return { element: match, metric }
+      })
+      const scored = cells
+        .map((cell) => cell.element?.value)
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+      const bestValue = scored.length ? Math.max(...scored) : null
+      return { category, cells, bestValue }
+    })
+  }, [designElements])
+
+  const winnerId = useMemo(() => {
+    const scored = designElements.filter(({ design }) => design.design_type !== "input")
+    if (scored.length === 0) return null
+    const prefersLow = scored.every(({ metric }) => metric === "Response Time")
+    return scored.reduce((best, current) => {
+      if (prefersLow) return current.total < best.total ? current : best
+      return current.total > best.total ? current : best
+    }).design.id
+  }, [designElements])
+
   if (designs.length === 0) return null
 
   const previewElements = previewDesign ? getSavedDesignElements(previewDesign, elementMediaLookup) : []
   const previewIsLayer = previewDesign?.study_type === "layer"
+  const gridClass =
+    designs.length === 2 ? "lg:grid-cols-2" : designs.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"
 
   return (
     <BodyPortal>
-      <div role="dialog" aria-modal="true" aria-label="Saved design comparison" className="fixed inset-0 z-[220] overflow-y-auto bg-black p-4 text-white sm:p-6">
+      <div role="dialog" aria-modal="true" aria-label="Saved design comparison" className="fixed inset-0 z-[220] flex items-center justify-center p-3 sm:p-6">
         <button
           type="button"
+          className="absolute inset-0 bg-slate-950/50"
           onClick={onClose}
-          className="fixed right-4 top-4 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
           aria-label="Close comparison"
+        />
+        <div
+          className="relative flex max-h-[calc(100vh-1.5rem)] w-full max-w-[96rem] flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl sm:max-h-[calc(100vh-3rem)]"
+          onClick={(event) => event.stopPropagation()}
         >
-          <X className="h-6 w-6" />
-        </button>
-        <div className="mx-auto max-w-7xl pb-10 pt-10">
-        <div className="mb-6">
-          <h3 className="text-2xl font-black">Saved design comparison</h3>
-          <p className="mt-1 text-sm text-white/60">Showing {designs.length} saved designs side by side.</p>
-        </div>
-        <div className={`grid gap-5 ${designs.length === 2 ? "lg:grid-cols-2" : designs.length === 3 ? "lg:grid-cols-3" : "lg:grid-cols-4"}`}>
-          {designs.map((design) => {
-            const elements = getSavedDesignElements(design, elementMediaLookup)
-            const isLayer = design.study_type === "layer"
-            const compareBackgroundUrl = design.configuration?.show_layer_background
-              ? design.configuration?.background_url || getBackgroundUrl(analysisData)
-              : null
-            return (
-              <div key={design.id} className="rounded-3xl bg-white p-4 text-gray-900 shadow-xl">
-                <div className="mb-4 flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h4 className="truncate text-lg font-black">{design.name}</h4>
-                    <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                      {design.design_type === "input"
-                        ? "Input Design"
-                        : `${design.metric} · ${design.segment_label || design.configuration?.segment?.label || "Overall"}`}
-                    </p>
-                  </div>
-                  <div className="flex flex-shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setPreviewDesign(design)}
-                      className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600 transition hover:bg-blue-100"
-                      aria-label={`Preview ${design.name}`}
-                    >
-                      <Eye className="h-4 w-4" />
-                    </button>
-                    {isLayer && (
-                      <button
-                        type="button"
-                        onClick={() => void handleDownloadLayerDesign(design)}
-                        disabled={downloadingDesignId === design.id}
-                        className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-                        aria-label={`Download ${design.name}`}
-                      >
-                        {downloadingDesignId === design.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                      </button>
-                    )}
-                  </div>
+          <div className="shrink-0 border-b border-slate-100 bg-gradient-to-r from-[#2674BA]/12 via-[#2674BA]/5 to-white px-4 py-4 sm:px-6">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <div className="inline-flex items-center gap-2 rounded-full bg-[#2674BA]/10 px-3 py-1 text-xs font-semibold text-[#2674BA]">
+                  <GitCompare className="h-3.5 w-3.5" />
+                  Design comparison
                 </div>
-                <SelectionPreview
-                  selectedElements={elements}
-                  studyType={design.study_type}
-                  backgroundUrl={isLayer ? compareBackgroundUrl : design.configuration?.background_url || getBackgroundUrl(analysisData)}
-                  aspectRatio={design.configuration?.aspect_ratio || "9 / 16"}
-                />
-                {design.design_type === "input" ? (
-                  <SavedInputDesignInsights design={design} analysisData={analysisData} />
-                ) : (
-                  <div className="mt-4 rounded-2xl bg-gray-50 p-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wider text-gray-500">Total Coefficient</span>
-                      <span className="text-xl font-black tabular-nums text-gray-900">
-                        {formatValue(design.total_coefficient ?? design.configuration?.total_coefficient ?? 0, design.metric)}
-                      </span>
-                    </div>
-                  </div>
-                )}
-                <details className="mt-4 rounded-2xl border border-gray-200">
-                  <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-gray-900">Active Selection ({elements.length})</summary>
-                  <div className="space-y-3 border-t border-gray-100 p-4">
-                    {elements.map((element) => (
-                      <div key={`${design.id}-${element.id}`} className="flex items-center gap-3">
+                <h2 className="mt-2 text-lg font-bold text-slate-900 sm:text-2xl">Compare saved designs</h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {designs.length} designs · element coefficients shown for every selection
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="cursor-pointer rounded-xl p-2 text-slate-500 transition-colors hover:bg-white/80 hover:text-slate-800"
+                aria-label="Close comparison"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto bg-slate-50/40 px-4 py-4 sm:px-6 sm:py-6">
+            <div className={`grid gap-5 ${gridClass}`}>
+              {designElements.map(({ design, elements }) => {
+                const isLayer = design.study_type === "layer"
+                const isWinner = winnerId === design.id
+                const compareBackgroundUrl = design.configuration?.show_layer_background
+                  ? design.configuration?.background_url || getBackgroundUrl(analysisData)
+                  : null
+                return (
+                  <div
+                    key={`preview-${design.id}`}
+                    className={`rounded-3xl border bg-white p-4 ${
+                      isWinner ? "border-[#2674BA]/35" : "border-slate-200"
+                    }`}
+                  >
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h4 className="truncate text-lg font-black text-slate-900">{design.name}</h4>
+                        <p className="mt-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                          {design.design_type === "input"
+                            ? "Input Design"
+                            : `${design.metric} · ${design.segment_label || design.configuration?.segment?.label || "Overall"}`}
+                        </p>
+                      </div>
+                      <div className="flex flex-shrink-0 items-center gap-2">
+                        {isWinner && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-[#2674BA] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                            <Crown className="h-3 w-3" />
+                            Best
+                          </span>
+                        )}
                         <button
                           type="button"
-                          onClick={() => {
-                            if (!element.imageUrl) return
-                            setHighlightedElementKey(`${design.id}-${element.id}`)
-                            onImageOpen({ url: element.imageUrl, name: element.name })
-                          }}
-                          disabled={!element.imageUrl}
-                          className="flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg bg-gray-50 p-1 ring-1 ring-gray-100 transition hover:ring-blue-300 disabled:cursor-default disabled:hover:ring-gray-100"
+                          onClick={() => setPreviewDesign(design)}
+                          className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-600 transition hover:bg-blue-100"
+                          aria-label={`Preview ${design.name}`}
                         >
-                          {element.imageUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="h-full w-full object-contain" />
-                          ) : (
-                            <Type className="h-4 w-4 text-gray-400" />
-                          )}
+                          <Eye className="h-4 w-4" />
                         </button>
-                        <div className="min-w-0">
+                        {isLayer && (
                           <button
                             type="button"
-                            onClick={() => {
-                              if (!element.imageUrl) return
-                              setHighlightedElementKey(`${design.id}-${element.id}`)
-                              onImageOpen({ url: element.imageUrl, name: element.name })
-                            }}
-                            disabled={!element.imageUrl}
-                            className={`truncate text-left text-sm font-semibold transition disabled:cursor-default ${
-                              highlightedElementKey === `${design.id}-${element.id}`
-                                ? "text-blue-600"
-                                : "text-gray-900 hover:text-blue-600 disabled:hover:text-gray-900"
-                            }`}
+                            onClick={() => void handleDownloadLayerDesign(design)}
+                            disabled={downloadingDesignId === design.id}
+                            className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            aria-label={`Download ${design.name}`}
                           >
-                            {element.name}
+                            {downloadingDesignId === design.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                           </button>
-                          <p className="truncate text-xs text-gray-500">{element.category}</p>
+                        )}
+                      </div>
+                    </div>
+                    <SelectionPreview
+                      selectedElements={elements}
+                      studyType={design.study_type}
+                      backgroundUrl={isLayer ? compareBackgroundUrl : design.configuration?.background_url || getBackgroundUrl(analysisData)}
+                      aspectRatio={design.configuration?.aspect_ratio || "9 / 16"}
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setOpenElementLists((current) => ({
+                          ...current,
+                          [design.id]: !(current[design.id] ?? true),
+                        }))
+                      }
+                      className="mt-3 flex w-full cursor-pointer items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-left"
+                      aria-expanded={openElementLists[design.id] ?? true}
+                    >
+                      <span className="text-sm font-bold text-slate-900">Image coefficients ({elements.length})</span>
+                      <ChevronDown
+                        className={`h-4 w-4 text-slate-500 transition-transform ${
+                          (openElementLists[design.id] ?? true) ? "rotate-180" : ""
+                        }`}
+                      />
+                    </button>
+                    {(openElementLists[design.id] ?? true) && (
+                      <div className="mt-2 space-y-2 rounded-xl border border-slate-200 p-3">
+                        {elements.length === 0 ? (
+                          <p className="text-sm text-slate-500">No elements saved on this design.</p>
+                        ) : (
+                          elements.map((element) => {
+                            const itemKey = `${design.id}-${element.id}`
+                            const isOpen = expandedElementKey === itemKey
+                            const share =
+                              getDesignTotal(design) !== 0
+                                ? Math.max(0, Math.min(100, (Math.abs(element.value) / Math.abs(getDesignTotal(design))) * 100))
+                                : 0
+                            return (
+                              <div key={itemKey} className="rounded-xl border border-slate-100">
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedElementKey(isOpen ? null : itemKey)}
+                                  className="flex w-full cursor-pointer items-center gap-3 px-2 py-2 text-left"
+                                  aria-expanded={isOpen}
+                                >
+                                  <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50 p-1 ring-1 ring-slate-100">
+                                    {element.imageUrl ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="h-full w-full object-contain" />
+                                    ) : (
+                                      <Type className="h-4 w-4 text-slate-400" />
+                                    )}
+                                  </span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block truncate text-sm font-semibold text-slate-900">{element.name}</span>
+                                  </span>
+                                  {design.design_type !== "input" && (
+                                    <span
+                                      className={`shrink-0 text-sm font-bold tabular-nums ${
+                                        element.value >= 0 ? "text-emerald-600" : "text-red-600"
+                                      }`}
+                                    >
+                                      {element.value >= 0 ? "+" : ""}
+                                      {formatValue(element.value, getDesignMetric(design))}
+                                    </span>
+                                  )}
+                                  <ChevronDown
+                                    className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                                  />
+                                </button>
+                                {isOpen && (
+                                  <div className="space-y-2 border-t border-slate-100 px-3 py-3">
+                                    {element.imageUrl ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setHighlightedElementKey(itemKey)
+                                          onImageOpen({ url: element.imageUrl!, name: element.name })
+                                        }}
+                                        className="flex w-full cursor-pointer items-center justify-center overflow-hidden rounded-xl bg-slate-50 p-3"
+                                      >
+                                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                                        <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="max-h-40 object-contain" />
+                                      </button>
+                                    ) : (
+                                      <p className="text-xs text-slate-500">No image for this element.</p>
+                                    )}
+                                    {design.design_type !== "input" && (
+                                      <>
+                                        <div className="flex items-center justify-between text-sm">
+                                          <span className="text-slate-500">Coefficient</span>
+                                          <span className={`font-bold tabular-nums ${element.value >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                            {element.value >= 0 ? "+" : ""}
+                                            {formatValue(element.value, getDesignMetric(design))}
+                                          </span>
+                                        </div>
+                                        <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                                          <div
+                                            className={`h-full rounded-full ${element.value >= 0 ? "bg-emerald-500" : "bg-red-400"}`}
+                                            style={{ width: `${Math.max(share, element.value !== 0 ? 6 : 0)}%` }}
+                                          />
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className={`grid gap-3 ${gridClass}`}>
+              {designElements.map(({ design, total, metric }) => {
+                const isWinner = winnerId === design.id
+                return (
+                  <div
+                    key={`summary-${design.id}`}
+                    className={`rounded-2xl border bg-white p-4 ${
+                      isWinner ? "border-[#2674BA]/40 shadow-sm" : "border-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-bold text-slate-900">{design.name}</p>
+                        <p className="mt-0.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                          {design.design_type === "input"
+                            ? "Input Design"
+                            : `${design.metric} · ${design.segment_label || design.configuration?.segment?.label || "Overall"}`}
+                        </p>
+                      </div>
+                    </div>
+                    {design.design_type !== "input" && (
+                      <p className="mt-3 text-2xl font-black tabular-nums text-slate-900">
+                        {formatValue(total, metric)}
+                        <span className="ml-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                          total coefficient
+                        </span>
+                      </p>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+
+            {comparisonRows.length > 0 && (
+              <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                <div className="border-b border-slate-100 px-4 py-3">
+                  <h3 className="text-sm font-bold text-slate-900">Element coefficients</h3>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Every selected element and its coefficient, lined up by category.
+                  </p>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+                    <thead>
+                      <tr className="bg-slate-50 text-[11px] font-bold uppercase tracking-wide text-slate-500">
+                        <th className="px-4 py-2.5">Category</th>
+                        {designElements.map(({ design }) => (
+                          <th key={`head-${design.id}`} className="px-4 py-2.5">
+                            {design.name}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comparisonRows.map((row) => (
+                        <tr key={row.category} className="border-t border-slate-100 align-top">
+                          <td className="px-4 py-3 text-xs font-semibold text-slate-500">{row.category}</td>
+                          {row.cells.map((cell, index) => {
+                            const element = cell.element
+                            const isBest =
+                              element != null &&
+                              row.bestValue != null &&
+                              element.value === row.bestValue
+                            return (
+                              <td key={`${row.category}-${designElements[index].design.id}`} className="px-4 py-3">
+                                {element ? (
+                                  <div>
+                                    <p className="font-semibold text-slate-900">{element.name}</p>
+                                    {designElements[index].design.design_type !== "input" && (
+                                      <p
+                                        className={`mt-0.5 text-sm font-bold tabular-nums ${
+                                          element.value >= 0 ? "text-emerald-600" : "text-red-600"
+                                        }`}
+                                      >
+                                        {element.value >= 0 ? "+" : ""}
+                                        {formatValue(element.value, cell.metric)}
+                                        {isBest && row.cells.filter((item) => item.element).length > 1 && (
+                                          <span className="ml-1 text-[10px] font-bold uppercase tracking-wide text-[#2674BA]">
+                                            strongest
+                                          </span>
+                                        )}
+                                      </p>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-slate-400">Not selected</span>
+                                )}
+                              </td>
+                            )
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className={`grid gap-5 ${gridClass}`}>
+              {designElements.map(({ design, elements, total, metric }) => {
+                const isWinner = winnerId === design.id
+                const listOpen = openElementLists[design.id] ?? true
+                return (
+                  <div
+                    key={design.id}
+                    className={`rounded-3xl border bg-white p-4 text-slate-900 shadow-sm ${
+                      isWinner ? "border-[#2674BA]/35" : "border-slate-200"
+                    }`}
+                  >
+                    {design.design_type === "input" ? (
+                      <SavedInputDesignInsights design={design} analysisData={analysisData} />
+                    ) : (
+                      <div className="rounded-2xl bg-slate-50 p-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Total Coefficient</span>
+                          <span className="text-xl font-black tabular-nums text-slate-900">
+                            {formatValue(total, metric)}
+                          </span>
                         </div>
                       </div>
-                    ))}
+                    )}
+                    <div className="mt-4 rounded-2xl border border-slate-200">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setOpenElementLists((current) => ({
+                            ...current,
+                            [design.id]: !(current[design.id] ?? true),
+                          }))
+                        }
+                        className="flex w-full cursor-pointer items-center justify-between px-4 py-3 text-left"
+                        aria-expanded={listOpen}
+                      >
+                        <span>
+                          <span className="block text-sm font-bold text-slate-900">Selected elements ({elements.length})</span>
+                          <span className="block text-xs text-slate-500">Coefficient for each element in this mix</span>
+                        </span>
+                        <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${listOpen ? "rotate-180" : ""}`} />
+                      </button>
+                      {listOpen && (
+                        <div className="space-y-2 border-t border-slate-100 p-4">
+                          {elements.length === 0 ? (
+                            <p className="text-sm text-slate-500">No elements saved on this design.</p>
+                          ) : (
+                            elements.map((element) => {
+                              const itemKey = `${design.id}-${element.id}`
+                              const isOpen = expandedElementKey === itemKey
+                              const share = total !== 0 ? Math.max(0, Math.min(100, (Math.abs(element.value) / Math.abs(total)) * 100)) : 0
+                              return (
+                                <div key={itemKey} className="rounded-xl border border-slate-100">
+                                  <button
+                                    type="button"
+                                    onClick={() => setExpandedElementKey(isOpen ? null : itemKey)}
+                                    className="flex w-full cursor-pointer items-center gap-3 px-2 py-2 text-left"
+                                    aria-expanded={isOpen}
+                                  >
+                                    <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50 p-1 ring-1 ring-slate-100">
+                                      {element.imageUrl ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="h-full w-full object-contain" />
+                                      ) : (
+                                        <Type className="h-4 w-4 text-slate-400" />
+                                      )}
+                                    </span>
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block truncate text-sm font-semibold text-slate-900">{element.name}</span>
+                                    </span>
+                                    {design.design_type !== "input" && (
+                                      <span
+                                        className={`shrink-0 text-sm font-bold tabular-nums ${
+                                          element.value >= 0 ? "text-emerald-600" : "text-red-600"
+                                        }`}
+                                      >
+                                        {element.value >= 0 ? "+" : ""}
+                                        {formatValue(element.value, metric)}
+                                      </span>
+                                    )}
+                                    <ChevronDown className={`h-4 w-4 shrink-0 text-slate-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                                  </button>
+                                  {isOpen && (
+                                    <div className="space-y-2 border-t border-slate-100 px-3 py-3">
+                                      {element.imageUrl ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setHighlightedElementKey(itemKey)
+                                            onImageOpen({ url: element.imageUrl!, name: element.name })
+                                          }}
+                                          className="flex w-full cursor-pointer items-center justify-center overflow-hidden rounded-xl bg-slate-50 p-3"
+                                        >
+                                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                                          <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="max-h-40 object-contain" />
+                                        </button>
+                                      ) : (
+                                        <p className="text-xs text-slate-500">No image for this element.</p>
+                                      )}
+                                      {design.design_type !== "input" && (
+                                        <>
+                                          <div className="flex items-center justify-between text-sm">
+                                            <span className="text-slate-500">Coefficient</span>
+                                            <span className={`font-bold tabular-nums ${element.value >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                              {element.value >= 0 ? "+" : ""}
+                                              {formatValue(element.value, metric)}
+                                            </span>
+                                          </div>
+                                          <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                                            <div
+                                              className={`h-full rounded-full ${element.value >= 0 ? "bg-emerald-500" : "bg-red-400"}`}
+                                              style={{ width: `${Math.max(share, element.value !== 0 ? 6 : 0)}%` }}
+                                            />
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )
+                            })
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </details>
-              </div>
-            )
-          })}
+                )
+              })}
+            </div>
+          </div>
         </div>
       </div>
       <PreviewFullscreenModal
@@ -1731,7 +2111,6 @@ function SavedDesignCompareOverlay({
           />
         )}
       </PreviewFullscreenModal>
-      </div>
     </BodyPortal>
   )
 }
@@ -1834,6 +2213,7 @@ interface AnalyticsDesignConfiguratorProps {
   isExportingHtml?: boolean
   exportHtmlStage?: "preparing" | "embedding" | "generating" | "done"
   exportHtmlMessage?: string
+  canSaveDesigns?: boolean
 }
 
 export function AnalyticsDesignConfigurator({
@@ -1850,6 +2230,7 @@ export function AnalyticsDesignConfigurator({
   isExportingHtml = false,
   exportHtmlStage = "preparing",
   exportHtmlMessage,
+  canSaveDesigns = true,
 }: AnalyticsDesignConfiguratorProps) {
   const isLocalPersistence = persistence === "local"
   const initialSavedDesignsRef = useRef<LocalSavedDesignsStore>(
@@ -2617,6 +2998,7 @@ export function AnalyticsDesignConfigurator({
               <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1 sm:gap-2">
                 {!isLayerStudy && hasPreviewContent && (
                   <div className="mr-1 flex items-center gap-1 rounded-full bg-gray-100 p-1 shadow-inner">
+                    {canSaveDesigns ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -2629,6 +3011,7 @@ export function AnalyticsDesignConfigurator({
                     >
                       {isSavingDesign ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setIsPreviewFullscreenOpen(true)}
@@ -2675,6 +3058,7 @@ export function AnalyticsDesignConfigurator({
                 </div>
                 {isLayerStudy && hasPreviewContent && (
                   <div className="absolute right-2 top-2 z-10 flex items-center gap-2 sm:right-3 sm:top-3">
+                    {canSaveDesigns ? (
                     <button
                       type="button"
                       onClick={() => {
@@ -2687,6 +3071,7 @@ export function AnalyticsDesignConfigurator({
                     >
                       {isSavingDesign ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                     </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => setIsPreviewFullscreenOpen(true)}
@@ -3178,6 +3563,7 @@ export function AnalyticsDesignConfigurator({
         </BodyPortal>
       )}
 
+      {canSaveDesigns ? (
       <SaveDesignModal
         isOpen={isSaveModalOpen}
         defaultName={defaultSavedDesignName}
@@ -3186,6 +3572,7 @@ export function AnalyticsDesignConfigurator({
         onClose={() => setIsSaveModalOpen(false)}
         onSave={(name) => void handleSaveDesign(name)}
       />
+      ) : null}
 
       <SavedDesignComparePanel
         isOpen={isComparePanelOpen}
@@ -3198,6 +3585,7 @@ export function AnalyticsDesignConfigurator({
         onToggle={handleToggleCompareDesign}
         onCompare={() => void handleCompareDesigns()}
         onDelete={(designId) => void handleDeleteSavedDesign(designId)}
+        canDelete={canSaveDesigns}
       />
 
       <SavedDesignCompareOverlay

@@ -138,6 +138,7 @@ interface AnalyticsSettingsModalProps {
 	onClose: () => void
 	onSaved?: (response: StudyAnalysisSettingsResponse) => void
 	onOpenAdvancedFilter?: () => void
+	readOnly?: boolean
 }
 
 export function AnalyticsSettingsModal({
@@ -146,6 +147,7 @@ export function AnalyticsSettingsModal({
 	onClose,
 	onSaved,
 	onOpenAdvancedFilter,
+	readOnly = false,
 }: AnalyticsSettingsModalProps) {
 	const [loading, setLoading] = useState(false)
 	const [saving, setSaving] = useState(false)
@@ -260,7 +262,7 @@ export function AnalyticsSettingsModal({
 								<span>Loading settings…</span>
 							</div>
 						) : (
-							<div className="space-y-4 sm:space-y-5">
+							<div className={`space-y-4 sm:space-y-5 ${readOnly ? "pointer-events-none" : ""}`}>
 								<div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-5">
 									<RatingScoringEditor
 										title="Top-Down"
@@ -278,7 +280,7 @@ export function AnalyticsSettingsModal({
 									/>
 								</div>
 
-								<div className="rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm">
+								<div className={`rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm ${readOnly ? "pointer-events-none opacity-80" : ""}`}>
 									<h3 className="text-base font-bold text-gray-900 mb-1">Regression model</h3>
 									<p className="text-sm text-gray-500 mb-4">
 										With intercept fits a baseline term; without intercept forces the model through zero.
@@ -332,6 +334,9 @@ export function AnalyticsSettingsModal({
 
 					<div className="shrink-0 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 px-5 sm:px-6 py-4 sm:py-5 border-t border-gray-100 bg-gray-50/80 rounded-b-3xl">
 						<div className="flex flex-col sm:flex-row sm:items-center gap-3">
+							{readOnly ? (
+								<p className="text-sm text-gray-500">Settings are view-only on a shared dashboard.</p>
+							) : (
 							<button
 								type="button"
 								onClick={handleReset}
@@ -341,6 +346,7 @@ export function AnalyticsSettingsModal({
 								<RotateCcw className="w-4 h-4" />
 								Reset to default
 							</button>
+							)}
 							{onOpenAdvancedFilter ? (
 								<button
 									type="button"
@@ -360,8 +366,9 @@ export function AnalyticsSettingsModal({
 								disabled={saving}
 								className="cursor-pointer px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-600 bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
 							>
-								Cancel
+								{readOnly ? "Close" : "Cancel"}
 							</button>
+							{readOnly ? null : (
 							<button
 								type="button"
 								onClick={() => void handleSave()}
@@ -372,6 +379,7 @@ export function AnalyticsSettingsModal({
 								{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
 								{saving ? "Saving analysis…" : "Save Analysis"}
 							</button>
+							)}
 						</div>
 					</div>
 				</motion.div>

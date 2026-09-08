@@ -6,6 +6,13 @@ import {
 } from "@/lib/utils/designConstraintsStorage"
 import { buildAgeDistributionPayload } from "@/lib/utils/audienceSegmentationValidation"
 import { API_BASE_URL } from "./LoginApi"
+import {
+  ANALYTICS_SHARE_HEADER,
+  SHARE_REVOKED_MESSAGE,
+  emitAnalyticsShareRevoked,
+  getAnalyticsShareToken,
+  isShareRevokedDetail,
+} from "@/lib/analyticsShare"
 
 // Types that mirror backend contract
 export type StudyType = "grid" | "layer" | "text" | "hybrid"
@@ -251,6 +258,26 @@ async function refreshTokens(): Promise<boolean> {
 }
 
 export async function fetchWithAuth(input: RequestInfo | URL, init: RequestInit = {}, retry = true): Promise<Response> {
+  const shareToken = getAnalyticsShareToken()
+  if (shareToken) {
+    const headers = new Headers(init.headers || {})
+    headers.set(ANALYTICS_SHARE_HEADER, shareToken)
+    const res = await fetch(input, { ...init, headers })
+    if (res.status === 401 || res.status === 403) {
+      try {
+        const data = await res.clone().json()
+        if (isShareRevokedDetail(data?.detail)) {
+          emitAnalyticsShareRevoked(
+            typeof data?.detail === "string" ? data.detail : SHARE_REVOKED_MESSAGE
+          )
+        }
+      } catch {
+        // Leave non-revoked 401/403 to the caller; do not send guests to login.
+      }
+    }
+    return res
+  }
+
   const tokens = readTokens()
   const authHeader = tokens?.access_token ? { Authorization: `Bearer ${tokens.access_token}` } : {}
   const headers = new Headers(init.headers || {})

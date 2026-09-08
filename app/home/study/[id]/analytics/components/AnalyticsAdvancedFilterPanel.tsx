@@ -291,7 +291,7 @@ export function AnalyticsAdvancedFilterPanel({
 
 	if (loadingStudy) {
 		return (
-			<div className="flex items-center justify-center gap-3 text-gray-500 py-12">
+			<div className="flex h-full items-center justify-center gap-3 text-gray-500 py-12">
 				<Loader2 className="w-5 h-5 animate-spin" style={{ color: BRAND_BLUE }} />
 				<span className="text-sm font-medium">Loading study questions…</span>
 			</div>
@@ -301,8 +301,8 @@ export function AnalyticsAdvancedFilterPanel({
 	const choiceQuestions = classificationQuestions.filter((q) => !isOpenTextQuestion(q))
 
 	return (
-		<div className="flex min-h-full flex-col">
-			<div className="flex-1 space-y-5">
+		<div className="grid h-full min-h-0 grid-rows-[minmax(0,1fr)_auto]">
+			<div className="min-h-0 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
 				<FilterSection title="Gender">
 					<div className="flex flex-wrap gap-2">
 						{GENDERS.map((g) => (
@@ -376,7 +376,7 @@ export function AnalyticsAdvancedFilterPanel({
 				)}
 			</div>
 
-			<div className="sticky bottom-0 mt-6 border-t border-gray-100 bg-white pt-3">
+			<div className="border-t border-gray-100 bg-white px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
 				<p className="mb-3 text-xs text-gray-500">
 					{activeFilterCount > 0
 						? `${activeFilterCount} selected`
