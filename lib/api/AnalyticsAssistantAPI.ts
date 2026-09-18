@@ -60,6 +60,91 @@ export async function postAnalyticsAssistantQuery(
   return data as AssistantQueryResponse
 }
 
+export async function postAnalyticsAssistantQueryStream(
+  studyId: string,
+  payload: AssistantQueryRequest,
+  handlers: {
+    onThinking?: (text: string) => void
+    onToken?: (text: string) => void
+    onDone?: (response: AssistantQueryResponse) => void
+    onError?: (message: string) => void
+  } = {},
+  signal?: AbortSignal
+): Promise<AssistantQueryResponse> {
+  const cleanId = normalizeStudyId(studyId)
+  if (!cleanId) throw new Error("Study ID is required")
+
+  const response = await fetchWithAuth(
+    `${API_BASE_URL}/studies/${encodeURIComponent(cleanId)}/assistant/query/stream`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "text/event-stream",
+      },
+      body: JSON.stringify(payload),
+      signal,
+    }
+  )
+
+  if (!response.ok) {
+    const { data, text } = await parseJsonResponse(response)
+    throwApiError(response, data, text, "Assistant query failed")
+  }
+  if (!response.body) {
+    throw new Error("Assistant stream was empty")
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  let final: AssistantQueryResponse | null = null
+  let streamError: string | null = null
+
+  const consume = (raw: string) => {
+    const line = raw
+      .split("\n")
+      .map((entry) => entry.trim())
+      .find((entry) => entry.startsWith("data:"))
+    if (!line) return
+    const jsonText = line.slice(line.indexOf(":") + 1).trim()
+    if (!jsonText || jsonText === "[DONE]") return
+    let parsed: { event?: string; data?: unknown } = {}
+    try {
+      parsed = JSON.parse(jsonText)
+    } catch {
+      return
+    }
+    const event = parsed.event
+    const data = parsed.data
+    if (event === "thinking" && typeof data === "string" && data.trim()) {
+      handlers.onThinking?.(data)
+    } else if (event === "token" && data != null) {
+      handlers.onToken?.(String(data))
+    } else if (event === "done" && data && typeof data === "object") {
+      final = data as AssistantQueryResponse
+      handlers.onDone?.(final)
+    } else if (event === "error") {
+      streamError = typeof data === "string" ? data : "Assistant stream failed"
+      handlers.onError?.(streamError)
+    }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const chunks = buffer.split("\n\n")
+    buffer = chunks.pop() || ""
+    chunks.forEach(consume)
+  }
+  if (buffer.trim()) consume(buffer)
+
+  if (final) return final
+  if (streamError) throw Object.assign(new Error(streamError), { status: 500 })
+  throw new Error("Assistant stream ended without an answer")
+}
+
 export async function getAnalyticsAssistantHistory(
   studyId: string,
   options?: { limit?: number; before?: string | null; signal?: AbortSignal }

@@ -22,6 +22,7 @@ import {
   X,
 } from "lucide-react"
 import { AssistantAnswerCard } from "./assistant/AssistantAnswerCard"
+import { AssistantMarkdownText } from "./assistant/AssistantMarkdownText"
 import type {
   AssistantAction,
   AssistantChatMessage,
@@ -78,6 +79,7 @@ const TRACE_TOOL_LABELS: Record<string, string> = {
   explain_mindset: "Explained mindset",
   explain_design: "Explained design",
   list_saved_designs: "Listed saved designs",
+  query_combined: "Read T Combined",
 }
 
 /** Args worth surfacing, in the order they read most naturally. */
@@ -92,6 +94,8 @@ const TRACE_ARG_KEYS = [
   "right",
   "must_include",
   "elements",
+  "column",
+  "op",
   "question",
   "options",
   "mindset_key",
@@ -530,9 +534,9 @@ export function AnalyticsAssistantPanel({
                 <div className="rounded-2xl border border-dashed border-[#2674BA]/25 bg-[#2674BA]/5 p-4">
                   <p className="text-sm font-bold text-[#2674BA]">Ask anything about this study</p>
                   <p className="mt-1 text-xs text-gray-600">
-                    Ask in your own words — no set phrasing needed. Every number is read from the
-                    verified analysis, never estimated, and you can check which calculations were
-                    used under any answer. Your chat is private to you.
+                    Ask in your own words — no set phrasing needed. Answers use verified
+                    tools first, then the T Combined table. Image and layer studies show
+                    the real creatives, not just names.
                   </p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {starters.map((prompt) => (
@@ -564,16 +568,32 @@ export function AnalyticsAssistantPanel({
                         : "border border-gray-100 bg-gray-50 text-gray-900"
                     }`}
                   >
-                    <p className="whitespace-pre-wrap break-words leading-relaxed">{message.text}</p>
+                    {message.role === "user" && message.text ? (
+                      <p className="whitespace-pre-wrap break-words leading-relaxed">{message.text}</p>
+                    ) : null}
+                    {message.role === "assistant" && message.text ? (
+                      <AssistantMarkdownText text={message.text} />
+                    ) : null}
 
                     {message.status === "sending" && message.role === "user" ? (
                       <div className="mt-1 text-[10px] text-white/70">Sending…</div>
                     ) : null}
 
-                    {message.pending ? (
-                      <div className="mt-2 inline-flex items-center gap-2 text-xs text-gray-500">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        Verifying with study data…
+                    {message.role === "assistant" && (message.pending || (message.thinking && message.thinking.length > 0 && !message.response)) ? (
+                      <div className="mt-2 space-y-1.5">
+                        <div className="inline-flex items-center gap-2 text-xs text-gray-500">
+                          {message.pending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                          {message.pending ? "Thinking with study data…" : null}
+                        </div>
+                        {message.thinking?.length ? (
+                          <div className="rounded-lg bg-white/80 px-2 py-1.5 text-[11px] leading-relaxed text-gray-500">
+                            {message.thinking.slice(-6).map((line, idx) => (
+                              <p key={`${idx}-${line.slice(0, 24)}`} className="whitespace-pre-wrap">
+                                {line}
+                              </p>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     ) : null}
 
@@ -752,7 +772,7 @@ export function AnalyticsAssistantPanel({
                     }
                   }}
                   rows={2}
-                  placeholder="Ask about elements, designs, classification counts…"
+                  placeholder="Ask anything — top 15, best segment, this pack, or hi…"
                   className="max-h-32 min-h-[56px] w-full resize-none bg-transparent px-2 py-1 text-base leading-snug text-gray-900 outline-none placeholder:text-gray-400 touch-manipulation lg:resize-y lg:text-sm"
                   disabled={loading}
                   enterKeyHint="send"

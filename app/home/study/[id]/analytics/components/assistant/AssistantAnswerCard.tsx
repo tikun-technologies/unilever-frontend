@@ -735,9 +735,8 @@ export function AssistantAnswerCard({
         {title ? <p className="mb-2 text-xs font-bold text-gray-800 sm:text-sm">{title}</p> : null}
         <div className="space-y-1.5">
           {(data?.rows || []).map((row: any) => (
-            <div key={row.fact_id} className="flex items-center justify-between rounded-lg bg-gray-50 px-2 py-1.5 text-xs">
+            <div key={row.fact_id || row.segment} className="rounded-lg bg-gray-50 px-2 py-1.5 text-xs">
               <span className="font-semibold text-gray-800">{row.segment}</span>
-              <span className="tabular-nums text-gray-700">top {row.top}</span>
             </div>
           ))}
         </div>

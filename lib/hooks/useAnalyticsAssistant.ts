@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import {
   clearAnalyticsAssistantHistory,
   getAnalyticsAssistantHistory,
-  postAnalyticsAssistantQuery,
+  postAnalyticsAssistantQueryStream,
 } from "@/lib/api/AnalyticsAssistantAPI"
 import type {
   AssistantAction,
@@ -280,18 +280,19 @@ export function useAnalyticsAssistant(options: {
           {
             id: pendingId,
             role: "assistant",
-            text: "Computing a verified answer…",
+            text: "",
             createdAt: new Date().toISOString(),
             pending: true,
             status: "sending",
             parentMessageId: clientMessageId,
+            thinking: [],
           },
         ]
       })
       setInput("")
 
       try {
-        const response = await postAnalyticsAssistantQuery(
+        const response = await postAnalyticsAssistantQueryStream(
           studyId,
           {
             message,
@@ -300,6 +301,32 @@ export function useAnalyticsAssistant(options: {
             follow_up: followUp,
             conversation_id: conversationIdRef.current,
             client_message_id: clientMessageId,
+          },
+          {
+            onThinking: (text) => {
+              setMessages((prev) =>
+                prev.map((msg) => {
+                  if (msg.id !== pendingId) return msg
+                  const thinking = [...(msg.thinking || [])]
+                  const last = thinking[thinking.length - 1] || ""
+                  if (text.startsWith(last) && last) {
+                    thinking[thinking.length - 1] = text
+                  } else if (text !== last) {
+                    thinking.push(text)
+                  }
+                  return { ...msg, thinking: thinking.slice(-12), pending: true }
+                })
+              )
+            },
+            onToken: (text) => {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === pendingId
+                    ? { ...msg, text: `${msg.text || ""}${text}`, pending: true }
+                    : msg
+                )
+              )
+            },
           },
           controller.signal
         )
@@ -334,6 +361,7 @@ export function useAnalyticsAssistant(options: {
                 status: response.status === "error" ? "error" : "complete",
                 parentMessageId: response.user_message_id || clientMessageId,
                 error: response.error || null,
+                thinking: msg.thinking,
               }
             }
             return msg

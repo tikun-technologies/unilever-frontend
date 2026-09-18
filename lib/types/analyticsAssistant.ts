@@ -19,9 +19,10 @@ export type AssistantToolName =
   | "fatigue_summary"
   | "explain_mindset"
   | "list_saved_designs"
-  | "generate_ppt"
-  | "clarify"
-  | "unsupported"
+    | "generate_ppt"
+    | "query_combined"
+    | "clarify"
+    | "unsupported"
 
 export type AssistantCompareMode = "segment" | "design" | "classification"
 
@@ -129,6 +130,8 @@ export interface AssistantChatMessage {
   status?: "sending" | "sent" | "complete" | "error" | "failed"
   /** Local-only synthetic welcome bubble (not persisted). */
   localOnly?: boolean
+  /** Live thinking traces while a streamed answer is in flight. */
+  thinking?: string[]
 }
 
 export interface AssistantHistoryItem {
