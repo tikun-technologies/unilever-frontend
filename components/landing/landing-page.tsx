@@ -459,6 +459,7 @@ function Logo() {
 }
 
 export function LandingPage() {
+  const brand = getBrand()
   const [menuOpen, setMenuOpen] = useState(false)
   const handleScheduleCall = () => {
     if (CALENDAR_URL) {
@@ -1599,7 +1600,7 @@ export function LandingPage() {
 
       {/* Footer */}
       <footer className="border-t border-gray-800 bg-[#1A1A1A] py-8 text-center">
-        <p className="text-sm text-gray-500">&copy; 2026 TikunTech. All Rights Reserved.</p>
+        <p className="text-sm text-gray-500">&copy; 2026 {brand.copyrightName}. All Rights Reserved.</p>
       </footer>
 
     </div>

@@ -6,6 +6,7 @@ export type BrandConfig = {
   prefix: "Mind"
   suffix: "Surve" | "Surf"
   aiName: string
+  copyrightName: string
 }
 
 const BRANDS: Record<BrandId, BrandConfig> = {
@@ -15,6 +16,7 @@ const BRANDS: Record<BrandId, BrandConfig> = {
     prefix: "Mind",
     suffix: "Surve",
     aiName: "Mindsurve AI",
+    copyrightName: "TikunTech",
   },
   mindsurf: {
     id: "mindsurf",
@@ -22,6 +24,7 @@ const BRANDS: Record<BrandId, BrandConfig> = {
     prefix: "Mind",
     suffix: "Surf",
     aiName: "Mindsurf AI",
+    copyrightName: "Mindsurf Ltd",
   },
 }
 
