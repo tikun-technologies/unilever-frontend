@@ -19,6 +19,7 @@ import {
   listSavedDesigns,
   removeDesignCategoryItem,
   renameDesignCategory,
+  renameSavedDesign,
   SavedDesignConfigurationPayload,
   SavedDesignPayload,
   SavedDesignType,
@@ -36,6 +37,7 @@ import {
   createLocalSavedDesign,
   deleteLocalSavedDesign,
   listLocalSavedDesigns,
+  renameLocalSavedDesign,
   type LocalSavedDesignsStore,
 } from "@/lib/export/savedDesignLocalStorage"
 import {
@@ -45,6 +47,7 @@ import {
   listLocalDesignCategories,
   removeDesignFromLocalCategories,
   removeLocalDesignCategoryItem,
+  renameDesignInLocalCategories,
   renameLocalDesignCategory,
 } from "@/lib/export/designCategoryLocalStorage"
 import type { ApiDesignConstraint } from "@/lib/utils/designConstraintsStorage"
@@ -1276,7 +1279,6 @@ function SavedDesignComparePanel({
   onCompare,
   onDelete,
   canDelete = true,
-  onAddToCategory,
 }: {
   isOpen: boolean
   savedDesigns: SavedDesignPayload[]
@@ -1289,7 +1291,6 @@ function SavedDesignComparePanel({
   onCompare: () => void
   onDelete: (designId: string) => void
   canDelete?: boolean
-  onAddToCategory?: (designIds: string[]) => void
 }) {
   if (!isOpen) return null
 
@@ -1352,15 +1353,6 @@ function SavedDesignComparePanel({
                         </span>
                       )}
                       <div className="flex items-center gap-1">
-                        {onAddToCategory ? (
-                          <button
-                            type="button"
-                            onClick={() => onAddToCategory([design.id])}
-                            className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-blue-600 transition hover:bg-blue-50 active:scale-[0.98]"
-                          >
-                            <FolderPlus className="h-3.5 w-3.5" /> Add to category
-                          </button>
-                        ) : null}
                         {canDelete ? (
                         <button
                           type="button"
@@ -1380,18 +1372,7 @@ function SavedDesignComparePanel({
           {error && <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600">{error}</p>}
         </div>
 
-        <div className="space-y-2 border-t border-gray-100 p-5">
-          {onAddToCategory ? (
-            <button
-              type="button"
-              onClick={() => onAddToCategory(selectedIds)}
-              disabled={selectedIds.length === 0}
-              className="inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-4 text-sm font-bold text-blue-600 transition hover:bg-blue-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <FolderPlus className="h-4 w-4" />
-              Add {selectedIds.length > 0 ? `${selectedIds.length} ` : ""}to category
-            </button>
-          ) : null}
+        <div className="border-t border-gray-100 p-5">
           <button
             type="button"
             onClick={onCompare}
@@ -2530,6 +2511,21 @@ export function AnalyticsDesignConfigurator({
     return candidate
   }, [isInputDesignMode, savedDesigns])
 
+  const elementCombinationName = useMemo(() => {
+    const usedNames = new Set(savedDesigns.map((design) => design.name.trim().toLowerCase()))
+    const parts = selectedElements.map((element) => element.name.trim()).filter(Boolean)
+    const base = (parts.length > 0 ? parts.join(" · ") : defaultSavedDesignName).slice(0, 255).trimEnd()
+    if (!usedNames.has(base.toLowerCase())) return base
+    let index = 2
+    while (index < 1000) {
+      const suffix = ` ${index}`
+      const candidate = `${base.slice(0, Math.max(1, 255 - suffix.length)).trimEnd()}${suffix}`
+      if (!usedNames.has(candidate.toLowerCase())) return candidate
+      index += 1
+    }
+    return base
+  }, [defaultSavedDesignName, savedDesigns, selectedElements])
+
   const handleSelect = (category: ConfiguratorCategory, element: ConfiguratorElement) => {
     setSelectedByCategory((current) => {
       const next = { ...current }
@@ -2590,6 +2586,13 @@ export function AnalyticsDesignConfigurator({
     () => savedDesigns.find((design) => mixSignature(design.configuration?.selected_by_category || {}) === currentSelectionSignature) || null,
     [currentSelectionSignature, savedDesigns]
   )
+  const categorySavedDesign = useMemo(() => {
+    if (!matchingSavedDesign) return null
+    const listed = designCategories.some((category) => (
+      category.items.some((item) => item.saved_design_id === matchingSavedDesign.id)
+    ))
+    return listed ? matchingSavedDesign : null
+  }, [designCategories, matchingSavedDesign])
   const previewDesignId = matchingSavedDesign?.id
     || (openedDesign && openedDesign.signature === currentSelectionSignature ? openedDesign.id : null)
 
@@ -2774,6 +2777,18 @@ export function AnalyticsDesignConfigurator({
     const confirmed = window.confirm("Delete this saved design?")
     if (!confirmed) return
 
+    const previousDesigns = savedDesigns
+    const previousCompareIds = selectedCompareIds
+    const previousCompareDesigns = compareDesigns
+    const previousCategories = designCategories
+    setSavedDesigns((current) => current.filter((design) => design.id !== designId))
+    setSelectedCompareIds((current) => current.filter((id) => id !== designId))
+    setCompareDesigns((current) => current.filter((design) => design.id !== designId))
+    setDesignCategories((current) => current.map((category) => ({
+      ...category,
+      items: category.items.filter((item) => item.saved_design_id !== designId),
+    })))
+
     try {
       if (isLocalPersistence) {
         deleteLocalSavedDesign(studyId, designId, initialSavedDesignsRef.current)
@@ -2782,18 +2797,15 @@ export function AnalyticsDesignConfigurator({
           input: initialSavedDesignsRef.current.input.filter((design) => design.id !== designId),
           deleted_ids: Array.from(new Set([...(initialSavedDesignsRef.current.deleted_ids || []), designId])),
         }
+        removeDesignFromLocalCategories(studyId, designId)
       } else {
         await deleteSavedDesign(studyId, designId)
       }
-      setSavedDesigns((current) => current.filter((design) => design.id !== designId))
-      setSelectedCompareIds((current) => current.filter((id) => id !== designId))
-      setCompareDesigns((current) => current.filter((design) => design.id !== designId))
-      setDesignCategories((current) => current.map((category) => ({
-        ...category,
-        items: category.items.filter((item) => item.saved_design_id !== designId),
-      })))
-      if (isLocalPersistence) removeDesignFromLocalCategories(studyId, designId)
     } catch (error) {
+      setSavedDesigns(previousDesigns)
+      setSelectedCompareIds(previousCompareIds)
+      setCompareDesigns(previousCompareDesigns)
+      setDesignCategories(previousCategories)
       setCompareError((error as Error)?.message || "Failed to delete saved design")
     }
   }
@@ -2810,23 +2822,19 @@ export function AnalyticsDesignConfigurator({
   const openAddCurrentCategory = () => {
     setAddCategoryMode("current")
     setAddCategoryTargetIds([])
-    setCategoryDesignName(defaultSavedDesignName)
+    setCategoryDesignName(elementCombinationName)
     setCategoryError(null)
-    setIsAddCategoryOpen(true)
-  }
-
-  const openAddExistingCategory = (designIds: string[]) => {
-    if (designIds.length === 0) return
-    setAddCategoryMode("existing")
-    setAddCategoryTargetIds(designIds)
-    setCategoryError(null)
-    setIsComparePanelOpen(false)
     setIsAddCategoryOpen(true)
   }
 
   const handleAssignCategory = async (input: { categoryId?: string; categoryName?: string }) => {
     if (addCategoryMode === "current" && !hasPreviewContent) {
       setCategoryError("Select at least one element before adding it to a category.")
+      return
+    }
+    const trimmedCombinationName = categoryDesignName.trim()
+    if (addCategoryMode === "current" && !categorySavedDesign && !trimmedCombinationName) {
+      setCategoryError("Enter a combination name.")
       return
     }
     setIsAssigningCategory(true)
@@ -2836,19 +2844,31 @@ export function AnalyticsDesignConfigurator({
         let designs: SavedDesignPayload[] = []
         if (addCategoryMode === "existing") {
           designs = savedDesigns.filter((design) => addCategoryTargetIds.includes(design.id))
+        } else if (categorySavedDesign) {
+          designs = [categorySavedDesign]
         } else if (matchingSavedDesign) {
-          designs = [matchingSavedDesign]
-        } else {
-          const trimmedName = categoryDesignName.trim()
-          if (!trimmedName) {
-            setCategoryError("Enter a combination name.")
-            return
+          let design = matchingSavedDesign
+          if (design.name !== trimmedCombinationName) {
+            design = renameLocalSavedDesign(studyId, design.id, trimmedCombinationName, initialSavedDesignsRef.current)
+            renameDesignInLocalCategories(studyId, design.id, design.name)
+            initialSavedDesignsRef.current = {
+              ...initialSavedDesignsRef.current,
+              configurator: initialSavedDesignsRef.current.configurator.map((item) => (
+                item.id === design.id ? { ...item, name: design.name } : item
+              )),
+              input: initialSavedDesignsRef.current.input.map((item) => (
+                item.id === design.id ? { ...item, name: design.name } : item
+              )),
+            }
+            applySavedDesignName(design.id, design.name)
           }
+          designs = [design]
+        } else {
           const now = new Date().toISOString()
           const saved: SavedDesignPayload = {
             id: createLocalDesignId(),
             study_id: studyId,
-            name: trimmedName,
+            name: trimmedCombinationName,
             design_type: savedDesignType,
             study_type: currentSavedDesignConfiguration.study_type,
             metric: activeMetric,
@@ -2876,17 +2896,25 @@ export function AnalyticsDesignConfigurator({
         setDesignCategories(listLocalDesignCategories(studyId))
         setFocusCategoryId(category.id)
       } else {
+        let reusedDesignId = addCategoryMode === "existing"
+          ? null
+          : categorySavedDesign?.id || matchingSavedDesign?.id || null
+        if (addCategoryMode === "current" && matchingSavedDesign && !categorySavedDesign && matchingSavedDesign.name !== trimmedCombinationName) {
+          const updated = await renameSavedDesign(studyId, matchingSavedDesign.id, trimmedCombinationName)
+          applySavedDesignName(matchingSavedDesign.id, updated.name)
+          reusedDesignId = updated.id
+        }
         const result = await assignDesignCategory(studyId, {
           category_id: input.categoryId,
           category_name: input.categoryName,
           saved_design_ids: addCategoryMode === "existing"
             ? addCategoryTargetIds
-            : matchingSavedDesign
-              ? [matchingSavedDesign.id]
+            : reusedDesignId
+              ? [reusedDesignId]
               : [],
-          design: addCategoryMode === "current" && !matchingSavedDesign
+          design: addCategoryMode === "current" && !reusedDesignId
             ? {
-                name: categoryDesignName.trim(),
+                name: trimmedCombinationName,
                 design_type: savedDesignType,
                 configuration: currentSavedDesignConfiguration,
               }
@@ -2907,13 +2935,65 @@ export function AnalyticsDesignConfigurator({
     }
   }
 
+  const applySavedDesignName = (savedDesignId: string, name: string) => {
+    setSavedDesigns((current) => current.map((design) => (
+      design.id === savedDesignId ? { ...design, name } : design
+    )))
+    setCompareDesigns((current) => current.map((design) => (
+      design.id === savedDesignId ? { ...design, name } : design
+    )))
+    setDesignCategories((current) => current.map((category) => ({
+      ...category,
+      items: category.items.map((item) => (
+        item.saved_design_id === savedDesignId ? { ...item, name } : item
+      )),
+    })))
+  }
+
+  const handleRenameSavedDesign = async (savedDesignId: string, name: string) => {
+    const previousDesigns = savedDesigns
+    const previousCompareDesigns = compareDesigns
+    const previousCategories = designCategories
+    applySavedDesignName(savedDesignId, name)
+    try {
+      if (isLocalPersistence) {
+        const updated = renameLocalSavedDesign(studyId, savedDesignId, name, initialSavedDesignsRef.current)
+        renameDesignInLocalCategories(studyId, savedDesignId, updated.name)
+        initialSavedDesignsRef.current = {
+          ...initialSavedDesignsRef.current,
+          configurator: initialSavedDesignsRef.current.configurator.map((design) => (
+            design.id === savedDesignId ? { ...design, name: updated.name } : design
+          )),
+          input: initialSavedDesignsRef.current.input.map((design) => (
+            design.id === savedDesignId ? { ...design, name: updated.name } : design
+          )),
+        }
+        applySavedDesignName(savedDesignId, updated.name)
+      } else {
+        const updated = await renameSavedDesign(studyId, savedDesignId, name)
+        applySavedDesignName(savedDesignId, updated.name)
+      }
+    } catch (error) {
+      setSavedDesigns(previousDesigns)
+      setCompareDesigns(previousCompareDesigns)
+      setDesignCategories(previousCategories)
+      setCategoryError((error as Error)?.message || "Failed to rename saved design")
+      throw error
+    }
+  }
+
   const handleRenameCategory = async (categoryId: string, name: string) => {
+    const previous = designCategories
+    setDesignCategories((current) => current.map((category) => (
+      category.id === categoryId ? { ...category, name } : category
+    )))
     try {
       const updated = isLocalPersistence
         ? renameLocalDesignCategory(studyId, categoryId, name)
         : await renameDesignCategory(studyId, categoryId, name)
       upsertDesignCategory(updated)
     } catch (error) {
+      setDesignCategories(previous)
       setCategoryError((error as Error)?.message || "Failed to rename category")
       throw error
     }
@@ -2923,11 +3003,14 @@ export function AnalyticsDesignConfigurator({
     const category = designCategories.find((item) => item.id === categoryId)
     const confirmed = window.confirm(`Delete “${category?.name || "this category"}”? Combinations stay in Compare Saved.`)
     if (!confirmed) return
+    const previous = designCategories
+    setDesignCategories((current) => current.filter((item) => item.id !== categoryId))
+    if (focusCategoryId === categoryId) setFocusCategoryId(null)
     try {
       if (isLocalPersistence) deleteLocalDesignCategory(studyId, categoryId)
       else await deleteDesignCategory(studyId, categoryId)
-      setDesignCategories((current) => current.filter((item) => item.id !== categoryId))
     } catch (error) {
+      setDesignCategories(previous)
       setCategoryError((error as Error)?.message || "Failed to delete category")
     }
   }
@@ -2935,15 +3018,17 @@ export function AnalyticsDesignConfigurator({
   const handleRemoveCategoryItem = async (categoryId: string, savedDesignId: string) => {
     const confirmed = window.confirm("Remove this combination from the category? The saved design itself is kept.")
     if (!confirmed) return
+    const previous = designCategories
+    setDesignCategories((current) => current.map((category) => (
+      category.id === categoryId
+        ? { ...category, items: category.items.filter((item) => item.saved_design_id !== savedDesignId) }
+        : category
+    )))
     try {
       if (isLocalPersistence) removeLocalDesignCategoryItem(studyId, categoryId, savedDesignId)
       else await removeDesignCategoryItem(studyId, categoryId, savedDesignId)
-      setDesignCategories((current) => current.map((category) => (
-        category.id === categoryId
-          ? { ...category, items: category.items.filter((item) => item.saved_design_id !== savedDesignId) }
-          : category
-      )))
     } catch (error) {
+      setDesignCategories(previous)
       setCategoryError((error as Error)?.message || "Failed to remove combination")
     }
   }
@@ -2981,8 +3066,8 @@ export function AnalyticsDesignConfigurator({
     .filter((category) => {
       const ids = addCategoryMode === "existing"
         ? addCategoryTargetIds
-        : matchingSavedDesign
-          ? [matchingSavedDesign.id]
+        : categorySavedDesign
+          ? [categorySavedDesign.id]
           : []
       return ids.length > 0 && ids.every((id) => category.items.some((item) => item.saved_design_id === id))
     })
@@ -3777,7 +3862,6 @@ export function AnalyticsDesignConfigurator({
         onCompare={() => void handleCompareDesigns()}
         onDelete={(designId) => void handleDeleteSavedDesign(designId)}
         canDelete={canSaveDesigns}
-        onAddToCategory={canSaveDesigns ? openAddExistingCategory : undefined}
       />
 
       <AddToCategoryDialog
@@ -3790,8 +3874,8 @@ export function AnalyticsDesignConfigurator({
         }
         designName={categoryDesignName}
         onDesignNameChange={setCategoryDesignName}
-        showDesignName={addCategoryMode === "current" && !matchingSavedDesign}
-        savedDesignLabel={addCategoryMode === "current" ? matchingSavedDesign?.name : null}
+        showDesignName={addCategoryMode === "current" && !categorySavedDesign}
+        savedDesignLabel={addCategoryMode === "current" ? categorySavedDesign?.name ?? null : null}
         categories={designCategories}
         disabledCategoryIds={disabledCategoryIds}
         isSaving={isAssigningCategory}
@@ -3815,6 +3899,7 @@ export function AnalyticsDesignConfigurator({
         onClose={() => setIsCategoryPanelOpen(false)}
         onOpenItem={(savedDesignId) => void handleOpenCategoryItem(savedDesignId)}
         onRename={handleRenameCategory}
+        onRenameItem={handleRenameSavedDesign}
         onDeleteCategory={(categoryId) => void handleDeleteCategory(categoryId)}
         onRemoveItem={(categoryId, savedDesignId) => void handleRemoveCategoryItem(categoryId, savedDesignId)}
       />

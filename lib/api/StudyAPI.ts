@@ -176,11 +176,13 @@ export interface DesignCategoryItemPayload {
   saved_design_id: string
   name: string
   design_type: SavedDesignType
+  study_type?: StudyType
   metric: DesignMetric
   segment_label?: string | null
   selection_count: number
   total_coefficient?: number | null
   position: number
+  configuration?: SavedDesignConfigurationPayload
 }
 
 export interface DesignCategoryPayload {
@@ -2257,6 +2259,16 @@ export async function removeDesignCategoryItem(studyId: string, categoryId: stri
   )
   if (res.ok || res.status === 204) return
   await readStudyJson(res, `Failed to remove combination (${res.status})`)
+}
+
+export async function renameSavedDesign(studyId: string, designId: string, name: string): Promise<SavedDesignPayload> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/saved-designs/${designId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  })
+  return readStudyJson<SavedDesignPayload>(res, `Failed to rename saved design (${res.status})`)
 }
 
 export async function deleteSavedDesign(studyId: string, designId: string): Promise<void> {

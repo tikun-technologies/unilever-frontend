@@ -209,7 +209,7 @@ export function AddToCategoryDialog({
                 value={designName}
                 onChange={(event) => onDesignNameChange(event.target.value)}
                 className="mt-2 h-11 w-full rounded-xl border border-gray-200 px-4 text-sm font-medium text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                placeholder="Design 1"
+                placeholder="Element names"
                 autoFocus
               />
             </label>
@@ -315,6 +315,7 @@ export function DesignCategoryDrawer({
   onClose,
   onOpenItem,
   onRename,
+  onRenameItem,
   onDeleteCategory,
   onRemoveItem,
 }: {
@@ -328,12 +329,15 @@ export function DesignCategoryDrawer({
   onClose: () => void
   onOpenItem: (savedDesignId: string) => void
   onRename: (categoryId: string, name: string) => Promise<void> | void
+  onRenameItem: (savedDesignId: string, name: string) => Promise<void> | void
   onDeleteCategory: (categoryId: string) => void
   onRemoveItem: (categoryId: string, savedDesignId: string) => void
 }) {
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({})
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState("")
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
+  const [itemDraftName, setItemDraftName] = useState("")
 
   useEffect(() => {
     if (!isOpen) return
@@ -453,13 +457,9 @@ export function DesignCategoryDrawer({
                             onSubmit={(event) => {
                               event.preventDefault()
                               const next = draftName.trim()
-                              if (!next || next === category.name) {
-                                setEditingId(null)
-                                return
-                              }
-                              void Promise.resolve(onRename(category.id, next))
-                                .then(() => setEditingId(null))
-                                .catch(() => undefined)
+                              setEditingId(null)
+                              if (!next || next === category.name) return
+                              void Promise.resolve(onRename(category.id, next)).catch(() => undefined)
                             }}
                           >
                             <input
@@ -484,6 +484,7 @@ export function DesignCategoryDrawer({
                               : Number.isInteger(score)
                                 ? String(score)
                                 : score.toFixed(1)
+                            const editingItem = editingItemId === item.id
                             return (
                               <div
                                 key={item.id}
@@ -491,37 +492,76 @@ export function DesignCategoryDrawer({
                                   active ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"
                                 }`}
                               >
-                                <button
-                                  type="button"
-                                  onClick={() => onOpenItem(item.saved_design_id)}
-                                  className="min-w-0 flex-1 cursor-pointer rounded-xl px-2 py-1.5 text-left transition hover:bg-white/70 active:scale-[0.99]"
-                                >
-                                  <span className="flex items-center gap-2">
-                                    <span className="truncate text-sm font-bold text-gray-900">{item.name}</span>
-                                    {item.design_type === "input" && (
-                                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
-                                        Input
-                                      </span>
-                                    )}
-                                  </span>
-                                  <span className="mt-0.5 block truncate text-xs text-gray-500">
-                                    {item.design_type === "input"
-                                      ? `${item.selection_count} selected`
-                                      : `${item.metric} · ${item.segment_label || "Overall"}`}
-                                  </span>
-                                </button>
-                                {item.design_type !== "input" && scoreLabel && (
-                                  <span className="flex-shrink-0 tabular-nums text-sm font-black text-gray-900">{scoreLabel}</span>
-                                )}
-                                {canEdit && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onRemoveItem(category.id, item.saved_design_id)}
-                                    className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-red-50 hover:text-red-500"
-                                    aria-label={`Remove ${item.name} from ${category.name}`}
+                                {editingItem ? (
+                                  <form
+                                    className="flex min-w-0 flex-1 gap-2"
+                                    onSubmit={(event) => {
+                                      event.preventDefault()
+                                      const next = itemDraftName.trim()
+                                      setEditingItemId(null)
+                                      if (!next || next === item.name) return
+                                      void Promise.resolve(onRenameItem(item.saved_design_id, next)).catch(() => undefined)
+                                    }}
                                   >
-                                    <X className="h-4 w-4" />
-                                  </button>
+                                    <input
+                                      value={itemDraftName}
+                                      onChange={(event) => setItemDraftName(event.target.value)}
+                                      className="h-10 min-w-0 flex-1 rounded-xl border border-gray-200 px-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                      aria-label={`Rename ${item.name}`}
+                                      autoFocus
+                                    />
+                                    <button type="submit" className="h-10 cursor-pointer rounded-xl bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-700">
+                                      Save
+                                    </button>
+                                  </form>
+                                ) : (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => onOpenItem(item.saved_design_id)}
+                                      className="min-w-0 flex-1 cursor-pointer rounded-xl px-2 py-1.5 text-left transition hover:bg-white/70 active:scale-[0.99]"
+                                    >
+                                      <span className="flex items-center gap-2">
+                                        <span className="truncate text-sm font-bold text-gray-900">{item.name}</span>
+                                        {item.design_type === "input" && (
+                                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
+                                            Input
+                                          </span>
+                                        )}
+                                      </span>
+                                      <span className="mt-0.5 block truncate text-xs text-gray-500">
+                                        {item.design_type === "input"
+                                          ? `${item.selection_count} selected`
+                                          : `${item.metric} · ${item.segment_label || "Overall"}`}
+                                      </span>
+                                    </button>
+                                    {item.design_type !== "input" && scoreLabel && (
+                                      <span className="flex-shrink-0 tabular-nums text-sm font-black text-gray-900">{scoreLabel}</span>
+                                    )}
+                                    {canEdit && (
+                                      <>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setEditingItemId(item.id)
+                                            setItemDraftName(item.name)
+                                          }}
+                                          className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                                          aria-label={`Rename ${item.name}`}
+                                        >
+                                          <Pencil className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => onRemoveItem(category.id, item.saved_design_id)}
+                                          className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-red-50 hover:text-red-500"
+                                          aria-label={`Remove ${item.name} from ${category.name}`}
+                                        >
+                                          <X className="h-4 w-4" />
+                                        </button>
+                                      </>
+                                    )}
+                                  </>
                                 )}
                               </div>
                             )

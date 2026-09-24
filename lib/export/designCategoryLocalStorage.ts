@@ -28,6 +28,16 @@ export function listLocalDesignCategories(studyId: string): DesignCategoryPayloa
   return readCategories(studyId)
 }
 
+export function renameDesignInLocalCategories(studyId: string, savedDesignId: string, name: string) {
+  const next = readCategories(studyId).map((category) => ({
+    ...category,
+    items: category.items.map((item) => (
+      item.saved_design_id === savedDesignId ? { ...item, name } : item
+    )),
+  }))
+  writeCategories(studyId, next)
+}
+
 export function removeDesignFromLocalCategories(studyId: string, savedDesignId: string) {
   const next = readCategories(studyId).map((category) => ({
     ...category,
@@ -47,6 +57,7 @@ function itemFromDesign(design: SavedDesignPayload, position: number) {
     selection_count: design.selection_count,
     total_coefficient: design.total_coefficient ?? design.configuration?.total_coefficient ?? null,
     position,
+    configuration: design.configuration,
   }
 }
 
