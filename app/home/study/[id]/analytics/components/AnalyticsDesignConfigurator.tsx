@@ -5,18 +5,31 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
-import { CheckCircle2, ChevronDown, Crown, Download, Eye, FileCode2, GitCompare, ImageIcon, Loader2, RotateCcw, Save, Sparkles, Trash2, Type, X } from "lucide-react"
+import { CheckCircle2, ChevronDown, Crown, Download, Eye, FileCode2, FolderPlus, Folders, GitCompare, ImageIcon, Loader2, RotateCcw, Save, Sparkles, Trash2, Type, X } from "lucide-react"
 import { renderLayersToCanvas } from "@/lib/canvas-export"
 import {
+  assignDesignCategory,
   compareSavedDesigns,
   createSavedDesign,
+  deleteDesignCategory,
   deleteSavedDesign,
+  DesignCategoryPayload,
+  getSavedDesign,
+  listDesignCategories,
   listSavedDesigns,
+  removeDesignCategoryItem,
+  renameDesignCategory,
   SavedDesignConfigurationPayload,
   SavedDesignPayload,
   SavedDesignType,
   StudyType,
 } from "@/lib/api/StudyAPI"
+import {
+  AddToCategoryDialog,
+  DesignCategoryDrawer,
+  TopMixesCollection,
+} from "./DesignConfiguratorCollections"
+import { mixSignature, rankConfiguratorMixes } from "@/lib/analytics/rankConfiguratorMixes"
 import {
   compareLocalSavedDesigns,
   createLocalDesignId,
@@ -25,6 +38,15 @@ import {
   listLocalSavedDesigns,
   type LocalSavedDesignsStore,
 } from "@/lib/export/savedDesignLocalStorage"
+import {
+  assignLocalDesignCategory,
+  deleteLocalDesignCategory,
+  findLocalSavedDesign,
+  listLocalDesignCategories,
+  removeDesignFromLocalCategories,
+  removeLocalDesignCategoryItem,
+  renameLocalDesignCategory,
+} from "@/lib/export/designCategoryLocalStorage"
 import type { ApiDesignConstraint } from "@/lib/utils/designConstraintsStorage"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
 import {
@@ -592,142 +614,6 @@ function getCategoriesForMetric(analysisData: any, metric: Metric, segment: Segm
       }
     })
     .filter((category: ConfiguratorCategory) => category.elements.length > 0)
-}
-
-function buildDefaultSelection(categories: ConfiguratorCategory[], isLayerStudy: boolean): Record<string, string> {
-  const selected: Record<string, string> = {}
-  const rankedCategories = [...categories]
-    .map((category) => ({
-      category,
-      best: [...category.elements].sort((a, b) => b.value - a.value)[0],
-    }))
-    .filter((item) => item.best)
-    .sort((a, b) => {
-      if (isLayerStudy) return a.category.zIndex - b.category.zIndex
-      return b.best.value - a.best.value
-    })
-
-  const limit = isLayerStudy ? rankedCategories.length : MAX_NON_LAYER_SELECTIONS
-  rankedCategories.slice(0, limit).forEach(({ category, best }) => {
-    selected[category.key] = best.id
-  })
-
-  return selected
-}
-
-function constraintRefKey(ref: { layer_id?: string; image_id?: string; layerId?: string; imageId?: string }): string | null {
-  const layerId = normalizeText(ref.layer_id ?? ref.layerId)
-  const imageId = normalizeText(ref.image_id ?? ref.imageId)
-  return layerId && imageId ? `${layerId}::${imageId}` : null
-}
-
-function elementConstraintKey(element: ConfiguratorElement): string | null {
-  return element.layerId && element.imageId ? `${element.layerId}::${element.imageId}` : null
-}
-
-function buildConflictPairSet(designConstraints: ApiDesignConstraint[]): Set<string> {
-  const pairs = new Set<string>()
-  designConstraints.forEach((constraint) => {
-    const anchors = Array.isArray(constraint.anchors) ? constraint.anchors : []
-    const blocked = Array.isArray(constraint.blocked) ? constraint.blocked : []
-    anchors.forEach((anchor) => {
-      const anchorKey = constraintRefKey(anchor)
-      if (!anchorKey) return
-      blocked.forEach((blockedRef) => {
-        const blockedKey = constraintRefKey(blockedRef)
-        if (!blockedKey || blockedKey === anchorKey) return
-        pairs.add(`${anchorKey}|${blockedKey}`)
-        pairs.add(`${blockedKey}|${anchorKey}`)
-      })
-    })
-  })
-  return pairs
-}
-
-function conflictsWithSelected(
-  element: ConfiguratorElement,
-  selectedElements: ConfiguratorElement[],
-  conflictPairs: Set<string>
-): boolean {
-  const elementKey = elementConstraintKey(element)
-  if (!elementKey) return false
-  return selectedElements.some((selected) => {
-    const selectedKey = elementConstraintKey(selected)
-    return Boolean(selectedKey && conflictPairs.has(`${elementKey}|${selectedKey}`))
-  })
-}
-
-function buildConstraintAwareLayerBestMix(
-  categories: ConfiguratorCategory[],
-  designConstraints: ApiDesignConstraint[]
-): Record<string, string> | null {
-  const conflictPairs = buildConflictPairSet(designConstraints)
-  if (conflictPairs.size === 0) {
-    return buildDefaultSelection(categories, true)
-  }
-
-  const conflictDegree = (category: ConfiguratorCategory) =>
-    category.elements.reduce((count, element) => {
-      const key = elementConstraintKey(element)
-      if (!key) return count
-      for (const pair of conflictPairs) {
-        if (pair.startsWith(`${key}|`)) count += 1
-      }
-      return count
-    }, 0)
-
-  const layerCategories = [...categories]
-    .filter((category) => category.elements.length > 0)
-    .sort((a, b) => {
-      const degreeDelta = conflictDegree(b) - conflictDegree(a)
-      if (degreeDelta !== 0) return degreeDelta
-      const sizeDelta = a.elements.length - b.elements.length
-      if (sizeDelta !== 0) return sizeDelta
-      return a.zIndex - b.zIndex
-    })
-    .map((category) => ({
-      category,
-      elements: [...category.elements].sort((a, b) => b.value - a.value),
-    }))
-
-  if (layerCategories.length === 0) return {}
-
-  const suffixBest = new Array(layerCategories.length + 1).fill(0)
-  for (let idx = layerCategories.length - 1; idx >= 0; idx -= 1) {
-    suffixBest[idx] = suffixBest[idx + 1] + Math.max(0, layerCategories[idx].elements[0]?.value ?? 0)
-  }
-
-  let bestScore = 0
-  let bestSelection: Record<string, string> = {}
-
-  const search = (
-    index: number,
-    selectedElements: ConfiguratorElement[],
-    selectedByCategory: Record<string, string>,
-    score: number
-  ) => {
-    if (score + suffixBest[index] <= bestScore) return
-
-    if (index === layerCategories.length) {
-      bestScore = score
-      bestSelection = { ...selectedByCategory }
-      return
-    }
-
-    const { category, elements } = layerCategories[index]
-    search(index + 1, selectedElements, selectedByCategory, score)
-    for (const element of elements) {
-      if (conflictsWithSelected(element, selectedElements, conflictPairs)) continue
-      selectedByCategory[category.key] = element.id
-      selectedElements.push(element)
-      search(index + 1, selectedElements, selectedByCategory, score + element.value)
-      selectedElements.pop()
-      delete selectedByCategory[category.key]
-    }
-  }
-
-  search(0, [], {}, 0)
-  return bestSelection
 }
 
 function normalizeLookupKey(value: unknown): string {
@@ -1390,6 +1276,7 @@ function SavedDesignComparePanel({
   onCompare,
   onDelete,
   canDelete = true,
+  onAddToCategory,
 }: {
   isOpen: boolean
   savedDesigns: SavedDesignPayload[]
@@ -1402,6 +1289,7 @@ function SavedDesignComparePanel({
   onCompare: () => void
   onDelete: (designId: string) => void
   canDelete?: boolean
+  onAddToCategory?: (designIds: string[]) => void
 }) {
   if (!isOpen) return null
 
@@ -1415,7 +1303,7 @@ function SavedDesignComparePanel({
             <h3 className="text-lg font-bold text-gray-900">Compare saved designs</h3>
             <p className="mt-1 text-sm text-gray-500">Select 2 to 4 designs to compare.</p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close compare panel">
+          <button type="button" onClick={onClose} className="cursor-pointer rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close compare panel">
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -1455,7 +1343,7 @@ function SavedDesignComparePanel({
                         </span>
                       </span>
                     </label>
-                    <div className="mt-3 flex items-center justify-between">
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
                       {design.design_type === "input" ? (
                         <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-600">Input Design</span>
                       ) : (
@@ -1463,15 +1351,26 @@ function SavedDesignComparePanel({
                           {formatValue(design.total_coefficient ?? design.configuration?.total_coefficient ?? 0, design.metric)}
                         </span>
                       )}
-                      {canDelete ? (
-                      <button
-                        type="button"
-                        onClick={() => onDelete(design.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs font-semibold text-red-500 hover:bg-red-50"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" /> Delete
-                      </button>
-                      ) : null}
+                      <div className="flex items-center gap-1">
+                        {onAddToCategory ? (
+                          <button
+                            type="button"
+                            onClick={() => onAddToCategory([design.id])}
+                            className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-blue-600 transition hover:bg-blue-50 active:scale-[0.98]"
+                          >
+                            <FolderPlus className="h-3.5 w-3.5" /> Add to category
+                          </button>
+                        ) : null}
+                        {canDelete ? (
+                        <button
+                          type="button"
+                          onClick={() => onDelete(design.id)}
+                          className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-red-500 transition hover:bg-red-50 active:scale-[0.98]"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" /> Delete
+                        </button>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 )
@@ -1481,12 +1380,23 @@ function SavedDesignComparePanel({
           {error && <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600">{error}</p>}
         </div>
 
-        <div className="border-t border-gray-100 p-5">
+        <div className="space-y-2 border-t border-gray-100 p-5">
+          {onAddToCategory ? (
+            <button
+              type="button"
+              onClick={() => onAddToCategory(selectedIds)}
+              disabled={selectedIds.length === 0}
+              className="inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl border border-blue-200 bg-white px-4 text-sm font-bold text-blue-600 transition hover:bg-blue-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <FolderPlus className="h-4 w-4" />
+              Add {selectedIds.length > 0 ? `${selectedIds.length} ` : ""}to category
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={onCompare}
             disabled={isComparing || selectedIds.length < 2 || selectedIds.length > 4}
-            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-bold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isComparing ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitCompare className="h-4 w-4" />}
             Compare {selectedIds.length > 0 ? `(${selectedIds.length})` : ""}
@@ -2284,6 +2194,19 @@ export function AnalyticsDesignConfigurator({
   const [isComparingDesigns, setIsComparingDesigns] = useState(false)
   const [compareError, setCompareError] = useState<string | null>(null)
   const [compareDesigns, setCompareDesigns] = useState<SavedDesignPayload[]>([])
+  const [designCategories, setDesignCategories] = useState<DesignCategoryPayload[]>([])
+  const [isLoadingCategories, setIsLoadingCategories] = useState(false)
+  const [isCategoryPanelOpen, setIsCategoryPanelOpen] = useState(false)
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false)
+  const [addCategoryMode, setAddCategoryMode] = useState<"current" | "existing">("current")
+  const [addCategoryTargetIds, setAddCategoryTargetIds] = useState<string[]>([])
+  const [categoryDesignName, setCategoryDesignName] = useState("")
+  const [isAssigningCategory, setIsAssigningCategory] = useState(false)
+  const [categoryError, setCategoryError] = useState<string | null>(null)
+  const [categoryNotice, setCategoryNotice] = useState<string | null>(null)
+  const [focusCategoryId, setFocusCategoryId] = useState<string | null>(null)
+  const [openedDesign, setOpenedDesign] = useState<{ id: string; signature: string } | null>(null)
+  const [isTopMixesOpen, setIsTopMixesOpen] = useState(false)
   const [activeSelectionImage, setActiveSelectionImage] = useState<{ url: string; name: string } | null>(null)
   const [highlightedSelectionId, setHighlightedSelectionId] = useState<string | null>(null)
   const previewCaptureRef = useRef<HTMLDivElement>(null)
@@ -2343,6 +2266,29 @@ export function AnalyticsDesignConfigurator({
     void loadSavedDesigns()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studyId, savedDesignType])
+
+  useEffect(() => {
+    if (!studyId) return
+    if (isLocalPersistence) {
+      setDesignCategories(listLocalDesignCategories(studyId))
+      return
+    }
+    let cancelled = false
+    setIsLoadingCategories(true)
+    void listDesignCategories(studyId)
+      .then((next) => {
+        if (!cancelled) setDesignCategories(next)
+      })
+      .catch((error) => {
+        if (!cancelled) setCategoryError((error as Error)?.message || "Failed to load categories")
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingCategories(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isLocalPersistence, studyId])
 
   useEffect(() => {
     if (!isLayerStudy) return
@@ -2430,6 +2376,12 @@ export function AnalyticsDesignConfigurator({
     const timer = window.setTimeout(() => setAssistantLoadNotice(null), 4500)
     return () => window.clearTimeout(timer)
   }, [assistantLoadNotice])
+
+  useEffect(() => {
+    if (!categoryNotice) return
+    const timer = window.setTimeout(() => setCategoryNotice(null), 4500)
+    return () => window.clearTimeout(timer)
+  }, [categoryNotice])
 
   const selectedElements = useMemo(
     () =>
@@ -2624,21 +2576,41 @@ export function AnalyticsDesignConfigurator({
     }))
   }
 
-  const handleBestMix = () => {
-    const bestSelection = isLayerStudy
-      ? buildConstraintAwareLayerBestMix(categories, designConstraints)
-      : buildDefaultSelection(categories, false)
-    if (!bestSelection) {
-      alert("No valid Best Mix exists with the current design constraints. Please relax constraints or review layer images.")
-      return
-    }
-    setSelectedByCategory(bestSelection)
+  const rankedMixes = useMemo(
+    () => rankConfiguratorMixes({
+      categories,
+      isLayer: isLayerStudy,
+      designConstraints,
+      limit: 5,
+    }),
+    [categories, designConstraints, isLayerStudy]
+  )
+  const currentSelectionSignature = mixSignature(selectedByCategory)
+  const matchingSavedDesign = useMemo(
+    () => savedDesigns.find((design) => mixSignature(design.configuration?.selected_by_category || {}) === currentSelectionSignature) || null,
+    [currentSelectionSignature, savedDesigns]
+  )
+  const previewDesignId = matchingSavedDesign?.id
+    || (openedDesign && openedDesign.signature === currentSelectionSignature ? openedDesign.id : null)
+
+  const applyConfiguratorSelection = (selection: Record<string, string>) => {
+    setSelectedByCategory(selection)
     setOpenCategoryNames(
       categories.reduce<Record<string, boolean>>((next, category) => {
-        next[category.key] = Boolean(bestSelection[category.key])
+        next[category.key] = Boolean(selection[category.key])
         return next
       }, {})
     )
+    setIsSelectionOpen(true)
+  }
+
+  const handleBestMix = () => {
+    const bestSelection = rankedMixes[0]?.selection
+    if (!bestSelection || Object.keys(bestSelection).length === 0) {
+      alert("No valid Best Mix exists with the current design constraints. Please relax constraints or review layer images.")
+      return
+    }
+    applyConfiguratorSelection(bestSelection)
   }
 
   const handleDownloadPreview = async () => {
@@ -2816,10 +2788,205 @@ export function AnalyticsDesignConfigurator({
       setSavedDesigns((current) => current.filter((design) => design.id !== designId))
       setSelectedCompareIds((current) => current.filter((id) => id !== designId))
       setCompareDesigns((current) => current.filter((design) => design.id !== designId))
+      setDesignCategories((current) => current.map((category) => ({
+        ...category,
+        items: category.items.filter((item) => item.saved_design_id !== designId),
+      })))
+      if (isLocalPersistence) removeDesignFromLocalCategories(studyId, designId)
     } catch (error) {
       setCompareError((error as Error)?.message || "Failed to delete saved design")
     }
   }
+
+  const upsertDesignCategory = (category: DesignCategoryPayload) => {
+    setDesignCategories((current) => {
+      const index = current.findIndex((item) => item.id === category.id)
+      const next = index === -1 ? [...current, category] : current.map((item) => (item.id === category.id ? category : item))
+      return [...next].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+    })
+    setFocusCategoryId(category.id)
+  }
+
+  const openAddCurrentCategory = () => {
+    setAddCategoryMode("current")
+    setAddCategoryTargetIds([])
+    setCategoryDesignName(defaultSavedDesignName)
+    setCategoryError(null)
+    setIsAddCategoryOpen(true)
+  }
+
+  const openAddExistingCategory = (designIds: string[]) => {
+    if (designIds.length === 0) return
+    setAddCategoryMode("existing")
+    setAddCategoryTargetIds(designIds)
+    setCategoryError(null)
+    setIsComparePanelOpen(false)
+    setIsAddCategoryOpen(true)
+  }
+
+  const handleAssignCategory = async (input: { categoryId?: string; categoryName?: string }) => {
+    if (addCategoryMode === "current" && !hasPreviewContent) {
+      setCategoryError("Select at least one element before adding it to a category.")
+      return
+    }
+    setIsAssigningCategory(true)
+    setCategoryError(null)
+    try {
+      if (isLocalPersistence) {
+        let designs: SavedDesignPayload[] = []
+        if (addCategoryMode === "existing") {
+          designs = savedDesigns.filter((design) => addCategoryTargetIds.includes(design.id))
+        } else if (matchingSavedDesign) {
+          designs = [matchingSavedDesign]
+        } else {
+          const trimmedName = categoryDesignName.trim()
+          if (!trimmedName) {
+            setCategoryError("Enter a combination name.")
+            return
+          }
+          const now = new Date().toISOString()
+          const saved: SavedDesignPayload = {
+            id: createLocalDesignId(),
+            study_id: studyId,
+            name: trimmedName,
+            design_type: savedDesignType,
+            study_type: currentSavedDesignConfiguration.study_type,
+            metric: activeMetric,
+            segment_label: activeSegment?.label ?? null,
+            selection_count: selectedElements.length,
+            total_coefficient: totalCoefficient,
+            configuration: currentSavedDesignConfiguration,
+            created_at: now,
+            updated_at: now,
+          }
+          createLocalSavedDesign(studyId, saved, initialSavedDesignsRef.current)
+          initialSavedDesignsRef.current = {
+            ...initialSavedDesignsRef.current,
+            [savedDesignType]: [saved, ...(initialSavedDesignsRef.current[savedDesignType] || [])],
+          }
+          setSavedDesigns((current) => [saved, ...current])
+          designs = [saved]
+        }
+        const category = assignLocalDesignCategory({
+          studyId,
+          categoryId: input.categoryId,
+          categoryName: input.categoryName,
+          designs,
+        })
+        setDesignCategories(listLocalDesignCategories(studyId))
+        setFocusCategoryId(category.id)
+      } else {
+        const result = await assignDesignCategory(studyId, {
+          category_id: input.categoryId,
+          category_name: input.categoryName,
+          saved_design_ids: addCategoryMode === "existing"
+            ? addCategoryTargetIds
+            : matchingSavedDesign
+              ? [matchingSavedDesign.id]
+              : [],
+          design: addCategoryMode === "current" && !matchingSavedDesign
+            ? {
+                name: categoryDesignName.trim(),
+                design_type: savedDesignType,
+                configuration: currentSavedDesignConfiguration,
+              }
+            : undefined,
+        })
+        upsertDesignCategory(result.category)
+        if (result.created_design) {
+          setSavedDesigns((current) => [result.created_design as SavedDesignPayload, ...current])
+        }
+      }
+      setIsAddCategoryOpen(false)
+      setIsCategoryPanelOpen(true)
+      setCategoryNotice("Added to category")
+    } catch (error) {
+      setCategoryError((error as Error)?.message || "Failed to add to category")
+    } finally {
+      setIsAssigningCategory(false)
+    }
+  }
+
+  const handleRenameCategory = async (categoryId: string, name: string) => {
+    try {
+      const updated = isLocalPersistence
+        ? renameLocalDesignCategory(studyId, categoryId, name)
+        : await renameDesignCategory(studyId, categoryId, name)
+      upsertDesignCategory(updated)
+    } catch (error) {
+      setCategoryError((error as Error)?.message || "Failed to rename category")
+      throw error
+    }
+  }
+
+  const handleDeleteCategory = async (categoryId: string) => {
+    const category = designCategories.find((item) => item.id === categoryId)
+    const confirmed = window.confirm(`Delete “${category?.name || "this category"}”? Combinations stay in Compare Saved.`)
+    if (!confirmed) return
+    try {
+      if (isLocalPersistence) deleteLocalDesignCategory(studyId, categoryId)
+      else await deleteDesignCategory(studyId, categoryId)
+      setDesignCategories((current) => current.filter((item) => item.id !== categoryId))
+    } catch (error) {
+      setCategoryError((error as Error)?.message || "Failed to delete category")
+    }
+  }
+
+  const handleRemoveCategoryItem = async (categoryId: string, savedDesignId: string) => {
+    const confirmed = window.confirm("Remove this combination from the category? The saved design itself is kept.")
+    if (!confirmed) return
+    try {
+      if (isLocalPersistence) removeLocalDesignCategoryItem(studyId, categoryId, savedDesignId)
+      else await removeDesignCategoryItem(studyId, categoryId, savedDesignId)
+      setDesignCategories((current) => current.map((category) => (
+        category.id === categoryId
+          ? { ...category, items: category.items.filter((item) => item.saved_design_id !== savedDesignId) }
+          : category
+      )))
+    } catch (error) {
+      setCategoryError((error as Error)?.message || "Failed to remove combination")
+    }
+  }
+
+  const handleOpenCategoryItem = async (savedDesignId: string) => {
+    try {
+      let design = savedDesigns.find((item) => item.id === savedDesignId)
+      if (!design && isLocalPersistence) {
+        design = findLocalSavedDesign({
+          configurator: listLocalSavedDesigns(studyId, "configurator", initialSavedDesignsRef.current),
+          input: listLocalSavedDesigns(studyId, "input", initialSavedDesignsRef.current),
+        }, savedDesignId)
+      }
+      if (!design) design = await getSavedDesign(studyId, savedDesignId)
+      const selection = design.configuration?.selected_by_category || {}
+      const metric = METRIC_OPTIONS.some((option) => option.value === design.metric) ? design.metric : activeMetric
+      const segmentOptionsForMetric = getAvailableSegmentOptions(analysisData || {}, metric)
+      const segment = design.configuration?.segment
+      const segmentMatch = segmentOptionsForMetric.find((option) => option.id === segment?.id)
+        || segmentOptionsForMetric.find((option) => option.label === (segment?.label || design.segment_label))
+      setIsInputDesignMode(design.design_type === "input")
+      setActiveMetric(metric)
+      if (segmentMatch) setActiveSegmentId(segmentMatch.id)
+      applyConfiguratorSelection(selection)
+      if (isLayerStudy) setShowLayerBackground(Boolean(design.configuration?.show_layer_background && backgroundUrl))
+      setOpenedDesign({ id: design.id, signature: mixSignature(selection) })
+      setIsCategoryPanelOpen(false)
+      setCategoryNotice(`Opened ${design.name}`)
+    } catch (error) {
+      setCategoryError((error as Error)?.message || "Failed to open combination")
+    }
+  }
+
+  const disabledCategoryIds = designCategories
+    .filter((category) => {
+      const ids = addCategoryMode === "existing"
+        ? addCategoryTargetIds
+        : matchingSavedDesign
+          ? [matchingSavedDesign.id]
+          : []
+      return ids.length > 0 && ids.every((id) => category.items.some((item) => item.saved_design_id === id))
+    })
+    .map((category) => category.id)
 
   if (!analysisData || categories.length === 0) return null
 
@@ -2830,7 +2997,7 @@ export function AnalyticsDesignConfigurator({
     <motion.section
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="mb-10"
+      className="mb-10 [&_button:not(:disabled)]:cursor-pointer [&_button:disabled]:cursor-not-allowed"
     >
       <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
@@ -2843,6 +3010,12 @@ export function AnalyticsDesignConfigurator({
           <p className="ml-4 text-sm text-gray-500">
             Combine winning {isLayerStudy ? "layer assets" : "elements"} and preview the total coefficient.
           </p>
+          {categoryNotice ? (
+            <div className="ml-4 mt-3 inline-flex max-w-xl items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 shadow-sm">
+              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{categoryNotice}</span>
+            </div>
+          ) : null}
           {assistantLoadNotice ? (
             <div className="ml-4 mt-3 inline-flex max-w-xl items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 shadow-sm">
               <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -2906,6 +3079,21 @@ export function AnalyticsDesignConfigurator({
 
           <button
             type="button"
+            onClick={() => {
+              setCategoryError(null)
+              setIsCategoryPanelOpen(true)
+            }}
+            className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-bold text-gray-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 active:scale-[0.98]"
+          >
+            <Folders className="h-4 w-4" />
+            Categories
+            {designCategories.length > 0 && (
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-600">{designCategories.length}</span>
+            )}
+          </button>
+
+          <button
+            type="button"
             onClick={() => void handleOpenComparePanel()}
             className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 text-sm font-bold text-blue-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-100"
           >
@@ -2965,80 +3153,95 @@ export function AnalyticsDesignConfigurator({
         <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:z-10 lg:w-5/12 lg:flex-shrink-0 lg:self-start lg:pr-2 lg:max-h-[calc(100vh-3rem)] lg:min-h-0">
           {/* Preview Card */}
           <div className="flex flex-shrink-0 flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 bg-gray-50/50 px-3 py-3 sm:px-5">
-              {isLayerStudy ? (
-                <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1.5 sm:gap-2">
+            <div className="flex items-center gap-1 border-b border-gray-100 bg-gray-50/50 px-2.5 py-2 sm:px-3">
+              {isLayerStudy && (
+                <>
                   <button
                     type="button"
                     onClick={() => setShowLayerBackground((current) => !current)}
                     disabled={!backgroundUrl}
-                    className={`inline-flex h-11 min-w-11 touch-manipulation cursor-pointer items-center justify-center gap-1.5 rounded-full px-2.5 text-xs font-semibold transition-all duration-150 active:scale-95 sm:h-auto sm:min-w-0 sm:px-2.5 sm:py-1.5 sm:text-sm sm:active:scale-100 ${
-                      showLayerBackground
-                        ? "bg-blue-50 text-blue-600 hover:bg-blue-100 active:bg-blue-200"
-                        : "text-gray-600 hover:bg-gray-100 hover:text-gray-900 active:bg-gray-200"
-                    } disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100`}
+                    title="Background"
+                    aria-label="Toggle background"
                     aria-pressed={showLayerBackground}
+                    className={`inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 ${
+                      showLayerBackground
+                        ? "bg-blue-50 text-blue-600 hover:bg-blue-100"
+                        : "text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                    }`}
                   >
-                    <ImageIcon className="h-4 w-4 flex-shrink-0" />
-                    <span className="hidden min-w-0 truncate min-[420px]:inline">Background</span>
+                    <ImageIcon className="h-4 w-4" />
                   </button>
                   <button
                     type="button"
                     onClick={handleDownloadPreview}
                     disabled={isPreviewDownloading || (selectedElements.length === 0 && !showLayerBackground)}
-                    className="inline-flex h-11 min-w-11 touch-manipulation cursor-pointer items-center justify-center gap-1.5 rounded-full bg-blue-50 px-2.5 text-xs font-semibold text-blue-600 transition-all duration-150 hover:bg-blue-100 hover:text-blue-700 active:scale-95 active:bg-blue-200 disabled:cursor-not-allowed disabled:opacity-50 disabled:active:scale-100 sm:h-auto sm:min-w-0 sm:px-2.5 sm:py-1.5 sm:text-sm sm:active:scale-100"
+                    title={isPreviewDownloading ? "Downloading" : "Download"}
+                    aria-label={isPreviewDownloading ? "Downloading preview" : "Download preview"}
+                    className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    <Download className="h-4 w-4 flex-shrink-0" />
-                    <span className="hidden min-w-0 truncate min-[420px]:inline">{isPreviewDownloading ? "Downloading..." : "Download"}</span>
+                    {isPreviewDownloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                   </button>
-                </div>
-              ) : (
-                <div className="min-w-0 flex-1" />
+                  <span className="mx-0.5 h-5 w-px shrink-0 bg-gray-200" aria-hidden="true" />
+                </>
               )}
-              <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1 sm:gap-2">
-                {!isLayerStudy && hasPreviewContent && (
-                  <div className="mr-1 flex items-center gap-1 rounded-full bg-gray-100 p-1 shadow-inner">
-                    {canSaveDesigns ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSaveError(null)
-                        setIsSaveModalOpen(true)
-                      }}
-                      disabled={isSavingDesign}
-                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-blue-600 text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-60"
-                      aria-label="Save current design"
-                    >
-                      {isSavingDesign ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setIsPreviewFullscreenOpen(true)}
-                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white text-gray-700 shadow-sm transition hover:bg-gray-50 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                      aria-label="Open full screen preview"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
+              <div className="ml-auto flex items-center gap-0.5">
                 {!isInputDesignMode && (
                   <button
                     type="button"
                     onClick={handleBestMix}
-                    className="inline-flex h-11 min-w-[96px] touch-manipulation cursor-pointer items-center justify-center gap-1.5 rounded-full bg-blue-50/80 px-3 text-xs font-semibold text-blue-600 transition-all duration-150 hover:bg-blue-100 hover:text-blue-700 active:scale-95 active:bg-blue-200 sm:h-auto sm:min-w-0 sm:bg-transparent sm:px-3 sm:py-1.5 sm:text-sm sm:hover:bg-blue-50 sm:active:scale-100 sm:active:bg-blue-100"
+                    title="Best Mix"
+                    className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-50 active:scale-95"
                   >
-                    <Sparkles className="h-4 w-4 flex-shrink-0" />
-                    <span className="min-w-0 truncate">Best Mix</span>
+                    <Sparkles className="h-4 w-4" />
+                    <span>Best Mix</span>
+                  </button>
+                )}
+                {canSaveDesigns && (
+                  <button
+                    type="button"
+                    onClick={openAddCurrentCategory}
+                    disabled={!hasPreviewContent || isAssigningCategory}
+                    title="Add to category"
+                    aria-label="Add to category"
+                    className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <FolderPlus className="h-4 w-4" />
+                  </button>
+                )}
+                {canSaveDesigns && hasPreviewContent && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSaveError(null)
+                      setIsSaveModalOpen(true)
+                    }}
+                    disabled={isSavingDesign}
+                    title="Save design"
+                    aria-label="Save current design"
+                    className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-blue-600 text-white transition hover:bg-blue-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isSavingDesign ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  </button>
+                )}
+                {hasPreviewContent && (
+                  <button
+                    type="button"
+                    onClick={() => setIsPreviewFullscreenOpen(true)}
+                    title="Full screen"
+                    aria-label="Open full screen preview"
+                    className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 active:scale-95"
+                  >
+                    <Eye className="h-4 w-4" />
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setSelectedByCategory({})}
-                  className="inline-flex h-11 min-w-11 touch-manipulation cursor-pointer items-center justify-center gap-1 rounded-full px-2.5 text-xs font-semibold text-gray-500 transition-all duration-150 hover:bg-gray-100 hover:text-gray-800 active:scale-95 active:bg-gray-200 sm:h-auto sm:min-w-0 sm:gap-1.5 sm:px-3 sm:py-1.5 sm:text-sm sm:active:scale-100"
+                  title="Clear"
+                  aria-label="Clear selection"
+                  className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 active:scale-95"
                 >
-                  <RotateCcw className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden min-w-0 truncate min-[420px]:inline">Clear</span>
+                  <RotateCcw className="h-4 w-4" />
                 </button>
               </div>
             </div>
@@ -3056,32 +3259,6 @@ export function AnalyticsDesignConfigurator({
                     aspectRatio={layerAspectRatio}
                   />
                 </div>
-                {isLayerStudy && hasPreviewContent && (
-                  <div className="absolute right-2 top-2 z-10 flex items-center gap-2 sm:right-3 sm:top-3">
-                    {canSaveDesigns ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSaveError(null)
-                        setIsSaveModalOpen(true)
-                      }}
-                      disabled={isSavingDesign}
-                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-blue-600 text-white shadow-md backdrop-blur-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-60"
-                      aria-label="Save current design"
-                    >
-                      {isSavingDesign ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setIsPreviewFullscreenOpen(true)}
-                      className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-black/55 text-white shadow-md backdrop-blur-sm transition hover:bg-black/75 focus:outline-none focus:ring-2 focus:ring-blue-500/50"
-                      aria-label="Open full screen preview"
-                    >
-                      <Eye className="h-4 w-4" />
-                    </button>
-                  </div>
-                )}
               </div>
             </div>
 
@@ -3127,6 +3304,20 @@ export function AnalyticsDesignConfigurator({
               )}
             </div>
           </div>
+
+          {!isInputDesignMode && (
+            <TopMixesCollection
+              isOpen={isTopMixesOpen}
+              onToggle={() => setIsTopMixesOpen((current) => !current)}
+              mixes={rankedMixes.map((mix) => ({
+                rank: mix.rank,
+                scoreLabel: formatValue(mix.score, activeMetric),
+                summary: mix.labels.join(" · "),
+                active: mixSignature(mix.selection) === currentSelectionSignature,
+                onSelect: () => applyConfiguratorSelection(mix.selection),
+              }))}
+            />
+          )}
 
           {isInputDesignMode && showInputInsights && selectedElements.length > 0 && (
             <div className="rounded-3xl border border-blue-100 bg-white shadow-sm">
@@ -3586,6 +3777,46 @@ export function AnalyticsDesignConfigurator({
         onCompare={() => void handleCompareDesigns()}
         onDelete={(designId) => void handleDeleteSavedDesign(designId)}
         canDelete={canSaveDesigns}
+        onAddToCategory={canSaveDesigns ? openAddExistingCategory : undefined}
+      />
+
+      <AddToCategoryDialog
+        isOpen={isAddCategoryOpen}
+        title={addCategoryMode === "existing" && addCategoryTargetIds.length > 1 ? "Add combinations to a category" : "Add to category"}
+        description={
+          designCategories.length === 0
+            ? "Create a category for this study, then this combination is saved into it."
+            : "Choose a category for this study, or create a new one."
+        }
+        designName={categoryDesignName}
+        onDesignNameChange={setCategoryDesignName}
+        showDesignName={addCategoryMode === "current" && !matchingSavedDesign}
+        savedDesignLabel={addCategoryMode === "current" ? matchingSavedDesign?.name : null}
+        categories={designCategories}
+        disabledCategoryIds={disabledCategoryIds}
+        isSaving={isAssigningCategory}
+        error={categoryError}
+        onClose={() => {
+          if (isAssigningCategory) return
+          setIsAddCategoryOpen(false)
+          setCategoryError(null)
+        }}
+        onSubmit={(input) => void handleAssignCategory(input)}
+      />
+
+      <DesignCategoryDrawer
+        isOpen={isCategoryPanelOpen}
+        categories={designCategories}
+        isLoading={isLoadingCategories}
+        error={isAddCategoryOpen ? null : categoryError}
+        canEdit={canSaveDesigns}
+        activeDesignId={previewDesignId}
+        focusCategoryId={focusCategoryId}
+        onClose={() => setIsCategoryPanelOpen(false)}
+        onOpenItem={(savedDesignId) => void handleOpenCategoryItem(savedDesignId)}
+        onRename={handleRenameCategory}
+        onDeleteCategory={(categoryId) => void handleDeleteCategory(categoryId)}
+        onRemoveItem={(categoryId, savedDesignId) => void handleRemoveCategoryItem(categoryId, savedDesignId)}
       />
 
       <SavedDesignCompareOverlay

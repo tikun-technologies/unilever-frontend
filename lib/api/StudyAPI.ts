@@ -171,6 +171,44 @@ export interface SavedDesignPayload {
   updated_at: string
 }
 
+export interface DesignCategoryItemPayload {
+  id: string
+  saved_design_id: string
+  name: string
+  design_type: SavedDesignType
+  metric: DesignMetric
+  segment_label?: string | null
+  selection_count: number
+  total_coefficient?: number | null
+  position: number
+}
+
+export interface DesignCategoryPayload {
+  id: string
+  study_id: string
+  name: string
+  position: number
+  created_at: string
+  updated_at: string
+  items: DesignCategoryItemPayload[]
+}
+
+export interface DesignCategoryAssignPayload {
+  category_id?: string
+  category_name?: string
+  saved_design_ids?: string[]
+  design?: {
+    name: string
+    design_type: SavedDesignType
+    configuration: SavedDesignConfigurationPayload
+  }
+}
+
+export interface DesignCategoryAssignResult {
+  category: DesignCategoryPayload
+  created_design?: SavedDesignPayload | null
+}
+
 export interface UploadImageResult {
   secure_url: string
   public_id: string
@@ -2144,6 +2182,81 @@ export async function compareSavedDesigns(studyId: string, designIds: string[], 
     throw Object.assign(new Error(typeof msg === "string" ? msg : JSON.stringify(msg)), { status: res.status, data })
   }
   return data
+}
+
+async function readStudyJson<T>(res: Response, fallback: string): Promise<T> {
+  const text = await res.text().catch(() => "")
+  let data: any = {}
+  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+  if (!res.ok) {
+    const detail = data && (data.detail || data.message)
+    const msg = typeof detail === "string"
+      ? detail
+      : Array.isArray(detail)
+        ? detail.map((item) => item?.msg || item).filter(Boolean).join(" ")
+        : text || fallback
+    throw Object.assign(new Error(msg || fallback), { status: res.status, data })
+  }
+  return data as T
+}
+
+export async function getSavedDesign(studyId: string, designId: string): Promise<SavedDesignPayload> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/saved-designs/${designId}`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  })
+  return readStudyJson<SavedDesignPayload>(res, `Failed to load saved design (${res.status})`)
+}
+
+export async function listDesignCategories(studyId: string): Promise<DesignCategoryPayload[]> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/design-categories`, {
+    method: "GET",
+    headers: { "Content-Type": "application/json" },
+  })
+  if (res.status === 204) return []
+  return readStudyJson<DesignCategoryPayload[]>(res, `Failed to load categories (${res.status})`)
+}
+
+export async function assignDesignCategory(studyId: string, payload: DesignCategoryAssignPayload): Promise<DesignCategoryAssignResult> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/design-categories/assignments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  return readStudyJson<DesignCategoryAssignResult>(res, `Failed to add to category (${res.status})`)
+}
+
+export async function renameDesignCategory(studyId: string, categoryId: string, name: string): Promise<DesignCategoryPayload> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/design-categories/${categoryId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  })
+  return readStudyJson<DesignCategoryPayload>(res, `Failed to rename category (${res.status})`)
+}
+
+export async function deleteDesignCategory(studyId: string, categoryId: string): Promise<void> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/design-categories/${categoryId}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+  })
+  if (res.ok || res.status === 204) return
+  await readStudyJson(res, `Failed to delete category (${res.status})`)
+}
+
+export async function removeDesignCategoryItem(studyId: string, categoryId: string, savedDesignId: string): Promise<void> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(
+    `${API_BASE_URL}/studies/${cleanId}/design-categories/${categoryId}/items/${savedDesignId}`,
+    { method: "DELETE", headers: { "Content-Type": "application/json" } }
+  )
+  if (res.ok || res.status === 204) return
+  await readStudyJson(res, `Failed to remove combination (${res.status})`)
 }
 
 export async function deleteSavedDesign(studyId: string, designId: string): Promise<void> {
