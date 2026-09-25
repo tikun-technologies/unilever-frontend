@@ -28,6 +28,8 @@ import {
 import {
   AddToCategoryDialog,
   DesignCategoryDrawer,
+  nextReportCombinationName,
+  reportCombinationPrefix,
   TopMixesCollection,
 } from "./DesignConfiguratorCollections"
 import { mixSignature, rankConfiguratorMixes } from "@/lib/analytics/rankConfiguratorMixes"
@@ -2822,7 +2824,12 @@ export function AnalyticsDesignConfigurator({
   const openAddCurrentCategory = () => {
     setAddCategoryMode("current")
     setAddCategoryTargetIds([])
-    setCategoryDesignName(elementCombinationName)
+    const usedNames = [
+      ...savedDesigns.map((design) => design.name),
+      ...designCategories.flatMap((category) => category.items.map((item) => item.name)),
+    ]
+    const reportName = isInputDesignMode ? null : nextReportCombinationName(activeMetric, usedNames)
+    setCategoryDesignName(reportName || elementCombinationName)
     setCategoryError(null)
     setIsAddCategoryOpen(true)
   }
@@ -2927,9 +2934,9 @@ export function AnalyticsDesignConfigurator({
       }
       setIsAddCategoryOpen(false)
       setIsCategoryPanelOpen(true)
-      setCategoryNotice("Added to category")
+      setCategoryNotice("Added to report builder")
     } catch (error) {
-      setCategoryError((error as Error)?.message || "Failed to add to category")
+      setCategoryError((error as Error)?.message || "Failed to add to report builder")
     } finally {
       setIsAssigningCategory(false)
     }
@@ -3084,147 +3091,138 @@ export function AnalyticsDesignConfigurator({
       animate={{ opacity: 1 }}
       className="mb-10 [&_button:not(:disabled)]:cursor-pointer [&_button:disabled]:cursor-not-allowed"
     >
-      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="mb-2 flex items-center gap-3">
-            <div className="h-8 w-1.5 rounded-full bg-blue-600" />
-            <h2 className="text-2xl font-bold text-gray-900">
-              Design configurator
-            </h2>
+      <div className="mb-6 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="mb-1 flex items-center gap-3">
+              <div className="h-6 w-1 rounded-full bg-blue-600" />
+              <h2 className="text-xl font-semibold tracking-tight text-gray-900">
+                Design configurator
+              </h2>
+            </div>
+            <p className="ml-4 text-sm text-gray-500">
+              Combine winning {isLayerStudy ? "layer assets" : "elements"} and preview the total coefficient.
+            </p>
+            {categoryNotice ? (
+              <div className="ml-4 mt-3 inline-flex max-w-xl items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800">
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{categoryNotice}</span>
+              </div>
+            ) : null}
+            {assistantLoadNotice ? (
+              <div className="ml-4 mt-3 inline-flex max-w-xl items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800">
+                <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{assistantLoadNotice}</span>
+              </div>
+            ) : null}
           </div>
-          <p className="ml-4 text-sm text-gray-500">
-            Combine winning {isLayerStudy ? "layer assets" : "elements"} and preview the total coefficient.
-          </p>
-          {categoryNotice ? (
-            <div className="ml-4 mt-3 inline-flex max-w-xl items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-800 shadow-sm">
-              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>{categoryNotice}</span>
-            </div>
-          ) : null}
-          {assistantLoadNotice ? (
-            <div className="ml-4 mt-3 inline-flex max-w-xl items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-800 shadow-sm">
-              <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>{assistantLoadNotice}</span>
-            </div>
-          ) : null}
-        </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end lg:pt-0.5">
-          {!isInputDesignMode && (
-            <>
-              <div className="flex rounded-xl bg-gray-100 p-1 shadow-inner">
-                {METRIC_OPTIONS.map((metric) => (
-                  <button
-                    key={metric.value}
-                    type="button"
-                    onClick={() => setActiveMetric(metric.value)}
-                    className={`rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-                      activeMetric === metric.value
-                        ? "bg-white text-blue-600 shadow-sm"
-                        : "text-gray-600 hover:text-gray-900"
-                    }`}
-                  >
-                    {metric.label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="relative min-w-[180px]">
-                <select
-                  value={activeSegment?.id || ""}
-                  onChange={(event) => setActiveSegmentId(event.target.value)}
-                  className="h-10 w-full appearance-none rounded-xl border border-gray-200 bg-white px-4 pr-10 text-sm font-medium text-gray-700 shadow-sm outline-none transition-colors hover:border-blue-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                >
-                  {segmentOptions.map((segment) => (
-                    <option key={segment.id} value={segment.id}>
-                      {segment.label}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              </div>
-            </>
-          )}
-
-          <button
-            type="button"
-            onClick={() => {
-              setIsInputDesignMode((current) => !current)
-              setShowInputInsights(false)
-            }}
-            className={`inline-flex h-10 items-center justify-center gap-2 rounded-xl border px-4 text-sm font-bold shadow-sm transition ${
-              isInputDesignMode
-                ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
-                : "border-gray-200 bg-white text-gray-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
-            }`}
-          >
-            <Sparkles className="h-4 w-4" />
-            {isInputDesignMode ? "Input Design On" : "Input Design"}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setCategoryError(null)
-              setIsCategoryPanelOpen(true)
-            }}
-            className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 text-sm font-bold text-gray-700 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 active:scale-[0.98]"
-          >
-            <Folders className="h-4 w-4" />
-            Categories
-            {designCategories.length > 0 && (
-              <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs text-blue-600">{designCategories.length}</span>
-            )}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => void handleOpenComparePanel()}
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 text-sm font-bold text-blue-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-100"
-          >
-            <GitCompare className="h-4 w-4" />
-            Compare Saved
-            {savedDesigns.length > 0 && (
-              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-blue-600">{savedDesigns.length}</span>
-            )}
-          </button>
-
-          {onExportHtml && (
+          <div className="flex w-full items-center self-start overflow-x-auto rounded-xl border border-gray-200 bg-white sm:w-auto">
             <button
               type="button"
-              onClick={onExportHtml}
-              disabled={isExportingHtml || !analysisData}
-              className="inline-flex h-10 items-center justify-center gap-2 rounded-xl border border-blue-100 bg-blue-50 px-4 text-sm font-bold text-blue-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => {
+                setIsInputDesignMode((current) => !current)
+                setShowInputInsights(false)
+              }}
+              title={isInputDesignMode ? "Input design on" : "Input design"}
+              className={`inline-flex h-9 items-center gap-1.5 px-3 text-sm font-medium transition ${
+                isInputDesignMode ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+              }`}
             >
-              {isExportingHtml ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>
-                    {exportHtmlMessage
-                      || (exportHtmlStage === "preparing" && "Preparing...")
-                      || (exportHtmlStage === "embedding" && "Embedding images...")
-                      || (exportHtmlStage === "generating" && "Generating HTML...")
-                      || (exportHtmlStage === "done" && "Done")}
-                  </span>
-                </>
-              ) : (
-                <>
-                  <FileCode2 className="h-4 w-4" />
-                  <span>Export HTML</span>
-                </>
+              <Sparkles className="h-3.5 w-3.5" />
+              Input design
+            </button>
+            <span className="h-4 w-px bg-gray-200" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={() => {
+                setCategoryError(null)
+                setIsCategoryPanelOpen(true)
+              }}
+              title="Report builder"
+              className="inline-flex h-9 items-center gap-1.5 px-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900"
+            >
+              <Folders className="h-3.5 w-3.5" />
+              Report builder
+              {designCategories.length > 0 && (
+                <span className="text-xs tabular-nums text-gray-400">{designCategories.length}</span>
               )}
             </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => setIsMobileElementDrawerOpen(true)}
-            className="inline-flex h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white shadow-sm transition-all duration-150 hover:bg-blue-700 active:scale-[0.98] active:bg-blue-800 lg:hidden"
-          >
-            <ImageIcon className="h-4 w-4" />
-            Select Elements
-          </button>
+            <span className="h-4 w-px bg-gray-200" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={() => void handleOpenComparePanel()}
+              title="Compare saved designs"
+              className="inline-flex h-9 items-center gap-1.5 px-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900"
+            >
+              <GitCompare className="h-3.5 w-3.5" />
+              Compare
+              {savedDesigns.length > 0 && (
+                <span className="text-xs tabular-nums text-gray-400">{savedDesigns.length}</span>
+              )}
+            </button>
+            {onExportHtml && (
+              <>
+                <span className="h-4 w-px bg-gray-200" aria-hidden="true" />
+                <button
+                  type="button"
+                  onClick={onExportHtml}
+                  disabled={isExportingHtml || !analysisData}
+                  title="Export HTML"
+                  className="inline-flex h-9 items-center gap-1.5 px-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {isExportingHtml ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileCode2 className="h-3.5 w-3.5" />}
+                  {isExportingHtml ? "Exporting" : "Export"}
+                </button>
+              </>
+            )}
+          </div>
         </div>
+
+        {!isInputDesignMode && (
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex rounded-lg bg-gray-100 p-0.5">
+              {METRIC_OPTIONS.map((metric) => (
+                <button
+                  key={metric.value}
+                  type="button"
+                  onClick={() => setActiveMetric(metric.value)}
+                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                    activeMetric === metric.value
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-500 hover:text-gray-800"
+                  }`}
+                >
+                  {metric.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative">
+              <select
+                value={activeSegment?.id || ""}
+                onChange={(event) => setActiveSegmentId(event.target.value)}
+                className="h-9 appearance-none rounded-lg border border-gray-200 bg-white py-1 pl-3 pr-8 text-sm font-medium text-gray-700 outline-none transition hover:border-gray-300 focus:border-gray-400"
+              >
+                {segmentOptions.map((segment) => (
+                  <option key={segment.id} value={segment.id}>
+                    {segment.label}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+            </div>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setIsMobileElementDrawerOpen(true)}
+          className="inline-flex h-11 w-full touch-manipulation items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 active:scale-[0.98] lg:hidden"
+        >
+          <ImageIcon className="h-4 w-4" />
+          Select Elements
+        </button>
       </div>
 
       <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
@@ -3286,8 +3284,8 @@ export function AnalyticsDesignConfigurator({
                     type="button"
                     onClick={openAddCurrentCategory}
                     disabled={!hasPreviewContent || isAssigningCategory}
-                    title="Add to category"
-                    aria-label="Add to category"
+                    title="Add to report builder"
+                    aria-label="Add to report builder"
                     className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <FolderPlus className="h-4 w-4" />
@@ -3400,6 +3398,12 @@ export function AnalyticsDesignConfigurator({
                 summary: mix.labels.join(" · "),
                 active: mixSignature(mix.selection) === currentSelectionSignature,
                 onSelect: () => applyConfiguratorSelection(mix.selection),
+                onAdd: canSaveDesigns
+                  ? () => {
+                      applyConfiguratorSelection(mix.selection)
+                      openAddCurrentCategory()
+                    }
+                  : undefined,
               }))}
             />
           )}
@@ -3866,7 +3870,7 @@ export function AnalyticsDesignConfigurator({
 
       <AddToCategoryDialog
         isOpen={isAddCategoryOpen}
-        title={addCategoryMode === "existing" && addCategoryTargetIds.length > 1 ? "Add combinations to a category" : "Add to category"}
+        title="Add to report builder"
         description={
           designCategories.length === 0
             ? "Create a category for this study, then this combination is saved into it."
@@ -3874,6 +3878,7 @@ export function AnalyticsDesignConfigurator({
         }
         designName={categoryDesignName}
         onDesignNameChange={setCategoryDesignName}
+        namePrefix={isInputDesignMode ? null : reportCombinationPrefix(activeMetric)}
         showDesignName={addCategoryMode === "current" && !categorySavedDesign}
         savedDesignLabel={addCategoryMode === "current" ? categorySavedDesign?.name ?? null : null}
         categories={designCategories}

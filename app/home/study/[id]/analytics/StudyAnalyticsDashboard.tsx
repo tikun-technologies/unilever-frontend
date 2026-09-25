@@ -8,6 +8,7 @@ import { getStudyBasicDetails, StudyDetails } from "@/lib/api/StudyAPI"
 import {
     createSavedFilterReport,
     deleteSavedFilterReport,
+    downloadStudyAppealPpt,
     downloadStudyResponsesCsv,
     getAnalyticsSession,
     getSavedFilterReports,
@@ -27,7 +28,7 @@ import {
     listAppliedFilterChips,
 } from "@/lib/utils/filterAnalysisMerge"
 import { AnimatePresence, motion } from "framer-motion"
-import { ArrowLeft, BarChart3, ChevronDown, Download, FileCode2, Filter, LayoutDashboard, Settings2, Share2, Sparkles, X } from "lucide-react"
+import { ArrowLeft, BarChart3, ChevronDown, Download, FileCode2, FileSpreadsheet, Filter, LayoutDashboard, Presentation, Settings2, Share2, Sparkles, X } from "lucide-react"
 import { exportDesignConfiguratorHtml, ExportHtmlStage } from "@/lib/export/designConfiguratorHtmlExport"
 import Link from "next/link"
 import { AnalyticsToolbar } from "./components/AnalyticsToolbar"
@@ -60,11 +61,13 @@ import { ANALYTICS_SHARE_REVOKED_EVENT } from "@/lib/analyticsShare"
 
 const HTML_EXPORT_STAGE_MESSAGES: Record<ExportHtmlStage, string[]> = {
     preparing: [
-        "Gathering your analytics…",
+        "Getting analytics…",
+        "Gathering your dashboard…",
         "Packing Overview, Detail, and Configurator…",
         "Collecting charts and tables…",
         "Loading the export engine…",
         "Something good is cooking…",
+        "Still working — hang tight…",
     ],
     embedding: [
         "Embedding images so it works offline…",
@@ -72,15 +75,42 @@ const HTML_EXPORT_STAGE_MESSAGES: Record<ExportHtmlStage, string[]> = {
         "Hang tight — large studies take a minute…",
         "Still packing images…",
         "Making every chart travel with the file…",
+        "Almost there…",
     ],
     generating: [
         "Building your HTML file…",
         "Stitching styles and data…",
         "Preparing the download…",
+        "Packing the last pieces…",
         "Almost ready…",
     ],
     done: ["Ready — downloading…"],
 }
+
+const PPT_EXPORT_MESSAGES = [
+    "Getting analytics…",
+    "Preparing your presentation…",
+    "Building slides and charts…",
+    "Laying out the deck…",
+    "Fetching design artwork…",
+    "Composing element visuals…",
+    "Exporting your PowerPoint…",
+    "Large studies take a moment…",
+    "Still working — hang tight…",
+    "Finishing the presentation…",
+    "Preparing the download…",
+]
+
+const CSV_EXPORT_MESSAGES = [
+    "Getting analytics…",
+    "Extracting study data…",
+    "Processing responses…",
+    "Building your Excel file…",
+    "Exporting the report…",
+    "Still working — hang tight…",
+    "Preparing the download…",
+    "Almost ready…",
+]
 
 export function StudyAnalyticsDashboard({
     studyId,
@@ -112,6 +142,10 @@ export function StudyAnalyticsDashboard({
     const [exportHtmlStage, setExportHtmlStage] = useState<ExportHtmlStage>("preparing")
     const [exportHtmlMessageIndex, setExportHtmlMessageIndex] = useState(0)
     const [exportHtmlEmbedProgress, setExportHtmlEmbedProgress] = useState<{ done: number; total: number } | null>(null)
+    const [exportingPpt, setExportingPpt] = useState(false)
+    const [pptMessageIndex, setPptMessageIndex] = useState(0)
+    const [csvMessageIndex, setCsvMessageIndex] = useState(0)
+    const [exportError, setExportError] = useState<string | null>(null)
     const [analysisData, setAnalysisData] = useState<any>(null)
     const [fullAnalysisData, setFullAnalysisData] = useState<any>(null)
     const [analysisLoading, setAnalysisLoading] = useState(true)
@@ -408,12 +442,67 @@ export function StudyAnalyticsDashboard({
             })
         } catch (e) {
             console.error("Export HTML failed:", e)
-            alert((e as Error)?.message || "Failed to export HTML")
+            setExportError((e as Error)?.message || "Failed to export HTML. Please try again.")
         } finally {
             setExportingHtml(false)
             setExportHtmlStage("preparing")
             setExportHtmlMessageIndex(0)
             setExportHtmlEmbedProgress(null)
+        }
+    }
+
+    // Reliable blob download across browsers (incl. mobile Safari): anchor must
+    // be in the DOM before click, and the object URL is revoked after a tick.
+    const triggerBlobDownload = (blob: Blob, filename: string) => {
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement("a")
+        a.href = url
+        a.download = filename
+        a.rel = "noopener"
+        a.style.display = "none"
+        document.body.appendChild(a)
+        a.click()
+        setTimeout(() => {
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+        }, 1000)
+    }
+
+    const buildPptExport = async () => {
+        if (!study || exportingPpt || exporting || exportingHtml) return
+        // No analysis yet → nothing to chart. Guard before hitting the API.
+        if (!analysisData) {
+            setExportError("Analytics are still loading. Please wait a moment and try again.")
+            return
+        }
+
+        setExportError(null)
+        try {
+            setExportMenuOpen(true)
+            setExportingPpt(true)
+            setPptMessageIndex(0)
+
+            const filters =
+                isFilterActive && hasAnyFilterSelection(activeFilters) ? activeFilters : null
+            // Send the analysis already loaded for the page so the server skips
+            // recomputing the regression (the slow step for large studies).
+            const { blob, filename } = await downloadStudyAppealPpt(studyId, filters, analysisData)
+            triggerBlobDownload(
+                blob,
+                filename || `${safeFileNamePart(study?.title, "study")}-Appeal-Report.pptx`,
+            )
+        } catch (e) {
+            console.error("Export PPT failed:", e)
+            const status = (e as { status?: number })?.status
+            const message =
+                status === 422
+                    ? (e as Error)?.message ||
+                      "This report needs analytics with scored elements. The study may still be collecting responses, or the current filter matches no respondents."
+                    : (e as Error)?.message || "Failed to generate the PowerPoint. Please try again."
+            setExportError(message)
+        } finally {
+            setExportingPpt(false)
+            setPptMessageIndex(0)
         }
     }
 
@@ -435,6 +524,15 @@ export function StudyAnalyticsDashboard({
         exportHtmlStage === "embedding" && exportHtmlEmbedProgress && exportHtmlEmbedProgress.total > 0
             ? `Embedding images ${exportHtmlEmbedProgress.done} of ${exportHtmlEmbedProgress.total}`
             : htmlExportStageMessages[exportHtmlMessageIndex % htmlExportStageMessages.length]
+    const csvExportMessage = CSV_EXPORT_MESSAGES[csvMessageIndex % CSV_EXPORT_MESSAGES.length]
+    const pptExportMessage = PPT_EXPORT_MESSAGES[pptMessageIndex % PPT_EXPORT_MESSAGES.length]
+    const activeExportMessage = exporting
+        ? csvExportMessage
+        : exportingPpt
+            ? pptExportMessage
+            : exportingHtml
+                ? htmlExportMessage
+                : ""
 
     const safeFileNamePart = (value: string | null | undefined, fallback: string) => {
         const cleaned = (value || fallback)
@@ -447,7 +545,7 @@ export function StudyAnalyticsDashboard({
     }
 
     useEffect(() => {
-        if (!exportMenuOpen || exportingHtml) return
+        if (!exportMenuOpen || exporting || exportingHtml || exportingPpt) return
 
         const handlePointerDown = (event: MouseEvent) => {
             if (!exportMenuRef.current?.contains(event.target as Node)) {
@@ -457,7 +555,7 @@ export function StudyAnalyticsDashboard({
 
         document.addEventListener("mousedown", handlePointerDown)
         return () => document.removeEventListener("mousedown", handlePointerDown)
-    }, [exportMenuOpen, exportingHtml])
+    }, [exportMenuOpen, exporting, exportingHtml, exportingPpt])
 
     useEffect(() => {
         if (!exportingHtml) return
@@ -468,6 +566,22 @@ export function StudyAnalyticsDashboard({
         }, 1600)
         return () => window.clearInterval(timer)
     }, [exportingHtml, exportHtmlStage])
+
+    useEffect(() => {
+        if (!exportingPpt) return
+        const timer = window.setInterval(() => {
+            setPptMessageIndex((index) => (index + 1) % PPT_EXPORT_MESSAGES.length)
+        }, 1600)
+        return () => window.clearInterval(timer)
+    }, [exportingPpt])
+
+    useEffect(() => {
+        if (!exporting) return
+        const timer = window.setInterval(() => {
+            setCsvMessageIndex((index) => (index + 1) % CSV_EXPORT_MESSAGES.length)
+        }, 1600)
+        return () => window.clearInterval(timer)
+    }, [exporting])
 
     const downloadCsv = async (
         filters: StudyFilterPayload["filters"] | null | undefined,
@@ -492,23 +606,18 @@ export function StudyAnalyticsDashboard({
         const suffix = shouldUseFilters ? "filtered-analysis" : "analysis"
 
         try {
-            setExportMenuOpen(false)
+            setExportMenuOpen(true)
             setExporting(true)
+            setCsvMessageIndex(0)
             setExportModeLabel(shouldUseFilters ? "Exporting filtered CSV..." : "Exporting complete CSV...")
-            setExportStage(1)
-            await new Promise(resolve => setTimeout(resolve, 1000))
-            setExportStage(2)
-            await new Promise(resolve => setTimeout(resolve, 1000))
-            setExportStage(3)
-            await new Promise(resolve => setTimeout(resolve, 500))
-
             await downloadCsv(filters, suffix)
         } catch (e) {
             console.error('Export CSV failed:', e)
-            alert('Failed to export CSV')
+            setExportError((e as Error)?.message || 'Failed to export CSV. Please try again.')
         } finally {
             setExporting(false)
             setExportStage(0)
+            setCsvMessageIndex(0)
             setExportModeLabel("Exporting...")
         }
     }
@@ -907,58 +1016,35 @@ export function StudyAnalyticsDashboard({
                                     ref={exportMenuRef}
                                     className="relative z-30 col-span-2 w-full overflow-visible @5xl/analytics:col-span-1 @5xl/analytics:w-auto"
                                 >
-                                    <div
-                                        className={`flex w-full items-stretch overflow-hidden rounded-xl bg-white shadow-md ring-1 ring-white/30 transition-all duration-200 hover:shadow-lg ${
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            if (exporting || exportingHtml || exportingPpt) return
+                                            setExportError(null)
+                                            setExportMenuOpen((open) => !open)
+                                        }}
+                                        disabled={!study}
+                                        className={`cursor-pointer flex w-full items-center justify-center gap-1.5 rounded-xl bg-white px-3 py-2.5 shadow-md ring-1 ring-white/30 transition-all duration-200 hover:shadow-lg active:scale-[0.98] font-bold text-xs @md/analytics:text-sm disabled:cursor-not-allowed disabled:opacity-70 @5xl/analytics:gap-2 @5xl/analytics:px-4 ${
                                             exportMenuOpen ? "ring-2 ring-white/50 shadow-lg" : ""
                                         }`}
+                                        style={{ color: '#2674BA' }}
+                                        aria-label="Export analytics"
+                                        aria-haspopup="menu"
+                                        aria-expanded={exportMenuOpen}
                                     >
-                                        <button
-                                            type="button"
-                                            onClick={() => void buildCsvAndDownload()}
-                                            disabled={exporting || exportingHtml || !study}
-                                            className="cursor-pointer flex min-w-0 flex-1 items-center justify-center gap-1.5 px-3 py-2.5 transition-all duration-200 active:scale-[0.98] font-bold text-xs @md/analytics:text-sm disabled:cursor-not-allowed disabled:opacity-70 @5xl/analytics:flex-none @5xl/analytics:gap-2 @5xl/analytics:px-4"
-                                            style={{ color: '#2674BA' }}
-                                        >
-                                            {exporting ? (
-                                                <>
-                                                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current shrink-0" />
-                                                    <span className="truncate">
-                                                        {exportStage === 1 && "Extracting..."}
-                                                        {exportStage === 2 && "Processing..."}
-                                                        {exportStage === 3 && "Generating..."}
-                                                        {exportStage === 0 && exportModeLabel}
-                                                    </span>
-                                                </>
-                                            ) : (
-                                                <>
-                                                    <Download className="w-4 h-4 shrink-0" />
-                                                    <span>{hasFilteredExport ? "Export CSV with filters" : "Export CSV"}</span>
-                                                </>
-                                            )}
-                                        </button>
-                                        {showExportMenu && (
+                                        {(exporting || exportingHtml || exportingPpt) ? (
                                             <>
-                                                <div className="w-px shrink-0 bg-[#2674BA]/12 self-stretch my-2" aria-hidden="true" />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        if (exportingHtml) return
-                                                        setExportMenuOpen((open) => !open)
-                                                    }}
-                                                    disabled={(exporting && !exportingHtml) || !study}
-                                                    className={`cursor-pointer flex shrink-0 items-center justify-center px-2.5 py-2.5 transition-colors disabled:cursor-not-allowed disabled:opacity-70 ${
-                                                        exportMenuOpen ? "bg-[#2674BA]/8" : "hover:bg-[#2674BA]/6"
-                                                    }`}
-                                                    style={{ color: '#2674BA' }}
-                                                    aria-label="More export options"
-                                                    aria-expanded={exportMenuOpen}
-                                                    aria-haspopup="menu"
-                                                >
-                                                    <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${exportMenuOpen ? "rotate-180" : ""}`} />
-                                                </button>
+                                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current shrink-0" />
+                                                <span className="truncate">{activeExportMessage || "Exporting…"}</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Download className="w-4 h-4 shrink-0" />
+                                                <span>Export</span>
+                                                <ChevronDown className={`w-4 h-4 transition-transform duration-200 ${exportMenuOpen ? "rotate-180" : ""}`} />
                                             </>
                                         )}
-                                    </div>
+                                    </button>
                                     <AnimatePresence>
                                         {showExportMenu && exportMenuOpen && (
                                             <motion.div
@@ -969,21 +1055,68 @@ export function StudyAnalyticsDashboard({
                                                 role="menu"
                                                 className="absolute right-0 top-[calc(100%+0.5rem)] z-[200] w-80 overflow-visible rounded-xl border border-slate-200/90 bg-white p-1.5 shadow-2xl"
                                             >
+                                                <button
+                                                    type="button"
+                                                    role="menuitem"
+                                                    onClick={() => void buildCsvAndDownload()}
+                                                    disabled={exporting || exportingHtml || exportingPpt || !study}
+                                                    className={`cursor-pointer flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors disabled:cursor-wait ${
+                                                        exporting ? "bg-[#2674BA]/6" : "hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    }`}
+                                                >
+                                                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600">
+                                                        {exporting ? (
+                                                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
+                                                        ) : (
+                                                            <FileSpreadsheet className="h-4 w-4" />
+                                                        )}
+                                                    </span>
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="block text-sm font-semibold text-slate-900">
+                                                            {exporting
+                                                                ? "Exporting CSV"
+                                                                : hasFilteredExport
+                                                                    ? "Export CSV (with filters)"
+                                                                    : "Export CSV"}
+                                                        </span>
+                                                        <span
+                                                            className="mt-0.5 block min-h-[2.5rem] text-xs leading-5 text-slate-500"
+                                                            aria-live="polite"
+                                                        >
+                                                            {exporting
+                                                                ? csvExportMessage
+                                                                : hasFilteredExport
+                                                                    ? "Download the Excel report for the filtered cohort."
+                                                                    : "Download the full study data as an Excel workbook."}
+                                                        </span>
+                                                    </span>
+                                                </button>
                                                 {hasFilteredExport && (
                                                     <button
                                                         type="button"
                                                         role="menuitem"
                                                         onClick={() => void buildCsvAndDownload("complete")}
-                                                        disabled={exporting || exportingHtml}
+                                                        disabled={exporting || exportingHtml || exportingPpt}
                                                         className="cursor-pointer flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                                                     >
                                                         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600">
-                                                            <Download className="h-4 w-4" />
+                                                            {exporting ? (
+                                                                <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />
+                                                            ) : (
+                                                                <Download className="h-4 w-4" />
+                                                            )}
                                                         </span>
-                                                        <span className="min-w-0">
-                                                            <span className="block text-sm font-semibold text-slate-900">Export complete CSV</span>
-                                                            <span className="mt-0.5 block text-xs leading-relaxed text-slate-500">
-                                                                Download the full study report without any filters applied.
+                                                        <span className="min-w-0 flex-1">
+                                                            <span className="block text-sm font-semibold text-slate-900">
+                                                                {exporting ? "Exporting CSV" : "Export complete CSV"}
+                                                            </span>
+                                                            <span
+                                                                className="mt-0.5 block min-h-[2.5rem] text-xs leading-5 text-slate-500"
+                                                                aria-live="polite"
+                                                            >
+                                                                {exporting
+                                                                    ? csvExportMessage
+                                                                    : "Download the full study report without any filters applied."}
                                                             </span>
                                                         </span>
                                                     </button>
@@ -991,8 +1124,38 @@ export function StudyAnalyticsDashboard({
                                                 <button
                                                     type="button"
                                                     role="menuitem"
+                                                    onClick={() => void buildPptExport()}
+                                                    disabled={exporting || exportingHtml || exportingPpt || !analysisData}
+                                                    className={`cursor-pointer flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors disabled:cursor-wait ${
+                                                        exportingPpt ? "bg-[#2674BA]/6" : "hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                                    }`}
+                                                >
+                                                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#2674BA]/10 text-[#2674BA]">
+                                                        {exportingPpt ? (
+                                                            <div className="h-4 w-4 animate-spin rounded-full border-2 border-[#2674BA] border-t-transparent" />
+                                                        ) : (
+                                                            <Presentation className="h-4 w-4" />
+                                                        )}
+                                                    </span>
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="block text-sm font-semibold text-slate-900">
+                                                            {exportingPpt ? "Exporting PPTX" : "Export PPTX"}
+                                                        </span>
+                                                        <span
+                                                            className="mt-0.5 block min-h-[2.5rem] text-xs leading-5 text-slate-500"
+                                                            aria-live="polite"
+                                                        >
+                                                            {exportingPpt
+                                                                ? pptExportMessage
+                                                                : "Download the Design Element Appeal presentation deck."}
+                                                        </span>
+                                                    </span>
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    role="menuitem"
                                                     onClick={() => void buildHtmlExport()}
-                                                    disabled={exporting || exportingHtml || !analysisData}
+                                                    disabled={exporting || exportingHtml || exportingPpt || !analysisData}
                                                     className={`cursor-pointer flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left transition-colors disabled:cursor-wait ${
                                                         exportingHtml ? "bg-[#2674BA]/6" : "hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
                                                     }`}
@@ -1040,6 +1203,23 @@ export function StudyAnalyticsDashboard({
                         <div className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
                             <p className="font-medium">Filter could not be applied</p>
                             <p className="text-sm mt-1">{filterError}</p>
+                        </div>
+                    )}
+
+                    {exportError && (
+                        <div className="mb-6 flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
+                            <div className="min-w-0">
+                                <p className="font-medium">Export could not be completed</p>
+                                <p className="text-sm mt-1 break-words">{exportError}</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setExportError(null)}
+                                className="shrink-0 rounded-md p-1 text-amber-600 transition-colors hover:bg-amber-100 hover:text-amber-800"
+                                aria-label="Dismiss export error"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
                         </div>
                     )}
 

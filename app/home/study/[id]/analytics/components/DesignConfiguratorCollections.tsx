@@ -15,6 +15,64 @@ import {
 } from "lucide-react"
 import type { DesignCategoryPayload } from "@/lib/api/StudyAPI"
 
+export function reportCombinationPrefix(metric: string): string | null {
+  const key = metric.trim().toLowerCase()
+  if (key === "top down") return "Top"
+  if (key === "bottom up") return "Bottom Up"
+  if (key === "response time") return "Fastest"
+  return null
+}
+
+export function nextReportCombinationName(metric: string, usedNames: Iterable<string>): string | null {
+  const prefix = reportCombinationPrefix(metric)
+  if (!prefix) return null
+  const used = new Set(Array.from(usedNames, (name) => name.trim().toLowerCase()))
+  let number = 1
+  while (used.has(`${prefix} #${number}`.toLowerCase())) number += 1
+  return `${prefix} #${number}`
+}
+
+function reportCombinationNumber(prefix: string, name: string): string {
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+  const match = name.trim().match(new RegExp(`^${escaped} #(\\d+)$`, "i"))
+  return match?.[1] ?? ""
+}
+
+function ReportNameField({
+  prefix,
+  name,
+  onChange,
+  autoFocus,
+}: {
+  prefix: string
+  name: string
+  onChange: (value: string) => void
+  autoFocus?: boolean
+}) {
+  const number = reportCombinationNumber(prefix, name)
+  return (
+    <div>
+      <span className="text-sm font-semibold text-gray-700">Combination name</span>
+      <div className="mt-2 flex h-11 overflow-hidden rounded-xl border border-gray-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
+        <span className="flex items-center border-r border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-gray-500">{prefix}</span>
+        <span className="flex items-center pl-3 text-sm font-medium text-gray-400">#</span>
+        <input
+          value={number}
+          inputMode="numeric"
+          onChange={(event) => {
+            const digits = event.target.value.replace(/\D/g, "").slice(0, 4)
+            onChange(digits ? `${prefix} #${digits}` : "")
+          }}
+          className="h-full min-w-0 flex-1 bg-transparent pr-3 text-sm font-medium text-gray-900 outline-none"
+          placeholder="1"
+          aria-label={`${prefix} number`}
+          autoFocus={autoFocus}
+        />
+      </div>
+    </div>
+  )
+}
+
 function BodyPortal({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
@@ -28,6 +86,7 @@ export type TopMixView = {
   summary: string
   active: boolean
   onSelect: () => void
+  onAdd?: () => void
 }
 
 export function TopMixesCollection({
@@ -67,38 +126,56 @@ export function TopMixesCollection({
 
         {isOpen && (
           <div className="max-h-64 space-y-2 overflow-y-auto border-t border-gray-100 px-3 py-3 sm:px-4">
-            {mixes.map((mix) => (
-              <button
+            {mixes.map((mix) => {
+              const mixLabel = mix.rank === 1 ? "Best mix" : `Mix ${mix.rank}`
+              return (
+              <div
                 key={mix.rank}
-                type="button"
-                onClick={mix.onSelect}
-                className={`flex w-full cursor-pointer items-center gap-3 rounded-2xl border px-3 py-2.5 text-left transition active:scale-[0.99] ${
+                className={`flex w-full items-center gap-2 rounded-2xl border px-2 py-2 ${
                   mix.active
                     ? "border-blue-500 bg-blue-50/80 shadow-sm"
-                    : "border-gray-200 bg-white hover:border-blue-200 hover:bg-blue-50/40"
+                    : "border-gray-200 bg-white"
                 }`}
               >
-                <span
-                  className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-black ${
-                    mix.rank === 1 ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-600"
-                  }`}
+                <button
+                  type="button"
+                  onClick={mix.onSelect}
+                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-3 rounded-xl px-1 py-0.5 text-left transition hover:bg-white/60 active:scale-[0.99]"
                 >
-                  {mix.rank}
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-gray-900">{mix.rank === 1 ? "Best mix" : `Mix ${mix.rank}`}</span>
-                    {mix.active && (
-                      <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                        Preview
-                      </span>
-                    )}
+                  <span
+                    className={`flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full text-xs font-black ${
+                      mix.rank === 1 ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-600"
+                    }`}
+                  >
+                    {mix.rank}
                   </span>
-                  <span className="mt-0.5 block truncate text-xs text-gray-500">{mix.summary}</span>
-                </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="text-sm font-bold text-gray-900">{mixLabel}</span>
+                      {mix.active && (
+                        <span className="rounded-full bg-blue-600 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          Preview
+                        </span>
+                      )}
+                    </span>
+                    <span className="mt-0.5 block truncate text-xs text-gray-500">{mix.summary}</span>
+                  </span>
+                </button>
                 <span className="flex-shrink-0 tabular-nums text-sm font-black text-gray-900">{mix.scoreLabel}</span>
-              </button>
-            ))}
+                {mix.onAdd && (
+                  <button
+                    type="button"
+                    onClick={mix.onAdd}
+                    title="Add to report builder"
+                    aria-label={`Add ${mixLabel} to report builder`}
+                    className="flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-blue-600 transition hover:bg-blue-50 active:scale-95"
+                  >
+                    <FolderPlus className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              )
+            })}
           </div>
         )}
       </div>
@@ -112,6 +189,7 @@ export function AddToCategoryDialog({
   description,
   designName,
   onDesignNameChange,
+  namePrefix,
   showDesignName,
   savedDesignLabel,
   categories,
@@ -126,6 +204,7 @@ export function AddToCategoryDialog({
   description: string
   designName: string
   onDesignNameChange: (value: string) => void
+  namePrefix?: string | null
   showDesignName: boolean
   savedDesignLabel?: string | null
   categories: DesignCategoryPayload[]
@@ -203,16 +282,20 @@ export function AddToCategoryDialog({
           )}
 
           {showDesignName && (
-            <label className="block">
-              <span className="text-sm font-semibold text-gray-700">Combination name</span>
-              <input
-                value={designName}
-                onChange={(event) => onDesignNameChange(event.target.value)}
-                className="mt-2 h-11 w-full rounded-xl border border-gray-200 px-4 text-sm font-medium text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                placeholder="Element names"
-                autoFocus
-              />
-            </label>
+            namePrefix ? (
+              <ReportNameField prefix={namePrefix} name={designName} onChange={onDesignNameChange} autoFocus />
+            ) : (
+              <label className="block">
+                <span className="text-sm font-semibold text-gray-700">Combination name</span>
+                <input
+                  value={designName}
+                  onChange={(event) => onDesignNameChange(event.target.value)}
+                  className="mt-2 h-11 w-full rounded-xl border border-gray-200 px-4 text-sm font-medium text-gray-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  placeholder="Combination name"
+                  autoFocus
+                />
+              </label>
+            )
           )}
 
           <div>
@@ -295,7 +378,7 @@ export function AddToCategoryDialog({
             className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
-            {creating && categories.length === 0 ? "Create category" : "Add to category"}
+            {creating && categories.length === 0 ? "Create category" : "Add to report builder"}
           </button>
         </div>
       </div>
@@ -367,22 +450,22 @@ export function DesignCategoryDrawer({
       <aside
         role="dialog"
         aria-modal="true"
-        aria-label="Categories"
+        aria-label="Report builder"
         className="absolute right-0 top-0 flex h-full w-full max-w-md flex-col bg-white shadow-2xl"
       >
         <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <Folders className="h-5 w-5 text-blue-600" />
-              <h3 className="text-lg font-bold text-gray-900">Categories</h3>
+              <h3 className="text-lg font-bold text-gray-900">Report builder</h3>
             </div>
-            <p className="mt-1 text-sm text-gray-500">Combinations saved for this study. Open one to load it in the preview.</p>
+            <p className="mt-1 text-sm text-gray-500">Categories of saved combinations. Open one to load it in the preview.</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
-            aria-label="Close categories"
+            aria-label="Close report builder"
           >
             <X className="h-5 w-5" />
           </button>
@@ -398,7 +481,7 @@ export function DesignCategoryDrawer({
               <FolderPlus className="mx-auto mb-3 h-8 w-8 text-blue-300" />
               <p className="text-sm font-bold text-gray-800">No categories yet</p>
               <p className="mt-1 text-xs leading-5 text-gray-500">
-                Open a combination and use Add to category. You can also select saved designs in Compare and add them together.
+                Open a combination and use Add to report builder. You can also select saved designs in Compare and add them together.
               </p>
             </div>
           ) : (
@@ -494,22 +577,44 @@ export function DesignCategoryDrawer({
                               >
                                 {editingItem ? (
                                   <form
-                                    className="flex min-w-0 flex-1 gap-2"
+                                    className="flex min-w-0 flex-1 items-center gap-2"
                                     onSubmit={(event) => {
                                       event.preventDefault()
-                                      const next = itemDraftName.trim()
+                                      const prefix = item.design_type === "input" ? null : reportCombinationPrefix(item.metric)
+                                      const digits = itemDraftName.replace(/\D/g, "")
+                                      const next = prefix ? (digits ? `${prefix} #${digits}` : "") : itemDraftName.trim()
+                                      if (!next || next === item.name) {
+                                        if (next) setEditingItemId(null)
+                                        return
+                                      }
                                       setEditingItemId(null)
-                                      if (!next || next === item.name) return
                                       void Promise.resolve(onRenameItem(item.saved_design_id, next)).catch(() => undefined)
                                     }}
                                   >
-                                    <input
-                                      value={itemDraftName}
-                                      onChange={(event) => setItemDraftName(event.target.value)}
-                                      className="h-10 min-w-0 flex-1 rounded-xl border border-gray-200 px-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
-                                      aria-label={`Rename ${item.name}`}
-                                      autoFocus
-                                    />
+                                    {item.design_type !== "input" && reportCombinationPrefix(item.metric) ? (
+                                      <div className="flex h-10 min-w-0 flex-1 overflow-hidden rounded-xl border border-gray-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
+                                        <span className="flex items-center border-r border-gray-200 bg-gray-50 px-2.5 text-xs font-semibold text-gray-500">
+                                          {reportCombinationPrefix(item.metric)}
+                                        </span>
+                                        <span className="flex items-center pl-2 text-sm text-gray-400">#</span>
+                                        <input
+                                          value={itemDraftName.replace(/\D/g, "")}
+                                          inputMode="numeric"
+                                          onChange={(event) => setItemDraftName(event.target.value.replace(/\D/g, "").slice(0, 4))}
+                                          className="h-full min-w-0 flex-1 bg-transparent pr-2 text-sm font-medium outline-none"
+                                          aria-label={`Rename ${item.name}`}
+                                          autoFocus
+                                        />
+                                      </div>
+                                    ) : (
+                                      <input
+                                        value={itemDraftName}
+                                        onChange={(event) => setItemDraftName(event.target.value)}
+                                        className="h-10 min-w-0 flex-1 rounded-xl border border-gray-200 px-3 text-sm font-medium outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                                        aria-label={`Rename ${item.name}`}
+                                        autoFocus
+                                      />
+                                    )}
                                     <button type="submit" className="h-10 cursor-pointer rounded-xl bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-700">
                                       Save
                                     </button>
@@ -543,8 +648,9 @@ export function DesignCategoryDrawer({
                                         <button
                                           type="button"
                                           onClick={() => {
+                                            const prefix = item.design_type === "input" ? null : reportCombinationPrefix(item.metric)
                                             setEditingItemId(item.id)
-                                            setItemDraftName(item.name)
+                                            setItemDraftName(prefix ? reportCombinationNumber(prefix, item.name) : item.name)
                                           }}
                                           className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
                                           aria-label={`Rename ${item.name}`}
