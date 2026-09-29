@@ -5,6 +5,7 @@ import { createPortal } from "react-dom"
 import {
   Check,
   ChevronDown,
+  Download,
   FolderPlus,
   Folders,
   Loader2,
@@ -32,10 +33,18 @@ export function nextReportCombinationName(metric: string, usedNames: Iterable<st
   return `${prefix} #${number}`
 }
 
-function reportCombinationNumber(prefix: string, name: string): string {
+export function reportCombinationSuffix(prefix: string, name: string): string {
+  const trimmed = (name || "").replace(/\s+/g, " ").trim()
+  if (!trimmed) return ""
   const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const match = name.trim().match(new RegExp(`^${escaped} #(\\d+)$`, "i"))
-  return match?.[1] ?? ""
+  const match = trimmed.match(new RegExp(`^${escaped}(?:\\s+(.*))?$`, "i"))
+  if (match) return (match[1] || "").trim()
+  return trimmed
+}
+
+export function composeReportCombinationName(prefix: string, value: string): string {
+  const rest = reportCombinationSuffix(prefix, value)
+  return rest ? `${prefix} ${rest}` : `${prefix} #1`
 }
 
 function ReportNameField({
@@ -49,26 +58,25 @@ function ReportNameField({
   onChange: (value: string) => void
   autoFocus?: boolean
 }) {
-  const number = reportCombinationNumber(prefix, name)
+  const suffix = reportCombinationSuffix(prefix, name)
   return (
     <div>
       <span className="text-sm font-semibold text-gray-700">Combination name</span>
-      <div className="mt-2 flex h-11 overflow-hidden rounded-xl border border-gray-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
+      <div className="mt-2 flex min-h-11 overflow-hidden rounded-xl border border-gray-200 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
         <span className="flex items-center border-r border-gray-200 bg-gray-50 px-3 text-sm font-semibold text-gray-500">{prefix}</span>
-        <span className="flex items-center pl-3 text-sm font-medium text-gray-400">#</span>
         <input
-          value={number}
-          inputMode="numeric"
-          onChange={(event) => {
-            const digits = event.target.value.replace(/\D/g, "").slice(0, 4)
-            onChange(digits ? `${prefix} #${digits}` : "")
-          }}
-          className="h-full min-w-0 flex-1 bg-transparent pr-3 text-sm font-medium text-gray-900 outline-none"
-          placeholder="1"
-          aria-label={`${prefix} number`}
+          value={suffix}
+          maxLength={Math.max(1, 255 - prefix.length - 1)}
+          onChange={(event) => onChange(composeReportCombinationName(prefix, event.target.value))}
+          className="h-11 min-w-0 flex-1 bg-transparent px-3 text-sm font-medium text-gray-900 outline-none"
+          placeholder="#1"
+          aria-label={`${prefix} combination name`}
           autoFocus={autoFocus}
         />
       </div>
+      <p className="mt-1.5 text-xs leading-5 text-gray-500">
+        {prefix} stays fixed. Add any label after it — #1 is the default.
+      </p>
     </div>
   )
 }
@@ -397,6 +405,13 @@ export function DesignCategoryDrawer({
   focusCategoryId,
   onClose,
   onOpenItem,
+  onDownloadCategory,
+  downloadingCategoryId,
+  downloadMessage,
+  downloadError,
+  onDismissDownloadError,
+  downloadsEnabled = true,
+  downloadHint,
   onRename,
   onRenameItem,
   onDeleteCategory,
@@ -411,6 +426,13 @@ export function DesignCategoryDrawer({
   focusCategoryId?: string | null
   onClose: () => void
   onOpenItem: (savedDesignId: string) => void
+  onDownloadCategory: (categoryId: string) => void
+  downloadingCategoryId?: string | null
+  downloadMessage?: string
+  downloadError?: string | null
+  onDismissDownloadError?: () => void
+  downloadsEnabled?: boolean
+  downloadHint?: string | null
   onRename: (categoryId: string, name: string) => Promise<void> | void
   onRenameItem: (savedDesignId: string, name: string) => Promise<void> | void
   onDeleteCategory: (categoryId: string) => void
@@ -459,19 +481,45 @@ export function DesignCategoryDrawer({
               <Folders className="h-5 w-5 text-blue-600" />
               <h3 className="text-lg font-bold text-gray-900">Report builder</h3>
             </div>
-            <p className="mt-1 text-sm text-gray-500">Categories of saved combinations. Open one to load it in the preview.</p>
+            <p className="mt-1 text-sm text-gray-500">
+              Categories of saved combinations. Open one to preview it, or download its PowerPoint.
+            </p>
+            {downloadHint ? <p className="mt-2 text-xs leading-5 text-amber-700">{downloadHint}</p> : null}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+            disabled={Boolean(downloadingCategoryId)}
+            className="flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Close report builder"
+            title={downloadingCategoryId ? "The report is still downloading" : "Close"}
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+          {downloadingCategoryId ? (
+            <div className="mb-3 flex items-center gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs font-medium leading-5 text-blue-800" role="status">
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+              <span>{downloadMessage || "Exporting…"}</span>
+            </div>
+          ) : null}
+          {downloadError ? (
+            <div className="mb-3 flex items-start justify-between gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-800" role="alert">
+              <p className="min-w-0 text-xs leading-5">{downloadError}</p>
+              {onDismissDownloadError ? (
+                <button
+                  type="button"
+                  onClick={onDismissDownloadError}
+                  className="flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-amber-700 transition hover:bg-amber-100"
+                  aria-label="Dismiss download message"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {isLoading ? (
             <div className="flex items-center justify-center py-16 text-sm font-medium text-gray-500">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Loading categories...
@@ -489,6 +537,19 @@ export function DesignCategoryDrawer({
               {categories.map((category) => {
                 const expanded = openIds[category.id] ?? false
                 const editing = editingId === category.id
+                const downloading = downloadingCategoryId === category.id
+                const itemCount = category.items?.length ?? 0
+                const locked = Boolean(downloadingCategoryId)
+                const canDownload = downloadsEnabled && itemCount > 0 && !locked
+                const downloadTitle = !downloadsEnabled
+                  ? downloadHint || "Download is not available for this category yet"
+                  : itemCount === 0
+                    ? "Add a combination first"
+                    : locked
+                      ? downloading
+                        ? "Downloading…"
+                        : "Another report is downloading"
+                      : "Download PowerPoint"
                 return (
                   <div key={category.id} className="overflow-hidden rounded-3xl border border-gray-200 bg-white">
                     <div className="flex items-center gap-1 pr-2">
@@ -501,10 +562,22 @@ export function DesignCategoryDrawer({
                         <ChevronDown className={`h-4 w-4 flex-shrink-0 text-gray-400 transition-transform ${expanded ? "rotate-180" : "-rotate-90"}`} />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-bold text-gray-900">{category.name}</span>
-                          <span className="text-xs text-gray-500">
-                            {category.items.length} combination{category.items.length === 1 ? "" : "s"}
+                          <span className="block text-xs leading-5 text-gray-500" aria-live="polite">
+                            {downloading
+                              ? downloadMessage || "Exporting…"
+                              : `${itemCount} combination${itemCount === 1 ? "" : "s"}`}
                           </span>
                         </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onDownloadCategory(category.id)}
+                        disabled={!canDownload}
+                        className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[#2674BA] transition hover:bg-[#2674BA]/10 disabled:cursor-not-allowed disabled:opacity-40"
+                        aria-label={itemCount === 0 ? `Add a combination before downloading ${category.name}` : `Download ${category.name} PowerPoint`}
+                        title={downloadTitle}
+                      >
+                        {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                       </button>
                       {canEdit && (
                         <div className="flex flex-shrink-0 items-center pr-2">
@@ -515,7 +588,8 @@ export function DesignCategoryDrawer({
                               setDraftName(category.name)
                               setOpenIds((current) => ({ ...current, [category.id]: true }))
                             }}
-                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                            disabled={locked}
+                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
                             aria-label={`Rename ${category.name}`}
                           >
                             <Pencil className="h-3.5 w-3.5" />
@@ -523,7 +597,8 @@ export function DesignCategoryDrawer({
                           <button
                             type="button"
                             onClick={() => onDeleteCategory(category.id)}
-                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-red-50 hover:text-red-500"
+                            disabled={locked}
+                            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
                             aria-label={`Delete ${category.name}`}
                           >
                             <Trash2 className="h-3.5 w-3.5" />
@@ -581,8 +656,9 @@ export function DesignCategoryDrawer({
                                     onSubmit={(event) => {
                                       event.preventDefault()
                                       const prefix = item.design_type === "input" ? null : reportCombinationPrefix(item.metric)
-                                      const digits = itemDraftName.replace(/\D/g, "")
-                                      const next = prefix ? (digits ? `${prefix} #${digits}` : "") : itemDraftName.trim()
+                                      const next = prefix
+                                        ? composeReportCombinationName(prefix, itemDraftName)
+                                        : itemDraftName.trim()
                                       if (!next || next === item.name) {
                                         if (next) setEditingItemId(null)
                                         return
@@ -596,12 +672,12 @@ export function DesignCategoryDrawer({
                                         <span className="flex items-center border-r border-gray-200 bg-gray-50 px-2.5 text-xs font-semibold text-gray-500">
                                           {reportCombinationPrefix(item.metric)}
                                         </span>
-                                        <span className="flex items-center pl-2 text-sm text-gray-400">#</span>
                                         <input
-                                          value={itemDraftName.replace(/\D/g, "")}
-                                          inputMode="numeric"
-                                          onChange={(event) => setItemDraftName(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                                          className="h-full min-w-0 flex-1 bg-transparent pr-2 text-sm font-medium outline-none"
+                                          value={itemDraftName}
+                                          maxLength={Math.max(1, 255 - (reportCombinationPrefix(item.metric)?.length || 0) - 1)}
+                                          onChange={(event) => setItemDraftName(event.target.value)}
+                                          className="h-full min-w-0 flex-1 bg-transparent px-2 text-sm font-medium outline-none"
+                                          placeholder="#1"
                                           aria-label={`Rename ${item.name}`}
                                           autoFocus
                                         />
@@ -650,9 +726,10 @@ export function DesignCategoryDrawer({
                                           onClick={() => {
                                             const prefix = item.design_type === "input" ? null : reportCombinationPrefix(item.metric)
                                             setEditingItemId(item.id)
-                                            setItemDraftName(prefix ? reportCombinationNumber(prefix, item.name) : item.name)
+                                            setItemDraftName(prefix ? reportCombinationSuffix(prefix, item.name) : item.name)
                                           }}
-                                          className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                                          disabled={locked}
+                                          className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-40"
                                           aria-label={`Rename ${item.name}`}
                                         >
                                           <Pencil className="h-3.5 w-3.5" />
@@ -660,7 +737,8 @@ export function DesignCategoryDrawer({
                                         <button
                                           type="button"
                                           onClick={() => onRemoveItem(category.id, item.saved_design_id)}
-                                          className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-red-50 hover:text-red-500"
+                                          disabled={locked}
+                                          className="flex h-9 w-9 flex-shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-red-50 hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-40"
                                           aria-label={`Remove ${item.name} from ${category.name}`}
                                         >
                                           <X className="h-4 w-4" />

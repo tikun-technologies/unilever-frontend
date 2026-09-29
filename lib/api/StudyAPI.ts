@@ -2221,6 +2221,102 @@ export async function listDesignCategories(studyId: string): Promise<DesignCateg
   return readStudyJson<DesignCategoryPayload[]>(res, `Failed to load categories (${res.status})`)
 }
 
+const PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+function filenameFromDisposition(disposition: string, fallback: string): string {
+  const utf8 = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(disposition)
+  if (utf8?.[1]) {
+    try {
+      return decodeURIComponent(utf8[1].trim())
+    } catch {
+      /* fall through */
+    }
+  }
+  const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(disposition)
+  return plain?.[1]?.trim() || fallback
+}
+
+function messageFromDetail(detail: unknown): string {
+  if (typeof detail === "string" && detail.trim()) return detail.trim()
+  if (Array.isArray(detail)) {
+    const parts = detail
+      .map((item) => {
+        if (typeof item === "string") return item.trim()
+        if (item && typeof item === "object" && "msg" in item) return String((item as { msg?: unknown }).msg || "").trim()
+        return ""
+      })
+      .filter(Boolean)
+    if (parts.length) return parts.join(" ")
+  }
+  return ""
+}
+
+/** Download the combination readout for one report-builder category. */
+export async function downloadDesignCategoryPpt(
+  studyId: string,
+  categoryId: string,
+  analysis?: unknown,
+): Promise<{ blob: Blob; filename: string }> {
+  const cleanId = normalizeStudyId(studyId)
+  const cleanCategory = String(categoryId || "").trim()
+  if (!cleanId || !cleanCategory) throw new Error("A saved category is required")
+
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 180_000)
+  let res: Response
+  try {
+    res = await fetchWithAuth(
+      `${API_BASE_URL}/studies/${cleanId}/design-categories/${encodeURIComponent(cleanCategory)}/export-ppt`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: PPTX_MEDIA_TYPE },
+        body: JSON.stringify({ analysis: analysis ?? null }),
+        signal: controller.signal,
+      },
+    )
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("The report is taking longer than expected. Please try again.")
+    }
+    if (error instanceof TypeError) {
+      throw new Error("The download could not reach the server. Check your connection and try again.")
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timer)
+  }
+
+  if (res.status === 204) {
+    throw new Error("Your session expired. Sign in and try the download again.")
+  }
+  if (!res.ok) {
+    let message = res.status === 404
+      ? "This category could not be found. Refresh the report builder and try again."
+      : `Failed to download this report (${res.status})`
+    const text = await res.text().catch(() => "")
+    if (text) {
+      try {
+        const parsed = messageFromDetail(JSON.parse(text)?.detail)
+        if (parsed) message = parsed
+      } catch {
+        const trimmed = text.trim()
+        if (trimmed && trimmed.length < 400 && !trimmed.startsWith("<")) message = trimmed
+      }
+    }
+    throw Object.assign(new Error(message), { status: res.status })
+  }
+  const blob = await res.blob()
+  if (!blob || blob.size === 0) throw new Error("The generated report was empty. Please try again.")
+  const contentType = (blob.type || res.headers.get("Content-Type") || "").toLowerCase()
+  if (contentType.includes("json") || contentType.startsWith("text/")) {
+    throw new Error("The server did not return a PowerPoint file. Please try again.")
+  }
+  return {
+    blob,
+    filename: filenameFromDisposition(res.headers.get("Content-Disposition") || "", "Combination Readout.pptx"),
+  }
+}
+
 export async function assignDesignCategory(studyId: string, payload: DesignCategoryAssignPayload): Promise<DesignCategoryAssignResult> {
   const cleanId = normalizeStudyId(studyId)
   const res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/design-categories/assignments`, {

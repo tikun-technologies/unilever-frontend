@@ -13,6 +13,7 @@ import {
   createSavedDesign,
   deleteDesignCategory,
   deleteSavedDesign,
+  downloadDesignCategoryPpt,
   DesignCategoryPayload,
   getSavedDesign,
   listDesignCategories,
@@ -28,6 +29,7 @@ import {
 import {
   AddToCategoryDialog,
   DesignCategoryDrawer,
+  composeReportCombinationName,
   nextReportCombinationName,
   reportCombinationPrefix,
   TopMixesCollection,
@@ -2109,6 +2111,16 @@ interface AnalyticsDesignConfiguratorProps {
   canSaveDesigns?: boolean
 }
 
+const CATEGORY_PPT_MESSAGES = [
+  "Getting this category…",
+  "Using the analytics already on this page…",
+  "Building combination slides…",
+  "Fetching design artwork…",
+  "Exporting your report…",
+  "Still working — hang tight…",
+  "Preparing the download…",
+]
+
 export function AnalyticsDesignConfigurator({
   analysisData,
   studyId,
@@ -2186,6 +2198,9 @@ export function AnalyticsDesignConfigurator({
   const [categoryDesignName, setCategoryDesignName] = useState("")
   const [isAssigningCategory, setIsAssigningCategory] = useState(false)
   const [categoryError, setCategoryError] = useState<string | null>(null)
+  const [downloadingCategoryId, setDownloadingCategoryId] = useState<string | null>(null)
+  const [categoryPptMessageIndex, setCategoryPptMessageIndex] = useState(0)
+  const [categoryPptError, setCategoryPptError] = useState<string | null>(null)
   const [categoryNotice, setCategoryNotice] = useState<string | null>(null)
   const [focusCategoryId, setFocusCategoryId] = useState<string | null>(null)
   const [openedDesign, setOpenedDesign] = useState<{ id: string; signature: string } | null>(null)
@@ -2272,6 +2287,57 @@ export function AnalyticsDesignConfigurator({
       cancelled = true
     }
   }, [isLocalPersistence, studyId])
+
+  useEffect(() => {
+    if (!downloadingCategoryId) return
+    const timer = window.setInterval(() => {
+      setCategoryPptMessageIndex((index) => (index + 1) % CATEGORY_PPT_MESSAGES.length)
+    }, 1600)
+    return () => window.clearInterval(timer)
+  }, [downloadingCategoryId])
+
+  const handleDownloadCategory = async (categoryId: string) => {
+    if (!studyId || downloadingCategoryId) return
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setCategoryPptError("You appear to be offline. Reconnect and try the download again.")
+      return
+    }
+    if (isLocalPersistence) {
+      setCategoryPptError("This report can be downloaded after the category is saved to the study.")
+      return
+    }
+    const category = designCategories.find((item) => item.id === categoryId)
+    if (!category || (category.items?.length ?? 0) === 0) {
+      setCategoryPptError("Add at least one combination to this category before downloading.")
+      return
+    }
+    setCategoryPptError(null)
+    setDownloadingCategoryId(categoryId)
+    setCategoryPptMessageIndex(0)
+    try {
+      const { blob, filename } = await downloadDesignCategoryPpt(studyId, categoryId, analysisData)
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement("a")
+      anchor.href = url
+      anchor.download = filename || "Combination Readout.pptx"
+      anchor.rel = "noopener"
+      anchor.style.display = "none"
+      document.body.appendChild(anchor)
+      anchor.click()
+      window.setTimeout(() => {
+        anchor.remove()
+        URL.revokeObjectURL(url)
+      }, 1000)
+    } catch (error) {
+      const message = (error as Error)?.message || "Failed to download this report. Please try again."
+      setCategoryPptError(message === "Failed to fetch"
+        ? "The download could not reach the server. Check your connection and try again."
+        : message)
+    } finally {
+      setDownloadingCategoryId(null)
+      setCategoryPptMessageIndex(0)
+    }
+  }
 
   useEffect(() => {
     if (!isLayerStudy) return
@@ -2839,7 +2905,10 @@ export function AnalyticsDesignConfigurator({
       setCategoryError("Select at least one element before adding it to a category.")
       return
     }
-    const trimmedCombinationName = categoryDesignName.trim()
+    const namePrefix = isInputDesignMode ? null : reportCombinationPrefix(activeMetric)
+    const trimmedCombinationName = namePrefix
+      ? composeReportCombinationName(namePrefix, categoryDesignName)
+      : categoryDesignName.trim()
     if (addCategoryMode === "current" && !categorySavedDesign && !trimmedCombinationName) {
       setCategoryError("Enter a combination name.")
       return
@@ -3117,7 +3186,7 @@ export function AnalyticsDesignConfigurator({
             ) : null}
           </div>
 
-          <div className="flex w-full items-center self-start overflow-x-auto rounded-xl border border-gray-200 bg-white sm:w-auto">
+          <div className="grid w-full grid-cols-2 gap-px overflow-hidden rounded-xl border border-gray-200 bg-gray-200 sm:flex sm:w-auto sm:items-center sm:gap-0 sm:bg-white">
             <button
               type="button"
               onClick={() => {
@@ -3125,14 +3194,13 @@ export function AnalyticsDesignConfigurator({
                 setShowInputInsights(false)
               }}
               title={isInputDesignMode ? "Input design on" : "Input design"}
-              className={`inline-flex h-9 items-center gap-1.5 px-3 text-sm font-medium transition ${
+              className={`inline-flex h-10 w-full items-center justify-center gap-1.5 bg-white px-2.5 text-xs font-medium transition sm:h-9 sm:w-auto sm:justify-start sm:px-3 sm:text-sm ${
                 isInputDesignMode ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
               }`}
             >
-              <Sparkles className="h-3.5 w-3.5" />
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
               Input design
             </button>
-            <span className="h-4 w-px bg-gray-200" aria-hidden="true" />
             <button
               type="button"
               onClick={() => {
@@ -3140,54 +3208,50 @@ export function AnalyticsDesignConfigurator({
                 setIsCategoryPanelOpen(true)
               }}
               title="Report builder"
-              className="inline-flex h-9 items-center gap-1.5 px-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900"
+              className="inline-flex h-10 w-full items-center justify-center gap-1.5 bg-white px-2.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900 sm:h-9 sm:w-auto sm:justify-start sm:border-l sm:border-gray-200 sm:px-3 sm:text-sm"
             >
-              <Folders className="h-3.5 w-3.5" />
+              <Folders className="h-3.5 w-3.5 shrink-0" />
               Report builder
               {designCategories.length > 0 && (
                 <span className="text-xs tabular-nums text-gray-400">{designCategories.length}</span>
               )}
             </button>
-            <span className="h-4 w-px bg-gray-200" aria-hidden="true" />
             <button
               type="button"
               onClick={() => void handleOpenComparePanel()}
               title="Compare saved designs"
-              className="inline-flex h-9 items-center gap-1.5 px-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900"
+              className="inline-flex h-10 w-full items-center justify-center gap-1.5 bg-white px-2.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900 sm:h-9 sm:w-auto sm:justify-start sm:border-l sm:border-gray-200 sm:px-3 sm:text-sm"
             >
-              <GitCompare className="h-3.5 w-3.5" />
+              <GitCompare className="h-3.5 w-3.5 shrink-0" />
               Compare
               {savedDesigns.length > 0 && (
                 <span className="text-xs tabular-nums text-gray-400">{savedDesigns.length}</span>
               )}
             </button>
             {onExportHtml && (
-              <>
-                <span className="h-4 w-px bg-gray-200" aria-hidden="true" />
-                <button
-                  type="button"
-                  onClick={onExportHtml}
-                  disabled={isExportingHtml || !analysisData}
-                  title="Export HTML"
-                  className="inline-flex h-9 items-center gap-1.5 px-3 text-sm font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isExportingHtml ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FileCode2 className="h-3.5 w-3.5" />}
-                  {isExportingHtml ? "Exporting" : "Export"}
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={onExportHtml}
+                disabled={isExportingHtml || !analysisData}
+                title="Export HTML"
+                className="inline-flex h-10 w-full items-center justify-center gap-1.5 bg-white px-2.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50 sm:h-9 sm:w-auto sm:justify-start sm:border-l sm:border-gray-200 sm:px-3 sm:text-sm"
+              >
+                {isExportingHtml ? <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" /> : <FileCode2 className="h-3.5 w-3.5 shrink-0" />}
+                {isExportingHtml ? "Exporting" : "Export"}
+              </button>
             )}
           </div>
         </div>
 
         {!isInputDesignMode && (
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="flex rounded-lg bg-gray-100 p-0.5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="grid w-full grid-cols-3 rounded-lg bg-gray-100 p-0.5 sm:flex sm:w-auto">
               {METRIC_OPTIONS.map((metric) => (
                 <button
                   key={metric.value}
                   type="button"
                   onClick={() => setActiveMetric(metric.value)}
-                  className={`rounded-md px-3 py-1.5 text-sm font-medium transition ${
+                  className={`rounded-md px-1.5 py-1.5 text-center text-xs font-medium transition sm:px-3 sm:text-sm ${
                     activeMetric === metric.value
                       ? "bg-white text-gray-900 shadow-sm"
                       : "text-gray-500 hover:text-gray-800"
@@ -3198,11 +3262,11 @@ export function AnalyticsDesignConfigurator({
               ))}
             </div>
 
-            <div className="relative">
+            <div className="relative w-full sm:w-auto">
               <select
                 value={activeSegment?.id || ""}
                 onChange={(event) => setActiveSegmentId(event.target.value)}
-                className="h-9 appearance-none rounded-lg border border-gray-200 bg-white py-1 pl-3 pr-8 text-sm font-medium text-gray-700 outline-none transition hover:border-gray-300 focus:border-gray-400"
+                className="h-9 w-full appearance-none rounded-lg border border-gray-200 bg-white py-1 pl-3 pr-8 text-sm font-medium text-gray-700 outline-none transition hover:border-gray-300 focus:border-gray-400 sm:w-auto"
               >
                 {segmentOptions.map((segment) => (
                   <option key={segment.id} value={segment.id}>
@@ -3901,8 +3965,19 @@ export function AnalyticsDesignConfigurator({
         canEdit={canSaveDesigns}
         activeDesignId={previewDesignId}
         focusCategoryId={focusCategoryId}
-        onClose={() => setIsCategoryPanelOpen(false)}
+        onClose={() => {
+          if (downloadingCategoryId) return
+          setIsCategoryPanelOpen(false)
+          setCategoryPptError(null)
+        }}
         onOpenItem={(savedDesignId) => void handleOpenCategoryItem(savedDesignId)}
+        onDownloadCategory={(categoryId) => void handleDownloadCategory(categoryId)}
+        downloadingCategoryId={downloadingCategoryId}
+        downloadMessage={CATEGORY_PPT_MESSAGES[categoryPptMessageIndex % CATEGORY_PPT_MESSAGES.length]}
+        downloadError={categoryPptError}
+        onDismissDownloadError={() => setCategoryPptError(null)}
+        downloadsEnabled={!isLocalPersistence}
+        downloadHint={isLocalPersistence ? "Download is available once this category is saved on the study." : null}
         onRename={handleRenameCategory}
         onRenameItem={handleRenameSavedDesign}
         onDeleteCategory={(categoryId) => void handleDeleteCategory(categoryId)}
