@@ -34,17 +34,17 @@ export function nextReportCombinationName(metric: string, usedNames: Iterable<st
 }
 
 export function reportCombinationSuffix(prefix: string, name: string): string {
-  const trimmed = (name || "").replace(/\s+/g, " ").trim()
-  if (!trimmed) return ""
+  const raw = (name || "").replace(/[\r\n]+/g, " ")
   const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-  const match = trimmed.match(new RegExp(`^${escaped}(?:\\s+(.*))?$`, "i"))
-  if (match) return (match[1] || "").trim()
-  return trimmed
+  const match = raw.match(new RegExp(`^${escaped}(?:[ \\t]+(.*))?$`, "i"))
+  if (match) return match[1] ?? ""
+  if (raw.trim().toLowerCase() === prefix.toLowerCase()) return ""
+  return raw
 }
 
 export function composeReportCombinationName(prefix: string, value: string): string {
   const rest = reportCombinationSuffix(prefix, value)
-  return rest ? `${prefix} ${rest}` : `${prefix} #1`
+  return rest ? `${prefix} ${rest}` : prefix
 }
 
 function ReportNameField({
@@ -75,7 +75,7 @@ function ReportNameField({
         />
       </div>
       <p className="mt-1.5 text-xs leading-5 text-gray-500">
-        {prefix} stays fixed. Add any label after it — #1 is the default.
+        {prefix} stays fixed. You can delete #1, add spaces, and type any label.
       </p>
     </div>
   )
@@ -657,8 +657,8 @@ export function DesignCategoryDrawer({
                                       event.preventDefault()
                                       const prefix = item.design_type === "input" ? null : reportCombinationPrefix(item.metric)
                                       const next = prefix
-                                        ? composeReportCombinationName(prefix, itemDraftName)
-                                        : itemDraftName.trim()
+                                        ? composeReportCombinationName(prefix, itemDraftName).replace(/\s+/g, " ").trim()
+                                        : itemDraftName.replace(/\s+/g, " ").trim()
                                       if (!next || next === item.name) {
                                         if (next) setEditingItemId(null)
                                         return

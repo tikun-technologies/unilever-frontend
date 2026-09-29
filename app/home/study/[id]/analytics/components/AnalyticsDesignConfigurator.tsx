@@ -2907,8 +2907,8 @@ export function AnalyticsDesignConfigurator({
     }
     const namePrefix = isInputDesignMode ? null : reportCombinationPrefix(activeMetric)
     const trimmedCombinationName = namePrefix
-      ? composeReportCombinationName(namePrefix, categoryDesignName)
-      : categoryDesignName.trim()
+      ? composeReportCombinationName(namePrefix, categoryDesignName).replace(/\s+/g, " ").trim()
+      : categoryDesignName.replace(/\s+/g, " ").trim()
     if (addCategoryMode === "current" && !categorySavedDesign && !trimmedCombinationName) {
       setCategoryError("Enter a combination name.")
       return
