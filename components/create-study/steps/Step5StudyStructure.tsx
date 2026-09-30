@@ -1930,6 +1930,8 @@ function LayerMode({
   const [builderMobileTab, setBuilderMobileTab] = useState<'anchors' | 'preview' | 'blocked'>('preview')
   const [isAnchorSidebarOpen, setIsAnchorSidebarOpen] = useState(false)
   const [isBlockedSidebarOpen, setIsBlockedSidebarOpen] = useState(false)
+  const [collapsedSelectedGroups, setCollapsedSelectedGroups] = useState<Set<string>>(new Set())
+  const [showConstraintFullPreview, setShowConstraintFullPreview] = useState(false)
   const [constraintError, setConstraintError] = useState<string | null>(null)
   const [showConstraintNameDialog, setShowConstraintNameDialog] = useState(false)
   const [constraintNameDraft, setConstraintNameDraft] = useState("")
@@ -1955,7 +1957,8 @@ function LayerMode({
     showDesignConstraintModal ||
     showConstraintNameDialog ||
     showLayerTextModal !== null ||
-    constraintImagePreview !== null
+    constraintImagePreview !== null ||
+    showConstraintFullPreview
 
   useUndoRedoShortcuts({
     undo: undoLayers,
@@ -2618,14 +2621,48 @@ function LayerMode({
   const getConstraintLayerSelectionCount = (refs: ConstraintElementRef[], layerId: string) =>
     refs.filter((item) => item.layerId === layerId).length
 
+  const toggleSelectedGroupCollapsed = (side: 'anchors' | 'blocked', layerId: string) => {
+    const key = `${side}::${layerId}`
+    setCollapsedSelectedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  const toggleAllSelectedGroupsCollapsed = (side: 'anchors' | 'blocked', layerIds: string[]) => {
+    setCollapsedSelectedGroups((prev) => {
+      const next = new Set(prev)
+      const allCollapsed = layerIds.length > 0 && layerIds.every((layerId) => next.has(`${side}::${layerId}`))
+      layerIds.forEach((layerId) => {
+        const key = `${side}::${layerId}`
+        if (allCollapsed) next.delete(key)
+        else next.add(key)
+      })
+      return next
+    })
+  }
+
+  const renderHamburgerIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="4" y1="12" x2="20" y2="12" />
+      <line x1="4" y1="18" x2="20" y2="18" />
+    </svg>
+  )
+
   const renderSelectedSidebarSection = (
     title: string,
     refs: ConstraintElementRef[],
     tone: 'blue' | 'red',
     onSelect: (key: string) => void
   ) => {
+    const side = tone === 'blue' ? 'anchors' : 'blocked'
     const groups = groupSelectedConstraintOptions(refs)
     const selectedCount = groups.reduce((total, group) => total + group.items.length, 0)
+    const layerIds = groups.map((group) => group.layerId)
+    const allCollapsed = layerIds.length > 0 && layerIds.every((layerId) => collapsedSelectedGroups.has(`${side}::${layerId}`))
     const toneClasses = tone === 'blue'
       ? {
         header: 'bg-blue-50 text-blue-800 border-blue-100',
@@ -2645,50 +2682,79 @@ function LayerMode({
 
     return (
       <div className="space-y-2">
-        <div className={`flex items-center justify-between rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${toneClasses.header}`}>
+        <div className={`flex items-center justify-between gap-2 rounded-lg border px-2.5 py-1.5 text-xs font-semibold ${toneClasses.header}`}>
           <span>{title}</span>
-          <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px]">{selectedCount}</span>
-        </div>
-        {groups.length > 0 ? groups.map((group) => (
-          <div key={group.layerId} className="space-y-1.5">
-            <DelayedNameOverlay name={group.layerName} className="min-w-0 px-0.5">
-              <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-gray-500">{group.layerName}</div>
-            </DelayedNameOverlay>
-            {group.items.map((item) => {
-              const isVisible = constraintPreviewVisibility[item.key] !== false
-              const inRule = activeRefs.some((ref) => ref.layerId === item.layerId && ref.imageId === item.imageId)
-              return (
-                <div
-                  key={item.key}
-                  className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${inRule ? toneClasses.chipOn : toneClasses.chipOff} ${isVisible ? '' : 'opacity-60'}`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => onSelect(item.key)}
-                    className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
-                  >
-                    <div className={`h-9 w-9 flex-shrink-0 overflow-hidden rounded-md border ${toneClasses.thumb}`}>
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={item.src} alt={item.imageName} className="h-full w-full object-contain" />
-                    </div>
-                    <DelayedNameOverlay name={item.imageName} className="min-w-0 flex-1">
-                      <span className="block truncate text-xs font-medium text-gray-800">{item.imageName}</span>
-                    </DelayedNameOverlay>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => toggleConstraintPreviewVisibility(item.key)}
-                    className={`relative h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors ${isVisible ? toneClasses.on : 'bg-gray-300'}`}
-                    aria-label={isVisible ? `Hide ${item.imageName}` : `Show ${item.imageName}`}
-                    title={isVisible ? 'Hide from preview' : 'Show in preview'}
-                  >
-                    <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all ${isVisible ? 'left-4' : 'left-0.5'}`} />
-                  </button>
-                </div>
-              )
-            })}
+          <div className="flex items-center gap-1.5">
+            <span className="rounded-full bg-white/80 px-1.5 py-0.5 text-[10px]">{selectedCount}</span>
+            {groups.length > 0 && (
+              <button
+                type="button"
+                onClick={() => toggleAllSelectedGroupsCollapsed(side, layerIds)}
+                className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md text-current hover:bg-white/70"
+                aria-label={allCollapsed ? 'Expand all sections' : 'Collapse all sections'}
+                title={allCollapsed ? 'Expand all' : 'Collapse all'}
+              >
+                {renderHamburgerIcon()}
+              </button>
+            )}
           </div>
-        )) : (
+        </div>
+        {groups.length > 0 ? groups.map((group) => {
+          const isCollapsed = collapsedSelectedGroups.has(`${side}::${group.layerId}`)
+          return (
+            <div key={group.layerId} className="space-y-1.5">
+              <button
+                type="button"
+                onClick={() => toggleSelectedGroupCollapsed(side, group.layerId)}
+                className="flex w-full cursor-pointer items-center gap-1.5 rounded-md px-0.5 py-0.5 text-left hover:bg-slate-50"
+                aria-expanded={!isCollapsed}
+              >
+                <span className="flex h-5 w-5 flex-shrink-0 items-center justify-center text-gray-400">
+                  {renderHamburgerIcon()}
+                </span>
+                <DelayedNameOverlay name={group.layerName} className="min-w-0 flex-1">
+                  <div className="truncate text-[10px] font-semibold uppercase tracking-wide text-gray-500">{group.layerName}</div>
+                </DelayedNameOverlay>
+                <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[9px] font-semibold text-gray-500">
+                  {group.items.length}
+                </span>
+              </button>
+              {!isCollapsed && group.items.map((item) => {
+                const isVisible = constraintPreviewVisibility[item.key] !== false
+                const inRule = activeRefs.some((ref) => ref.layerId === item.layerId && ref.imageId === item.imageId)
+                return (
+                  <div
+                    key={item.key}
+                    className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 ${inRule ? toneClasses.chipOn : toneClasses.chipOff} ${isVisible ? '' : 'opacity-60'}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onSelect(item.key)}
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+                    >
+                      <div className={`h-9 w-9 flex-shrink-0 overflow-hidden rounded-md border ${toneClasses.thumb}`}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={item.src} alt={item.imageName} className="h-full w-full object-contain" />
+                      </div>
+                      <DelayedNameOverlay name={item.imageName} className="min-w-0 flex-1">
+                        <span className="block truncate text-xs font-medium text-gray-800">{item.imageName}</span>
+                      </DelayedNameOverlay>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleConstraintPreviewVisibility(item.key)}
+                      className={`relative h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors ${isVisible ? toneClasses.on : 'bg-gray-300'}`}
+                      aria-label={isVisible ? `Hide ${item.imageName}` : `Show ${item.imageName}`}
+                      title={isVisible ? 'Hide from preview' : 'Show in preview'}
+                    >
+                      <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-all ${isVisible ? 'left-4' : 'left-0.5'}`} />
+                    </button>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        }) : (
           <div className="rounded-lg border border-dashed border-gray-200 bg-slate-50 px-2 py-3 text-center text-[11px] text-gray-500">
             Nothing selected yet.
           </div>
@@ -2857,6 +2923,8 @@ function LayerMode({
     setBlockedSearchQuery("")
     setIsAnchorSidebarOpen(false)
     setIsBlockedSidebarOpen(false)
+    setCollapsedSelectedGroups(new Set())
+    setShowConstraintFullPreview(false)
     setConstraintError(null)
     setEditingConstraintId(null)
     setShowConstraintNameDialog(false)
@@ -3026,6 +3094,7 @@ function LayerMode({
     setBuilderMobileTab('preview')
     setIsAnchorSidebarOpen(false)
     setIsBlockedSidebarOpen(false)
+    setCollapsedSelectedGroups(new Set())
     setConstraintError(null)
     setConstraintNameError(null)
     setShowConstraintNameDialog(false)
@@ -3037,30 +3106,35 @@ function LayerMode({
     const anchorElement = parseConstraintElementKey(key)
     if (!anchorElement.layerId || !anchorElement.imageId) return
 
-    setWorkbenchStaged((prev) => {
-      const exists = prev.anchors.some((item) => isSameConstraintElement(item, anchorElement))
-      if (exists) return prev
+    const alreadySelected = constraintDraft.anchors.some((item) => isSameConstraintElement(item, anchorElement))
+
+    setWorkbenchStaged((prev) => ({
+      anchors: alreadySelected
+        ? prev.anchors.filter((item) => !isSameConstraintElement(item, anchorElement))
+        : prev.anchors.some((item) => isSameConstraintElement(item, anchorElement))
+          ? prev.anchors
+          : [...prev.anchors, anchorElement],
+      blocked: prev.blocked.filter((item) => !isSameConstraintElement(item, anchorElement)),
+    }))
+
+    setConstraintDraft((prev) => ({
+      anchors: alreadySelected
+        ? prev.anchors.filter((item) => !isSameConstraintElement(item, anchorElement))
+        : [...prev.anchors, anchorElement],
+      blocked: prev.blocked.filter((blockedItem) => !isSameConstraintElement(blockedItem, anchorElement)),
+    }))
+
+    setConstraintPreviewVisibility((prev) => {
+      if (alreadySelected) {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      }
       return {
         ...prev,
-        anchors: [...prev.anchors, anchorElement],
-        blocked: prev.blocked.filter((item) => !isSameConstraintElement(item, anchorElement)),
+        [key]: prev[key] !== undefined ? prev[key] : true,
       }
     })
-
-    setConstraintDraft((prev) => {
-      const exists = prev.anchors.some((item) => isSameConstraintElement(item, anchorElement))
-      return {
-        anchors: exists
-          ? prev.anchors.filter((item) => !isSameConstraintElement(item, anchorElement))
-          : [...prev.anchors, anchorElement],
-        blocked: prev.blocked.filter((blockedItem) => !isSameConstraintElement(blockedItem, anchorElement)),
-      }
-    })
-
-    setConstraintPreviewVisibility((prev) => ({
-      ...prev,
-      [key]: prev[key] !== undefined ? prev[key] : true,
-    }))
     setConstraintError(null)
   }
 
@@ -3072,29 +3146,35 @@ function LayerMode({
       return
     }
 
-    setWorkbenchStaged((prev) => {
-      const exists = prev.blocked.some((item) => isSameConstraintElement(item, blockedElement))
-      if (exists) return prev
-      return {
-        ...prev,
-        blocked: [...prev.blocked, blockedElement],
-      }
-    })
+    const alreadySelected = constraintDraft.blocked.some((item) => isSameConstraintElement(item, blockedElement))
 
-    setConstraintDraft((prev) => {
-      const exists = prev.blocked.some((item) => isSameConstraintElement(item, blockedElement))
-      return {
-        ...prev,
-        blocked: exists
-          ? prev.blocked.filter((item) => !isSameConstraintElement(item, blockedElement))
-          : [...prev.blocked, blockedElement],
-      }
-    })
-
-    setConstraintPreviewVisibility((prev) => ({
+    setWorkbenchStaged((prev) => ({
       ...prev,
-      [key]: prev[key] !== undefined ? prev[key] : true,
+      blocked: alreadySelected
+        ? prev.blocked.filter((item) => !isSameConstraintElement(item, blockedElement))
+        : prev.blocked.some((item) => isSameConstraintElement(item, blockedElement))
+          ? prev.blocked
+          : [...prev.blocked, blockedElement],
     }))
+
+    setConstraintDraft((prev) => ({
+      ...prev,
+      blocked: alreadySelected
+        ? prev.blocked.filter((item) => !isSameConstraintElement(item, blockedElement))
+        : [...prev.blocked, blockedElement],
+    }))
+
+    setConstraintPreviewVisibility((prev) => {
+      if (alreadySelected) {
+        const next = { ...prev }
+        delete next[key]
+        return next
+      }
+      return {
+        ...prev,
+        [key]: prev[key] !== undefined ? prev[key] : true,
+      }
+    })
     setConstraintError(null)
   }
 
@@ -8025,11 +8105,27 @@ function LayerMode({
                     </div>
 
                     <div className={`min-h-0 flex-col rounded-2xl border border-gray-200 bg-white p-4 shadow-sm lg:flex ${builderMobileTab === 'preview' ? 'flex' : 'hidden'}`}>
-                      <div className="mb-4">
-                        <div className="text-sm font-semibold text-gray-900">Preview</div>
-                        <p className="mt-1 text-xs leading-5 text-gray-500">
-                          Use Selected to toggle elements on or off in this preview.
-                        </p>
+                      <div className="mb-4 flex items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-gray-900">Preview</div>
+                          <p className="mt-1 text-xs leading-5 text-gray-500">
+                            Use Selected to toggle elements on or off in this preview.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setShowConstraintFullPreview(true)}
+                          className="flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                          title="View fullscreen"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+                            <path d="M21 8V5a2 2 0 0 0-2-2h-3" />
+                            <path d="M3 16v3a2 2 0 0 0 2 2h3" />
+                            <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+                          </svg>
+                          Full screen
+                        </button>
                       </div>
                       <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden rounded-2xl bg-slate-50 p-2">
                         <ConstraintSelectionPreview
@@ -8172,7 +8268,7 @@ function LayerMode({
                     : 'No elements selected yet'}
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  <Button type="button" variant="outline" className="cursor-pointer" onClick={() => { setDesignConstraintView('overview'); setConstraintError(null); setShowConstraintNameDialog(false) }}>
+                  <Button type="button" variant="outline" className="cursor-pointer" onClick={() => { setDesignConstraintView('overview'); setConstraintError(null); setShowConstraintNameDialog(false); setShowConstraintFullPreview(false) }}>
                     Back
                   </Button>
                   <Button
@@ -8220,6 +8316,36 @@ function LayerMode({
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {showConstraintFullPreview && (
+        <div
+          className="fixed inset-0 z-[65] flex items-center justify-center bg-black/80 p-4"
+          onClick={() => setShowConstraintFullPreview(false)}
+        >
+          <div className="relative flex h-full max-h-[96vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex flex-shrink-0 items-center justify-between border-b border-gray-200 px-4 py-3">
+              <div className="text-sm font-semibold text-gray-900">Preview</div>
+              <button
+                type="button"
+                onClick={() => setShowConstraintFullPreview(false)}
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-gray-200 text-xl leading-none text-gray-500 hover:bg-gray-50"
+                aria-label="Close fullscreen preview"
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center bg-slate-50 p-4">
+              <ConstraintSelectionPreview
+                background={background}
+                layers={layers}
+                aspect={previewAspect}
+                selectedRefs={visibleConstraintPreviewRefs}
+                className="h-full w-full"
+              />
+            </div>
           </div>
         </div>
       )}
