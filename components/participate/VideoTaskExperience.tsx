@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import type { MutableRefObject } from "react"
 import { ChevronDown, ChevronUp, Play, ThumbsDown, ThumbsUp, Volume2, VolumeX } from "lucide-react"
 import type Hls from "hls.js"
@@ -19,6 +19,8 @@ import { mediaSnapshot, videoClipLabel, videoDiag, videoDiagEnabled } from "@/li
 /** No progress for this long after play() was requested counts as a stall. */
 const STALL_MS = 8000
 const MAX_STALL_RECOVERIES = 2
+/** Quiet time after the last scroll event before the reel counts as at rest. */
+const SETTLE_MS = 140
 
 function stripQuery(url: string) {
   return url.split("?")[0]
@@ -165,6 +167,8 @@ function ClipMedia({
     // The scroll list must receive the drag. A playing video on Android
     // otherwise swallows the swipe, so only the arrow buttons can move it.
     node.style.pointerEvents = "none"
+    node.style.transform = "translateZ(0)"
+    node.style.backfaceVisibility = "hidden"
     if (poster) node.poster = poster
     node.className = "pointer-events-none h-full w-full object-cover"
     host.appendChild(node)
@@ -516,6 +520,7 @@ function ClipMedia({
   return (
     <div
       className={`pointer-events-none relative h-full w-full overflow-hidden bg-black ${isMobile ? "" : "rounded-xl shadow-lg"}`}
+      style={{ transform: "translateZ(0)" }}
     >
       <div ref={hostRef} className="pointer-events-none h-full w-full" />
       {!ready && shouldPlay && !poster && !needsTap && (
@@ -658,8 +663,16 @@ export function VideoTaskExperience({
   const activeRef = useRef(0)
   const activeVideoRef = useRef<HTMLVideoElement | null>(null)
   const touchingRef = useRef(false)
+  // True from the first scroll event until the snap has come to rest.
+  const scrollingRef = useRef(false)
+  // The viewport changed size while the reel was moving; re-measure at rest.
+  const pendingMeasureRef = useRef(false)
+  const slideHeightRef = useRef(0)
 
   const [activeIndex, setActiveIndex] = useState(0)
+  // Slides use a pixel height that only changes while the reel is at rest.
+  // If the browser bar hides mid-swipe, the snap points stay where they were.
+  const [slideHeight, setSlideHeight] = useState(0)
   const [phase, setPhase] = useState<"watch" | "rate">(clips.length === 0 ? "rate" : "watch")
   const [failed, setFailed] = useState<Record<number, boolean>>({})
   const [retryCount, setRetryCount] = useState<Record<number, number>>({})
@@ -679,109 +692,125 @@ export function VideoTaskExperience({
   const scrollToIndex = useCallback((index: number, behavior: ScrollBehavior = "smooth") => {
     const feed = feedRef.current
     if (!feed) return
-    const height = feed.clientHeight || 1
+    const height = slideHeightRef.current || feed.clientHeight || 1
     // The final snap item is the rating step, so the participant can scroll
     // down after the last reel instead of getting stuck on it.
     const next = Math.max(0, Math.min(clips.length, index))
     feed.scrollTo({ top: next * height, behavior })
   }, [clips.length])
 
+  // Size the slides from the feed and keep the current clip aligned.
+  // Only ever called while the reel is at rest.
+  const measure = useCallback(() => {
+    const feed = feedRef.current
+    if (!feed) return
+    const height = feed.clientHeight
+    if (height <= 0 || Math.abs(height - slideHeightRef.current) <= 1) return
+    slideHeightRef.current = height
+    setSlideHeight(height)
+    feed.scrollTo({ top: activeRef.current * height, behavior: "auto" })
+  }, [])
+
+  useLayoutEffect(() => {
+    if (phase !== "watch") return
+    measure()
+  }, [measure, phase])
+
+  useEffect(() => {
+    if (phase !== "watch") return
+    const onResize = () => {
+      // Android collapses the URL bar during a swipe. Resizing the slides
+      // then would move every snap point under the finger, so wait for rest.
+      if (touchingRef.current || scrollingRef.current) {
+        pendingMeasureRef.current = true
+        return
+      }
+      measure()
+    }
+    const vv = window.visualViewport
+    vv?.addEventListener("resize", onResize)
+    window.addEventListener("resize", onResize)
+    window.addEventListener("orientationchange", onResize)
+    return () => {
+      vv?.removeEventListener("resize", onResize)
+      window.removeEventListener("resize", onResize)
+      window.removeEventListener("orientationchange", onResize)
+    }
+  }, [measure, phase])
+
+  // The active clip changes only once the swipe has fully come to rest.
+  // Nothing is paused, played, mounted or unmounted while the list is moving,
+  // which is what kept tearing the picture on Android.
   useEffect(() => {
     const feed = feedRef.current
     if (!feed || phase !== "watch") return
 
-    const handleIndexChange = (newIndex: number) => {
-      if (newIndex === clips.length) {
+    let timer: number | null = null
+    const clear = () => {
+      if (timer !== null) window.clearTimeout(timer)
+      timer = null
+    }
+
+    const settle = () => {
+      clear()
+      if (touchingRef.current) return
+      const height = slideHeightRef.current || feed.clientHeight || 1
+      const index = Math.max(0, Math.min(clips.length, Math.round(feed.scrollTop / height)))
+      scrollingRef.current = false
+      if (index === clips.length) {
         setPhase("rate")
         return
       }
-      if (newIndex >= 0 && newIndex < clips.length && newIndex !== activeRef.current) {
-        activeRef.current = newIndex
-        setActiveIndex(newIndex)
+      if (index !== activeRef.current) {
+        activeRef.current = index
+        setActiveIndex(index)
+      }
+      if (pendingMeasureRef.current) {
+        pendingMeasureRef.current = false
+        measure()
       }
     }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        let bestEntry: IntersectionObserverEntry | null = null
-        for (const entry of entries) {
-          if (entry.isIntersecting && (!bestEntry || entry.intersectionRatio > bestEntry.intersectionRatio)) {
-            bestEntry = entry
-          }
-        }
-        if (bestEntry && bestEntry.intersectionRatio >= 0.55) {
-          const idx = Number((bestEntry.target as HTMLElement).dataset.index)
-          if (!Number.isNaN(idx)) {
-            handleIndexChange(idx)
-          }
-        }
-      },
-      {
-        root: feed,
-        threshold: [0.55],
-      }
-    )
-
-    const sections = feed.querySelectorAll<HTMLElement>("section[data-index]")
-    sections.forEach((sec) => observer.observe(sec))
-
-    const onScrollEnd = () => {
-      const height = feed.clientHeight || 1
-      const settledIndex = Math.max(0, Math.min(clips.length, Math.round(feed.scrollTop / height)))
-      handleIndexChange(settledIndex)
+    const arm = () => {
+      clear()
+      timer = window.setTimeout(settle, SETTLE_MS)
     }
 
-    let scrollTimeout: number | null = null
     const onScroll = () => {
-      if (touchingRef.current) return
-      if (scrollTimeout) window.clearTimeout(scrollTimeout)
-      scrollTimeout = window.setTimeout(onScrollEnd, 120)
+      scrollingRef.current = true
+      if (touchingRef.current) {
+        clear()
+        return
+      }
+      arm()
     }
-
     const onTouchStart = () => {
       touchingRef.current = true
-      if (scrollTimeout) window.clearTimeout(scrollTimeout)
+      clear()
     }
-
     const onTouchEnd = () => {
       touchingRef.current = false
-      if (scrollTimeout) window.clearTimeout(scrollTimeout)
-      scrollTimeout = window.setTimeout(onScrollEnd, 120)
+      arm()
     }
-
-    const handleScrollEnd = () => {
-      if (!touchingRef.current) onScrollEnd()
+    // Chrome fires this once the snap animation ends; Safari relies on the timer.
+    const onScrollEnd = () => {
+      if (!touchingRef.current) settle()
     }
 
     feed.addEventListener("scroll", onScroll, { passive: true })
-    feed.addEventListener("scrollend", handleScrollEnd)
+    feed.addEventListener("scrollend", onScrollEnd)
     feed.addEventListener("touchstart", onTouchStart, { passive: true })
     feed.addEventListener("touchend", onTouchEnd, { passive: true })
     feed.addEventListener("touchcancel", onTouchEnd, { passive: true })
 
     return () => {
-      observer.disconnect()
+      clear()
       feed.removeEventListener("scroll", onScroll)
-      feed.removeEventListener("scrollend", handleScrollEnd)
+      feed.removeEventListener("scrollend", onScrollEnd)
       feed.removeEventListener("touchstart", onTouchStart)
       feed.removeEventListener("touchend", onTouchEnd)
       feed.removeEventListener("touchcancel", onTouchEnd)
-      if (scrollTimeout) window.clearTimeout(scrollTimeout)
     }
-  }, [phase, clips.length])
-
-  // Keep the snapped clip aligned only when rotating the device.
-  useEffect(() => {
-    if (phase !== "watch") return
-    const onOrientation = () => {
-      const feed = feedRef.current
-      if (!feed) return
-      const height = feed.clientHeight || 1
-      feed.scrollTo({ top: activeRef.current * height, behavior: "auto" })
-    }
-    window.addEventListener("orientationchange", onOrientation)
-    return () => window.removeEventListener("orientationchange", onOrientation)
-  }, [phase])
+  }, [phase, clips.length, measure])
 
   useEffect(() => {
     if (phase !== "watch") return
@@ -893,18 +922,23 @@ export function VideoTaskExperience({
       <div
         ref={feedRef}
         className={`min-h-0 w-full flex-1 snap-y snap-mandatory overflow-y-scroll overscroll-y-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isMobile ? "" : "bg-white"}`}
-        style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
+        style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y", transform: "translateZ(0)" }}
       >
         {clips.map((src, index) => {
-          const mounted = isMobile
-            ? index === activeIndex || index === activeIndex + 1
-            : Math.abs(index - activeIndex) <= 1
+          // Previous, current and next stay attached so a swipe in either
+          // direction lands on a clip that already has its first frame.
+          // Neighbours are paused; only the current clip ever plays.
+          const mounted = Math.abs(index - activeIndex) <= 1
           const shouldPlay = index === activeIndex && !failed[index]
           return (
             <section
               key={`${src}-${index}`}
-              data-index={index}
-              className={`relative h-full w-full shrink-0 snap-start ${isMobile ? "" : "flex items-center justify-center bg-white"}`}
+              className={`relative h-full w-full shrink-0 snap-start snap-always ${isMobile ? "" : "flex items-center justify-center bg-white"}`}
+              style={{
+                height: slideHeight ? `${slideHeight}px` : undefined,
+                contain: isMobile ? "content" : undefined,
+                transform: "translateZ(0)",
+              }}
             >
               <div className={isMobile ? "h-full w-full pointer-events-none" : "h-full w-auto max-h-full max-w-full aspect-[9/16] pointer-events-none"}>
                 <ClipMedia
@@ -944,8 +978,12 @@ export function VideoTaskExperience({
         })}
         <section
           key="rating"
-          data-index={clips.length}
-          className="h-full w-full shrink-0 snap-start"
+          className="h-full w-full shrink-0 snap-start snap-always"
+          style={{
+            height: slideHeight ? `${slideHeight}px` : undefined,
+            contain: isMobile ? "content" : undefined,
+            transform: "translateZ(0)",
+          }}
         >
           {ratingPanel}
         </section>
