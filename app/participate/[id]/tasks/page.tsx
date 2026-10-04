@@ -5,6 +5,8 @@ import { useState, useRef, useEffect, useLayoutEffect } from "react"
 import Image from "next/image"
 import { ThumbsUp, ThumbsDown } from "lucide-react"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
+import { prewarmVideoUrls } from "@/components/participate/VideoTaskGrid"
+import { VideoTaskExperience } from "@/components/participate/VideoTaskExperience"
 import { getParticipateImageUrl } from "@/lib/utils/participateImageUrls"
 import { getRespondentStudyDetails, submitTasksBulk, getSessionStatus, startMergedStudy } from "@/lib/api/ResponseAPI"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
@@ -100,7 +102,7 @@ const getCachedUrl = (url: string | undefined): string => {
 
 type Task = {
   id: string
-  type?: "grid" | "layer" | "text"
+  type?: "grid" | "layer" | "text" | "video"
   leftImageUrl?: string
   rightImageUrl?: string
   leftLabel?: string
@@ -122,7 +124,7 @@ const isImageLikeUrl = (url: string | undefined): url is string =>
 
 const collectTaskImageUrls = (task: Task | undefined, backgroundUrl?: string | null): string[] => {
   if (!task) return []
-  if (task.type === "text") return []
+  if (task.type === "text" || task.type === "video") return []
 
   const urls: string[] = []
   if (backgroundUrl) urls.push(backgroundUrl)
@@ -185,7 +187,7 @@ export default function TasksPage() {
     right: "",
     middle: "",
   })
-  const [studyType, setStudyType] = useState<"grid" | "layer" | "text" | "hybrid" | undefined>(undefined)
+  const [studyType, setStudyType] = useState<"grid" | "layer" | "text" | "hybrid" | "video" | undefined>(undefined)
   const [mainQuestion, setMainQuestion] = useState<string>("")
   const [backgroundUrl, setBackgroundUrl] = useState<string | null>(null)
   const [isSpecialCreator, setIsSpecialCreator] = useState(false)
@@ -356,6 +358,8 @@ export default function TasksPage() {
             const hasText = Object.values(content).some((v: any) => (v?.element_type === 'text'))
             activeType = t.phase_type || (hasText ? 'text' : 'grid')
           }
+          const hasVideo = Object.values(content).some((v: any) => v?.element_type === 'video')
+          if (normalizedType === 'video' || hasVideo) activeType = 'video'
 
           if (activeType === "layer") {
             const layers = Object.keys(es)
@@ -398,7 +402,7 @@ export default function TasksPage() {
 
           return {
             id: String(t.task_id || t.task_index || Math.random()),
-            type: activeType === "text" ? "text" : "grid",
+            type: activeType === "text" ? "text" : activeType === "video" ? "video" : "grid",
             leftImageUrl: activeType === "text" ? undefined : displayList[0],
             rightImageUrl: activeType === "text" ? undefined : displayList[1],
             gridUrls: displayList,
@@ -506,6 +510,14 @@ export default function TasksPage() {
       void imageCacheManager.prewarmUrls(nextUrls, "high")
     }
   }, [backgroundUrl, currentTaskIndex, isTaskImagesReady, tasks])
+
+  useEffect(() => {
+    if (studyType !== "video" || tasks.length === 0) return
+    // The reel warms the clip on screen. Warm only the next task here, and only its HLS clips.
+    const next = tasks[currentTaskIndex + 1]
+    const urls = (next?.gridUrls || []).filter((url: unknown) => typeof url === "string" && String(url).includes(".m3u8"))
+    prewarmVideoUrls(urls)
+  }, [currentTaskIndex, studyType, tasks])
 
   // ResizeObserver for container size (mobile)
   useEffect(() => {
@@ -1087,6 +1099,69 @@ export default function TasksPage() {
           <div className="p-6 text-center text-sm text-gray-600">No tasks assigned.</div>
         ) : showTaskImageLoader ? (
           <PreparingAssetsLoader />
+        ) : task?.type === "video" && isLoading ? (
+          <>
+            <div
+              className="lg:hidden flex flex-col flex-1 min-h-0 overflow-hidden"
+              style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}
+            >
+              <div className="mb-2 sm:mb-4 flex-shrink-0">
+                <div className="h-2 w-full bg-gray-200 rounded overflow-hidden mb-5 sm:mb-5">
+                  <div
+                    className="h-full bg-[rgba(38,116,186,1)] rounded transition-all duration-300"
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+                <div className="text-base font-medium text-gray-800 leading-tight break-words hyphens-auto">
+                  {mainQuestion || `Question ${Math.min(currentTaskIndex + 1, totalTasks)}`}
+                </div>
+              </div>
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgba(38,116,186,1)] mx-auto mb-4" />
+                  <h2 className="text-xl font-semibold text-gray-900">Processing your responses...</h2>
+                  <p className="mt-2 text-sm text-gray-600">Please wait while we save your study data.</p>
+                  <p className="mt-1 text-sm font-medium text-gray-700">Please don&apos;t close your tab.</p>
+                </div>
+              </div>
+            </div>
+            <div className="hidden lg:flex lg:flex-col lg:flex-1 lg:min-h-0 lg:overflow-hidden">
+              <div className="flex items-start justify-between text-sm text-gray-600 mb-2 gap-4 flex-shrink-0">
+                <div className="text-lg font-semibold text-gray-800 flex-1 leading-tight break-words hyphens-auto max-w-[calc(100%-5rem)] line-clamp-2">
+                  {mainQuestion || `Question ${Math.min(currentTaskIndex + 1, totalTasks)}`}
+                </div>
+              </div>
+              <div className="h-1 rounded bg-gray-200 overflow-hidden flex-shrink-0">
+                <div className="h-full bg-[rgba(38,116,186,1)] transition-all" style={{ width: `${progressPct}%` }} />
+              </div>
+              <div className="mt-2 bg-white border rounded-xl shadow-sm p-3 flex-1 min-h-0 flex flex-col overflow-hidden xl:max-h-[780px]">
+                <div className="p-6 text-center flex-1 flex flex-col items-center justify-center">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[rgba(38,116,186,1)] mx-auto mb-4" />
+                  <h2 className="text-xl font-semibold text-gray-900">Processing your responses...</h2>
+                  <p className="mt-2 text-sm text-gray-600">Please wait while we save your study data.</p>
+                  <p className="mt-1 text-sm font-medium text-gray-700">Please don&apos;t close your tab.</p>
+                </div>
+              </div>
+            </div>
+          </>
+        ) : task?.type === "video" ? (
+          <VideoTaskExperience
+            key={currentTaskIndex}
+            urls={task.gridUrls || []}
+            mainQuestion={mainQuestion}
+            taskNumber={currentTaskIndex + 1}
+            totalTasks={totalTasks}
+            progressPct={progressPct}
+            ratingScaleValues={ratingScaleValues}
+            isSpecialCreator={isSpecialCreator}
+            scaleLabels={scaleLabels}
+            lastSelected={lastSelected}
+            onSelect={handleSelect}
+            onHover={(n) => {
+              hoverCountsRef.current[n] = (hoverCountsRef.current[n] || 0) + 1
+              lastViewTimeRef.current = new Date().toISOString()
+            }}
+          />
         ) : (
           <>
             {/* Mobile Layout */}
@@ -1579,7 +1654,7 @@ export default function TasksPage() {
                           >
                             {statement}
                           </div>
-                        ))}
+                          ))}
                       </div>
                     ) : (
                       (() => {

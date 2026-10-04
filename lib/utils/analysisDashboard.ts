@@ -198,13 +198,13 @@ export function getTopBottomPerformers(
   metric: string,
   n: number = 5
 ): {
-  top: { name: string; value: number; category: string; imageUrl?: string | null }[]
-  bottom: { name: string; value: number; category: string; imageUrl?: string | null }[]
+  top: { name: string; value: number; category: string; imageUrl?: string | null; elementType?: string }[]
+  bottom: { name: string; value: number; category: string; imageUrl?: string | null; elementType?: string }[]
 } {
   const section = getSection(analysis, metric, "Overall")
   if (!section?.categories?.length) return { top: [], bottom: [] }
 
-  const all: { name: string; value: number; category: string; imageUrl?: string | null }[] = []
+  const all: { name: string; value: number; category: string; imageUrl?: string | null; elementType?: string }[] = []
   for (const cat of section.categories) {
     for (const el of cat.elements || []) {
       const v = typeof el.value === "number" ? el.value : 0
@@ -221,6 +221,7 @@ export function getTopBottomPerformers(
         value: v,
         category: cat.name || "",
         imageUrl: resolved || undefined,
+        elementType: elType,
       })
     }
   }

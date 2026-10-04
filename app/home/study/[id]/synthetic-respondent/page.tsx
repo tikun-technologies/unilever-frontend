@@ -459,6 +459,8 @@ export default function SyntheticRespondentPage() {
   const studyLabel =
     study.study_type === "grid"
       ? "Grid Study"
+      : study.study_type === "video"
+        ? "Video Study"
       : study.study_type === "hybrid"
         ? "Hybrid Study"
         : study.study_type === "text"

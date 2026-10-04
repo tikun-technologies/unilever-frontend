@@ -79,7 +79,7 @@ export function hydrateLocalStorageFromStudy(data: any) {
 
     // 5. Step 5: Study Structure (Simplified as we mostly rely on tasks/elements in assigned_tasks)
     // For grid/text, we might still need categories if the preview landing page uses them for stats
-    if (info.study_type === "grid" || info.study_type === "text") {
+    if (info.study_type === "grid" || info.study_type === "text" || info.study_type === "video") {
         if (info.categories && info.categories.length > 0) {
             const categories = info.categories.map((cat: any) => ({
                 id: cat.category_id,
@@ -92,7 +92,10 @@ export function hydrateLocalStorageFromStudy(data: any) {
                         secureUrl: el.content,
                     })),
             }))
-            localStorage.setItem(info.study_type === "grid" ? "cs_step5_grid" : "cs_step5_text", JSON.stringify(categories))
+            localStorage.setItem(
+              info.study_type === "grid" ? "cs_step5_grid" : info.study_type === "video" ? "cs_step5_video" : "cs_step5_text",
+              JSON.stringify(categories)
+            )
         }
     } else if (info.study_type === "layer") {
         const layers = (info.study_layers || []).map((l: any) => ({

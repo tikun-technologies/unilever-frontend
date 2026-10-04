@@ -177,6 +177,10 @@ export async function GET(req: NextRequest) {
             // Allow but could restrict in production
         }
 
+        if (/\.(mp4|webm|mov|m4v|m3u8)$/i.test(targetUrl.pathname)) {
+            return new NextResponse('Not an image', { status: 415 });
+        }
+
         // Normalize params up front so the coalescing key is stable and the
         // width validation matches the original passthrough behavior.
         const widthParam = searchParams.get('w');

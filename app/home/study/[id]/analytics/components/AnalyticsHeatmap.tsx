@@ -2,7 +2,7 @@
 
 import React, { useCallback, useMemo, useState } from "react"
 import { motion } from "framer-motion"
-import { ImageLightboxModal } from "@/components/ui/ImageLightboxModal"
+import { AnalyticsMediaLightbox } from "./AnalyticsMedia"
 import { transformAnalysisForView, groupPrelimCategories } from "@/lib/utils/analysisTransform"
 import { getElementContentMap, isViewableImageUrl } from "@/lib/utils/analysisDashboard"
 import type { StudyFilterPayload } from "@/lib/api/ResponseAPI"
@@ -261,9 +261,10 @@ export const AnalyticsHeatmap: React.FC<AnalyticsHeatmapProps> = ({
     }
 
     const lightboxModal = (
-        <ImageLightboxModal
+        <AnalyticsMediaLightbox
             src={lightbox.src}
             alt={lightbox.alt}
+            isVideo={(studyType || "").toLowerCase() === "video"}
             isOpen={lightbox.isOpen}
             onClose={() => setLightbox((prev) => ({ ...prev, isOpen: false }))}
         />

@@ -2,7 +2,7 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import React, { useEffect, useMemo, useRef, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
 import { CheckCircle2, ChevronDown, Crown, Download, Eye, FileCode2, FolderPlus, Folders, GitCompare, ImageIcon, Loader2, RotateCcw, Save, Sparkles, Trash2, Type, X } from "lucide-react"
@@ -56,6 +56,8 @@ import {
 } from "@/lib/export/designCategoryLocalStorage"
 import type { ApiDesignConstraint } from "@/lib/utils/designConstraintsStorage"
 import { imageCacheManager } from "@/lib/utils/imageCacheManager"
+import { prewarmVideoUrls } from "@/lib/utils/videoPrewarm"
+import { AnalyticsMediaLightbox, AnalyticsMediaTile, AnalyticsReelPlayer } from "./AnalyticsMedia"
 import {
   collectConfiguratorDisplayUrls,
   CONFIGURATOR_PRELOAD_BATCH_SIZE,
@@ -137,6 +139,10 @@ function getProxiedImageUrl(url: string): string {
 
 function getExtensionFromType(contentType: string | null): string {
   if (!contentType) return "png"
+  if (contentType.toLowerCase().includes("mpegurl")) return "m3u8"
+  if (contentType.includes("video/mp4")) return "mp4"
+  if (contentType.includes("video/webm")) return "webm"
+  if (contentType.includes("video/quicktime")) return "mov"
   if (contentType.includes("jpeg")) return "jpg"
   if (contentType.includes("webp")) return "webp"
   if (contentType.includes("gif")) return "gif"
@@ -498,7 +504,84 @@ function pickElementImage(element: any): string | null {
     element?.secureUrl,
     element?.previewUrl,
   ]
-  return candidates.find(isImageUrl) || null
+  // Video studies store playable video URLs in the same `content` field as
+  // images. Keep the URL intact; rendering below chooses <video> by elementType.
+  return candidates.find((candidate) => typeof candidate === "string" && (/^https?:\/\//i.test(candidate) || /^data:(image|video)\//i.test(candidate))) || null
+}
+
+function isVideoElement(element?: Pick<ConfiguratorElement, "elementType" | "imageUrl"> | null): boolean {
+  return element?.elementType?.toLowerCase() === "video"
+}
+
+function reelPoster(url?: string | null) {
+  if (!url || !url.split("?")[0].toLowerCase().endsWith(".m3u8")) return undefined
+  return url.replace(/master\.m3u8(\?.*)?$/i, "poster.jpg$1")
+}
+
+function VideoReelPreview({ elements, isFullscreen, isActive }: { elements: ConfiguratorElement[]; isFullscreen: boolean; isActive: boolean }) {
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const settleTimerRef = useRef<number | null>(null)
+  const [activeIndex, setActiveIndex] = useState(0)
+  const nextVideoUrl = elements[activeIndex + 1]?.imageUrl
+
+  const prewarmNextVideo = useCallback(() => {
+    if (nextVideoUrl) prewarmVideoUrls([nextVideoUrl], true)
+  }, [nextVideoUrl])
+
+  const updateActive = useCallback(() => {
+    if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current)
+    settleTimerRef.current = null
+    const node = scrollerRef.current
+    if (!node) return
+    const height = node.clientHeight || 1
+    const next = Math.max(0, Math.min(elements.length - 1, Math.round(node.scrollTop / height)))
+    setActiveIndex((current) => (current === next ? current : next))
+  }, [elements.length])
+
+  const scheduleActiveUpdate = useCallback(() => {
+    if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current)
+    // Only swap players after a swipe has settled. Rapid flicks should not
+    // start decoding every clip they pass on the way to the snapped one.
+    settleTimerRef.current = window.setTimeout(updateActive, 90)
+  }, [updateActive])
+
+  useEffect(() => {
+    const node = scrollerRef.current
+    if (!node) return
+    node.addEventListener("scrollend", updateActive)
+    return () => {
+      node.removeEventListener("scrollend", updateActive)
+      if (settleTimerRef.current !== null) window.clearTimeout(settleTimerRef.current)
+    }
+  }, [updateActive])
+
+  return (
+    <div
+      ref={scrollerRef}
+      onScroll={scheduleActiveUpdate}
+      className={`mx-auto w-full max-w-[min(92vw,460px)] overflow-x-hidden overflow-y-auto overscroll-x-none rounded-2xl bg-black shadow-xl snap-y snap-mandatory [scrollbar-width:thin] ${isFullscreen ? "h-[82dvh]" : "h-[min(68dvh,620px)] sm:h-[min(72vh,700px)]"}`}
+    >
+      {elements.map((element, index) => {
+        const poster = reelPoster(element.imageUrl)
+        const selected = index === activeIndex
+        const playing = selected && isActive && Boolean(element.imageUrl)
+        const preloadPoster = isActive && Math.abs(index - activeIndex) === 1
+        return (
+          <div key={element.id} className="relative h-full w-full shrink-0 snap-start snap-always overflow-hidden bg-black">
+            {poster && (preloadPoster || (selected && !isActive)) ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={poster} alt="" loading="eager" decoding="async" fetchPriority="low" className="absolute inset-0 h-full w-full object-contain" />
+            ) : null}
+            {playing ? (
+              <AnalyticsReelPlayer src={element.imageUrl as string} ariaLabel={element.name} onPlaybackStarted={prewarmNextVideo} />
+            ) : !element.imageUrl ? (
+              <div className="flex h-full items-center justify-center text-sm text-white">No video available</div>
+            ) : null}
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 function pickTransform(element: any): ConfiguratorElement["transform"] | undefined {
@@ -842,12 +925,14 @@ function SelectionPreview({
   backgroundUrl,
   aspectRatio,
   size = "default",
+  isActive = true,
 }: {
   selectedElements: ConfiguratorElement[]
   studyType: string
   backgroundUrl: string | null
   aspectRatio: string
   size?: "default" | "fullscreen"
+  isActive?: boolean
 }) {
   const isLayerStudy = studyType === "layer"
   const isFullscreen = size === "fullscreen"
@@ -1041,6 +1126,10 @@ function SelectionPreview({
     )
   }
 
+  if (studyType === "video") {
+    return <VideoReelPreview key={selectedElements.map((element) => element.id).join("|")} elements={selectedElements} isFullscreen={isFullscreen} isActive={isActive} />
+  }
+
   const count = selectedElements.length
   const hasImage = selectedElements.some(e => e.imageUrl && e.elementType?.toLowerCase() !== "text")
   const allText = count > 0 && !hasImage
@@ -1161,43 +1250,16 @@ function SelectionImageLightbox({
   image,
   onClose,
 }: {
-  image: { url: string; name: string } | null
+  image: { url: string; name: string; isVideo?: boolean } | null
   onClose: () => void
 }) {
-  useEffect(() => {
-    if (!image) return
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
-    }
-    document.addEventListener("keydown", handleKeyDown)
-    document.body.style.overflow = "hidden"
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown)
-      document.body.style.overflow = ""
-    }
-  }, [image, onClose])
-
-  if (!image) return null
-
-  return (
-    <BodyPortal>
-      <div role="dialog" aria-modal="true" aria-label={image.name} className="fixed inset-0 z-[230] flex items-center justify-center bg-black p-4">
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"
-          aria-label="Close image preview"
-        >
-          <X className="h-6 w-6" />
-        </button>
-        <div className="max-h-[86vh] max-w-[92vw] text-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={getConfiguratorResponsivePreviewUrl(image.url, true) || image.url} alt={image.name} className="max-h-[78vh] max-w-full rounded-2xl object-contain shadow-2xl" />
-          <p className="mt-4 text-sm font-semibold text-white">{image.name}</p>
-        </div>
-      </div>
-    </BodyPortal>
-  )
+  const isOpen = Boolean(image)
+  const previewUrl = image?.url
+    ? image.isVideo
+      ? image.url
+      : getConfiguratorResponsivePreviewUrl(image.url, true) || image.url
+    : null
+  return <AnalyticsMediaLightbox src={previewUrl} alt={image?.name || "Media preview"} isOpen={isOpen} isVideo={Boolean(image?.isVideo)} onClose={onClose} />
 }
 
 function SaveDesignModal({
@@ -1469,7 +1531,7 @@ function SavedDesignCompareOverlay({
   designs: SavedDesignPayload[]
   analysisData: any
   elementMediaLookup?: Record<string, Partial<ConfiguratorElement>>
-  onImageOpen: (image: { url: string; name: string }) => void
+  onImageOpen: (image: { url: string; name: string; isVideo?: boolean }) => void
   onClose: () => void
 }) {
   const [previewDesign, setPreviewDesign] = useState<SavedDesignPayload | null>(null)
@@ -1652,6 +1714,7 @@ function SavedDesignCompareOverlay({
                       studyType={design.study_type}
                       backgroundUrl={isLayer ? compareBackgroundUrl : design.configuration?.background_url || getBackgroundUrl(analysisData)}
                       aspectRatio={design.configuration?.aspect_ratio || "9 / 16"}
+                      isActive={false}
                     />
                     <button
                       type="button"
@@ -1694,7 +1757,7 @@ function SavedDesignCompareOverlay({
                                   <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50 p-1 ring-1 ring-slate-100">
                                     {element.imageUrl ? (
                                       // eslint-disable-next-line @next/next/no-img-element
-                                      <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="h-full w-full object-contain" />
+                                      <AnalyticsMediaTile url={getConfiguratorThumbnailUrl(element.imageUrl)} name={element.name} isVideo={element.elementType?.toLowerCase() === "video" || design.study_type === "video"} className="h-full w-full object-contain" />
                                     ) : (
                                       <Type className="h-4 w-4 text-slate-400" />
                                     )}
@@ -1723,12 +1786,12 @@ function SavedDesignCompareOverlay({
                                         type="button"
                                         onClick={() => {
                                           setHighlightedElementKey(itemKey)
-                                          onImageOpen({ url: element.imageUrl!, name: element.name })
+                                          onImageOpen({ url: element.imageUrl!, name: element.name, isVideo: element.elementType?.toLowerCase() === "video" || design.study_type === "video" })
                                         }}
                                         className="flex w-full cursor-pointer items-center justify-center overflow-hidden rounded-xl bg-slate-50 p-3"
                                       >
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="max-h-40 object-contain" />
+                                        <AnalyticsMediaTile url={getConfiguratorThumbnailUrl(element.imageUrl)} name={element.name} isVideo={element.elementType?.toLowerCase() === "video" || design.study_type === "video"} className="max-h-40 object-contain" />
                                       </button>
                                     ) : (
                                       <p className="text-xs text-slate-500">No image for this element.</p>
@@ -1922,7 +1985,7 @@ function SavedDesignCompareOverlay({
                                     <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-lg bg-slate-50 p-1 ring-1 ring-slate-100">
                                       {element.imageUrl ? (
                                         // eslint-disable-next-line @next/next/no-img-element
-                                        <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="h-full w-full object-contain" />
+                                        <AnalyticsMediaTile url={getConfiguratorThumbnailUrl(element.imageUrl)} name={element.name} isVideo={element.elementType?.toLowerCase() === "video" || design.study_type === "video"} className="h-full w-full object-contain" />
                                       ) : (
                                         <Type className="h-4 w-4 text-slate-400" />
                                       )}
@@ -1949,12 +2012,12 @@ function SavedDesignCompareOverlay({
                                           type="button"
                                           onClick={() => {
                                             setHighlightedElementKey(itemKey)
-                                            onImageOpen({ url: element.imageUrl!, name: element.name })
+                                            onImageOpen({ url: element.imageUrl!, name: element.name, isVideo: element.elementType?.toLowerCase() === "video" || design.study_type === "video" })
                                           }}
                                           className="flex w-full cursor-pointer items-center justify-center overflow-hidden rounded-xl bg-slate-50 p-3"
                                         >
                                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                                          <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="max-h-40 object-contain" />
+                                          <AnalyticsMediaTile url={getConfiguratorThumbnailUrl(element.imageUrl)} name={element.name} isVideo={element.elementType?.toLowerCase() === "video" || design.study_type === "video"} className="max-h-40 object-contain" />
                                         </button>
                                       ) : (
                                         <p className="text-xs text-slate-500">No image for this element.</p>
@@ -2205,7 +2268,7 @@ export function AnalyticsDesignConfigurator({
   const [focusCategoryId, setFocusCategoryId] = useState<string | null>(null)
   const [openedDesign, setOpenedDesign] = useState<{ id: string; signature: string } | null>(null)
   const [isTopMixesOpen, setIsTopMixesOpen] = useState(false)
-  const [activeSelectionImage, setActiveSelectionImage] = useState<{ url: string; name: string } | null>(null)
+  const [activeSelectionImage, setActiveSelectionImage] = useState<{ url: string; name: string; isVideo?: boolean } | null>(null)
   const [highlightedSelectionId, setHighlightedSelectionId] = useState<string | null>(null)
   const previewCaptureRef = useRef<HTMLDivElement>(null)
   const elementMediaLookup = useMemo(() => {
@@ -2453,7 +2516,7 @@ export function AnalyticsDesignConfigurator({
     }
     selectedElements.forEach((element) => {
       const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
-      if (isText || !element.imageUrl) return
+      if (isText || isVideoElement(element) || !element.imageUrl) return
       const preview = getConfiguratorResponsivePreviewUrl(element.imageUrl, false)
       if (preview) urls.add(preview)
     })
@@ -2489,7 +2552,7 @@ export function AnalyticsDesignConfigurator({
     }
     selectedElements.forEach((element) => {
       const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
-      if (isText || !element.imageUrl) return
+      if (isText || isVideoElement(element) || !element.imageUrl) return
       const url = getConfiguratorResponsivePreviewUrl(element.imageUrl, true)
       if (url) fullscreenUrls.add(url)
     })
@@ -2517,7 +2580,7 @@ export function AnalyticsDesignConfigurator({
   const currentSavedDesignConfiguration: SavedDesignConfigurationPayload = useMemo(
     () => ({
       metric: activeMetric,
-      study_type: (["grid", "layer", "text", "hybrid"].includes(normalizedStudyType)
+      study_type: (["grid", "layer", "text", "hybrid", "video"].includes(normalizedStudyType)
         ? normalizedStudyType
         : "grid") as StudyType,
       design_type: savedDesignType,
@@ -2625,7 +2688,7 @@ export function AnalyticsDesignConfigurator({
       const category = categories.find((item) => item.key === categoryKey)
       if (category) {
         const previewUrls = category.elements
-          .filter((element) => element.imageUrl && element.elementType?.toLowerCase() !== "text")
+          .filter((element) => element.imageUrl && element.elementType?.toLowerCase() !== "text" && !isVideoElement(element))
           .map((element) => getConfiguratorResponsivePreviewUrl(element.imageUrl as string, false))
           .filter(Boolean)
         if (previewUrls.length > 0) {
@@ -2666,12 +2729,17 @@ export function AnalyticsDesignConfigurator({
 
   const applyConfiguratorSelection = (selection: Record<string, string>) => {
     setSelectedByCategory(selection)
-    setOpenCategoryNames(
-      categories.reduce<Record<string, boolean>>((next, category) => {
-        next[category.key] = Boolean(selection[category.key])
-        return next
-      }, {})
-    )
+    // Opening every chosen category mounts its whole element grid. For video
+    // studies that grid is dozens of clips, and doing it in the same click as
+    // Best Mix is what hangs a phone. The preview already shows the mix.
+    if (normalizedStudyType !== "video") {
+      setOpenCategoryNames(
+        categories.reduce<Record<string, boolean>>((next, category) => {
+          next[category.key] = Boolean(selection[category.key])
+          return next
+        }, {})
+      )
+    }
     setIsSelectionOpen(true)
   }
 
@@ -2777,7 +2845,7 @@ export function AnalyticsDesignConfigurator({
           study_id: studyId,
           name: trimmedName,
           design_type: savedDesignType,
-          study_type: (["grid", "layer", "text", "hybrid"].includes(normalizedStudyType)
+          study_type: (["grid", "layer", "text", "hybrid", "video"].includes(normalizedStudyType)
             ? normalizedStudyType
             : "grid") as StudyType,
           metric: activeMetric,
@@ -3404,6 +3472,7 @@ export function AnalyticsDesignConfigurator({
                     studyType={normalizedStudyType}
                     backgroundUrl={isLayerStudy ? (showLayerBackground ? backgroundUrl : null) : backgroundUrl}
                     aspectRatio={layerAspectRatio}
+                    isActive={!isPreviewFullscreenOpen && !activeSelectionImage}
                   />
                 </div>
               </div>
@@ -3529,14 +3598,14 @@ export function AnalyticsDesignConfigurator({
                           onClick={() => {
                             if (!element.imageUrl) return
                             setHighlightedSelectionId(element.id)
-                            setActiveSelectionImage({ url: element.imageUrl, name: element.name })
+                            setActiveSelectionImage({ url: element.imageUrl, name: element.name, isVideo: isVideoElement(element) })
                           }}
                           disabled={!element.imageUrl}
                           className="flex h-10 w-10 flex-shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg bg-gray-50 p-1 ring-1 ring-gray-100 transition hover:ring-blue-300 disabled:cursor-default disabled:hover:ring-gray-100"
                         >
                           {element.imageUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={getConfiguratorThumbnailUrl(element.imageUrl)} alt={element.name} className="h-full w-full object-contain" />
+                            <AnalyticsMediaTile url={getConfiguratorThumbnailUrl(element.imageUrl)} name={element.name} isVideo={isVideoElement(element)} className="h-full w-full object-contain" />
                           ) : (
                             <Type className="h-4 w-4 text-gray-400" />
                           )}
@@ -3547,7 +3616,7 @@ export function AnalyticsDesignConfigurator({
                             onClick={() => {
                               if (!element.imageUrl) return
                               setHighlightedSelectionId(element.id)
-                              setActiveSelectionImage({ url: element.imageUrl, name: element.name })
+                              setActiveSelectionImage({ url: element.imageUrl, name: element.name, isVideo: isVideoElement(element) })
                             }}
                             disabled={!element.imageUrl}
                             className={`break-words text-left text-sm font-medium transition disabled:cursor-default ${
@@ -3677,18 +3746,9 @@ export function AnalyticsDesignConfigurator({
                                 {isText ? (
                                   <Type className="h-8 w-8 text-gray-300" />
                                 ) : (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img
-                                    src={getConfiguratorThumbnailUrl(element.imageUrl) || ""}
-                                    alt={element.name}
-                                    loading="lazy"
-                                    decoding="async"
-                                    className="h-full w-full object-contain"
-                                    onError={(event) => {
-                                      event.currentTarget.style.display = "none"
-                                    }}
-                                  />
+                                  <AnalyticsMediaTile url={getConfiguratorThumbnailUrl(element.imageUrl)} name={element.name} isVideo={isVideoElement(element)} className="h-full w-full object-contain" />
                                 )}
+                                {isVideoElement(element) && <button type="button" onClick={(event) => { event.stopPropagation(); setActiveSelectionImage({ url: element.imageUrl!, name: element.name, isVideo: true }) }} className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/70 text-white hover:bg-black" aria-label={`Preview ${element.name}`}><Eye className="h-4 w-4" /></button>}
                               </div>
                               <div className="flex w-full flex-1 flex-col justify-between">
                                 <p className="mb-2 text-sm font-medium leading-snug text-gray-900 break-words">
@@ -3848,18 +3908,9 @@ export function AnalyticsDesignConfigurator({
                                       {isText ? (
                                         <Type className="h-8 w-8 text-gray-300" />
                                       ) : (
-                                        // eslint-disable-next-line @next/next/no-img-element
-                                        <img
-                                          src={getConfiguratorThumbnailUrl(element.imageUrl) || ""}
-                                          alt={element.name}
-                                          loading="lazy"
-                                          decoding="async"
-                                          className="h-full w-full object-contain"
-                                          onError={(event) => {
-                                            event.currentTarget.style.display = "none"
-                                          }}
-                                        />
+                                        <AnalyticsMediaTile url={getConfiguratorThumbnailUrl(element.imageUrl)} name={element.name} isVideo={isVideoElement(element)} className="h-full w-full object-contain" />
                                       )}
+                                      {isVideoElement(element) && <button type="button" onClick={(event) => { event.stopPropagation(); setActiveSelectionImage({ url: element.imageUrl!, name: element.name, isVideo: true }) }} className="absolute right-4 top-4 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-black/70 text-white active:bg-black" aria-label={`Preview ${element.name}`}><Eye className="h-4 w-4" /></button>}
                                     </div>
                                     <div className="flex w-full flex-1 flex-col justify-between">
                                       <p className="mb-2 text-sm font-medium leading-snug text-gray-900 break-words">

@@ -27,7 +27,7 @@ import { isViewableImageUrl } from "@/lib/utils/analysisDashboard"
 import { AnalyticsTable } from "./AnalyticsTable"
 import { AnalyticsHeatmap } from "./AnalyticsHeatmap"
 import { AnalyticsGraph } from "./AnalyticsGraph"
-import { ImageLightboxModal } from "@/components/ui/ImageLightboxModal"
+import { AnalyticsMediaLightbox } from "./AnalyticsMedia"
 
 /** Age groups for Filter Analysis — onboarding step 1 (user-facing list). */
 const FILTER_AGE_GROUPS = ["13-18", "18-24", "25-34", "35-44", "45-54", "55-64", "65+"]
@@ -1171,9 +1171,10 @@ export const AnalyticsFilterAnalysis: React.FC<AnalyticsFilterAnalysisProps> = (
 				</motion.div>
 			)}
 
-			<ImageLightboxModal
+			<AnalyticsMediaLightbox
 				src={lightbox.src}
 				alt={lightbox.alt}
+				isVideo={studyType.toLowerCase() === "video"}
 				isOpen={lightbox.isOpen}
 				onClose={closeLightbox}
 			/>

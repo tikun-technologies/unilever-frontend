@@ -1,4 +1,6 @@
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg', '.avif'])
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.m4v'])
+export type FolderMediaKind = 'image' | 'video'
 
 export type FolderGroup = {
   folderName: string
@@ -17,6 +19,14 @@ export type FolderParseOptions = {
   maxImagesPerGroup?: number
   remainingGroupSlots?: number
   groupLabel?: string
+  media?: FolderMediaKind
+}
+
+export function isVideoFile(file: File): boolean {
+  if (file.type.startsWith('video/')) return true
+  const dot = file.name.lastIndexOf('.')
+  if (dot < 0) return false
+  return VIDEO_EXTENSIONS.has(file.name.slice(dot).toLowerCase())
 }
 
 export function isImageFile(file: File): boolean {
@@ -206,13 +216,18 @@ export function parseFolderSelection(
   options: FolderParseOptions = {}
 ): FolderParseResult {
   const pathOverrides = new WeakMap<File, string>()
-  const imageFiles = getImageFilesFromList(rawFiles)
+  const media = options.media || 'image'
+  const imageFiles = Array.from(rawFiles).filter(media === 'video' ? isVideoFile : isImageFile)
 
   if (imageFiles.length === 0) {
     return {
       groups: [],
       skippedNestedCount: 0,
-      errors: ['No images found in the selected folder. Add JPG, PNG, or other image files and try again.'],
+      errors: [
+        media === 'video'
+          ? 'No videos found in the selected folder. Add MP4, WEBM, or MOV files and try again.'
+          : 'No images found in the selected folder. Add JPG, PNG, or other image files and try again.',
+      ],
       warnings: [],
     }
   }
@@ -231,10 +246,10 @@ export function parseFolderSelection(
   return result
 }
 
-export function openFolderPicker(onSelect: (files: File[]) => void): void {
+export function openFolderPicker(onSelect: (files: File[]) => void, media: FolderMediaKind = 'image'): void {
   const input = document.createElement('input')
   input.type = 'file'
-  input.accept = 'image/*'
+  input.accept = media === 'video' ? 'video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v' : 'image/*'
   input.multiple = true
   input.setAttribute('webkitdirectory', '')
   input.onchange = () => {

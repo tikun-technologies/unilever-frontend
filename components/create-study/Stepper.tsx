@@ -100,11 +100,12 @@ function isStepCompleted(stepId: number, isSpecialCreator: boolean): boolean {
         if (!step2Data) return false
         const step2 = JSON.parse(step2Data)
 
-        if (step2.type === 'grid') {
-          if (!gridData) return false
+        if (step2.type === 'grid' || step2.type === 'video') {
+          const structureData = step2.type === 'video' ? localStorage.getItem('cs_step5_video') : gridData
+          if (!structureData) return false
           let grid: any
           try {
-            grid = JSON.parse(gridData)
+            grid = JSON.parse(structureData)
           } catch {
             return false
           }

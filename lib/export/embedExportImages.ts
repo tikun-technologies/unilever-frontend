@@ -5,6 +5,11 @@ function isHttpUrl(value: unknown): value is string {
   return typeof value === "string" && HTTP_URL_RE.test(value)
 }
 
+function isVideoUrl(value: string): boolean {
+  const cleanUrl = value.split("?")[0].split("#")[0]
+  return /\.(mp4|m4v|mov|webm|m3u8)$/i.test(cleanUrl) || /\/video\/upload\//i.test(cleanUrl)
+}
+
 function getProxiedImageUrl(url: string): string {
   if (typeof window !== "undefined" && url.includes(window.location.host)) return url
   return `/api/proxy-image?url=${encodeURIComponent(url)}`
@@ -12,6 +17,9 @@ function getProxiedImageUrl(url: string): string {
 
 export function collectHttpUrls(value: unknown, urls = new Set<string>()): Set<string> {
   if (isHttpUrl(value)) {
+    // Keep playable video URLs streamable in the exported configurator instead
+    // of trying to fetch and embed full clips as if they were image thumbnails.
+    if (isVideoUrl(value)) return urls
     urls.add(value)
     return urls
   }

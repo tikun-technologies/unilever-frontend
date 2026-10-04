@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
+import { PreviewVideoCard } from "@/components/media/PreviewVideoCard"
 import { createStudyFromLocalStorage, fetchWithAuth, buildStudyPayloadFromLocalStorage, putUpdateStudyAsync, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
 import { formatAgeSplitForDisplay, validateAudienceSegmentation } from "@/lib/utils/audienceSegmentationValidation"
 import { areGeneratedTasksStale } from "@/lib/utils/createStudyStorage"
+import { matrixStillHasRawVideo, useVideoEncodeGate } from "@/lib/utils/videoEncodeStatus"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
 
 function get<T>(key: string, fallback: T): T {
@@ -115,6 +117,10 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const step1 = get('cs_step1', { title: '', description: '', language: '' })
   const step2 = get('cs_step2', { type: 'grid', mainQuestion: '', orientationText: '' })
   const isHybrid = step2.type === 'hybrid'
+  const isVideoStudy = step2.type === 'video'
+  const videoEncode = useVideoEncodeGate(isVideoStudy)
+  const videoTasksNeedRegenerate = isVideoStudy && matrixStillHasRawVideo()
+  const videoLaunchBlocked = isVideoStudy && (videoEncode.blocked || videoTasksNeedRegenerate)
   const phaseOrder = get<("grid" | "text" | "mix")[] | "mix">('cs_step5_hybrid_phase_order', ["grid", "text"])
   const step3 = get('cs_step3', { minValue: 1, maxValue: 5, minLabel: '', maxLabel: '', middleLabel: '' })
   const step4 = get('cs_step4', [])
@@ -156,6 +162,13 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
 
   const hasLayer = step2.type === 'layer'
   const hasText = step2.type === 'text'
+  const isVideo = step2.type === 'video'
+  const videoData = isVideo ? get<any>('cs_step5_video', []) : []
+  const videos = Array.isArray(videoData)
+    ? videoData
+    : (videoData?.categories && videoData.categories.length > 0
+      ? videoData.categories
+      : videoData?.elements || [])
 
   // Sync task generation / staleness state and attach the dedicated task-generation WebSocket when needed.
   useEffect(() => {
@@ -291,6 +304,10 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
     }
     if (hasCrossStepDuplicateQuestions) {
       setLaunchError('Classification and post-classification questions cannot use the same question title. Please update them before launching.')
+      return
+    }
+    if (step2.type === 'video' && (videoEncode.blocked || matrixStillHasRawVideo())) {
+      setLaunchError(videoEncode.message || 'Regenerate tasks after every video has finished processing, then launch.')
       return
     }
 
@@ -530,16 +547,28 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
     <div className="relative">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-800">Study Preview</h3>
-        <a
-          href="/home/create-study/preview"
-          target="_blank"
-          rel="noreferrer"
-          className="text-sm font-medium text-[rgba(38,116,186,1)] hover:underline"
-        >
-          Preview as Participant ↗
-        </a>
+        {videoLaunchBlocked ? (
+          <span className="text-sm font-medium text-gray-400">Preview as Participant</span>
+        ) : (
+          <a
+            href="/home/create-study/preview"
+            target="_blank"
+            rel="noreferrer"
+            className="text-sm font-medium text-[rgba(38,116,186,1)] hover:underline"
+          >
+            Preview as Participant ↗
+          </a>
+        )}
       </div>
       <p className="text-sm text-gray-600">Review all details before launching. This view summarizes your current setup.</p>
+      {isVideoStudy && videoEncode.message && (
+        <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{videoEncode.message}</p>
+      )}
+      {videoTasksNeedRegenerate && !videoEncode.blocked && (
+        <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+          Regenerate tasks in the previous step. These tasks still point at the original video files.
+        </p>
+      )}
 
       <div className="space-y-6 mt-4">
         <section className="rounded-lg border bg-white p-4">
@@ -852,6 +881,45 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
                     </div>
                   )}
 
+                  {step2.type === 'video' && (
+                    <div className="space-y-4">
+                      {videos.length > 0 && videos[0].title && videos[0].elements ? (
+                        <>
+                          <div className="text-sm text-gray-600 mb-2">Categories Configuration ({videos.length} categories)</div>
+                          {videos.map((category: any, catIdx: number) => (
+                            <div key={category.id || catIdx} className="border rounded-lg bg-gray-50 p-4">
+                              <div className="text-sm font-medium mb-3">
+                                {category.title}
+                                {category.description && (
+                                  <span className="text-gray-500 ml-2">- {category.description}</span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                {category.elements?.map((element: any, elIdx: number) => (
+                                  <PreviewVideoCard
+                                    key={element.id || elIdx}
+                                    src={element.secureUrl || element.previewUrl || ""}
+                                    name={element.name}
+                                  />
+                                )) || <div className="text-sm text-gray-500">No elements</div>}
+                              </div>
+                            </div>
+                          ))}
+                        </>
+                      ) : (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {videos.map((e: any, idx: number) => (
+                            <PreviewVideoCard
+                              key={e.id || idx}
+                              src={e.secureUrl || e.previewUrl || ""}
+                              name={e.name}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* Show Text/Statement components if applicable (text only) */}
                   {step2.type === 'text' && (
                     <div className="space-y-4">
@@ -958,7 +1026,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
               <Button
                 className="flex-1 bg-[rgba(38,116,186,1)] hover:bg-[rgba(38,116,186,0.9)] text-white rounded-full disabled:opacity-50 cursor-pointer"
                 onClick={handleLaunchStudy}
-                disabled={isLaunching || !isConfirmed || isReadOnly || !canLaunch || isGeneratingTasks || tasksStale || hasCrossStepDuplicateQuestions}
+                disabled={isLaunching || !isConfirmed || isReadOnly || !canLaunch || isGeneratingTasks || tasksStale || hasCrossStepDuplicateQuestions || videoLaunchBlocked}
               >
                 {isLaunching ? (
                   <span className="flex items-center justify-center gap-2">

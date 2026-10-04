@@ -3,6 +3,7 @@
 
 import { useEffect, useState, useRef, useMemo, useCallback } from "react"
 import { Mail } from "lucide-react"
+import { VideoTaskPreview } from "@/components/create-study/VideoTaskPreview"
 import { Button } from "@/components/ui/button"
 import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, getTaskGenerationResult, validateDesignConstraints, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
 import { useJobNotifications } from "@/lib/jobs/JobNotificationContext"
@@ -11,11 +12,12 @@ import {
   getCurrentStudyType,
   isStudyStructureReadyForCurrentType,
 } from "@/lib/utils/createStudyStorage"
+import { collectVideoSourceUrls, fetchVideoEncodeStatus, matrixStillHasRawVideo, useVideoEncodeGate, videoEncodeMessage } from "@/lib/utils/videoEncodeStatus"
 import JSZip from "jszip"
 
 function normalizeResultStudyType(raw: unknown): string | null {
   const v = String(raw || "").toLowerCase().trim()
-  if (v === "grid" || v === "layer" || v === "text" || v === "hybrid") return v
+  if (v === "grid" || v === "layer" || v === "text" || v === "hybrid" || v === "video") return v
   return null
 }
 
@@ -93,6 +95,8 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
   const abortControllerRef = useRef<AbortController | null>(null)
   const isLoadingFromCache = useRef<boolean>(false)
   const staleTypeRegenLockRef = useRef<boolean>(false)
+  const videoEncode = useVideoEncodeGate(active)
+  const videoGenerateLock = useRef(false)
   const handleRegenerateTasksRef = useRef<() => Promise<void>>(async () => {})
   // Preview anchoring to background fit box
   const previewContainerRef = useRef<HTMLDivElement>(null)
@@ -561,6 +565,23 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
   const generateNow = async () => {
     if (isReadOnly) return
+    if (getCurrentStudyType() === "video") {
+      const urls = collectVideoSourceUrls()
+      if (urls.length > 0) {
+        try {
+          const status = await fetchVideoEncodeStatus(urls)
+          if (!status.all_ready) {
+            setPollingError(videoEncodeMessage(status))
+            setIsGenerating(false)
+            return
+          }
+        } catch {
+          setPollingError("Could not check whether videos finished processing. Try again in a moment.")
+          setIsGenerating(false)
+          return
+        }
+      }
+    }
     try {
       // Check if there's already a job in progress in localStorage
       const existingJobState = loadJobState()
@@ -1030,7 +1051,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         setMatrix(JSON.parse(hasCachedMatrix))
       } catch (error) {
         console.error('[Step7] Error loading cached matrix:', error)
-        generateNow()
+        if (getCurrentStudyType() !== "video") generateNow()
       }
       return
     }
@@ -1043,10 +1064,27 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       return
     }
 
+    // Video studies wait until every upload has finished encoding.
+    if (getCurrentStudyType() === "video") return
+
     // Only generate if no job and no cached matrix
     console.log('[Step7] No job or matrix found, starting generation')
     generateNow()
   }, [active])
+
+  useEffect(() => {
+    if (!active) return
+    if (getCurrentStudyType() !== "video") return
+    if (!videoEncode.checked || videoEncode.loading || videoEncode.checkError || !videoEncode.all_ready) return
+    if (isGenerating || isPolling || matrix) return
+    if (typeof window !== "undefined" && localStorage.getItem("cs_step7_matrix") && !areGeneratedTasksStale()) return
+    if (loadGenerationError()) return
+    if (videoGenerateLock.current) return
+    videoGenerateLock.current = true
+    void generateNow().finally(() => {
+      videoGenerateLock.current = false
+    })
+  }, [active, videoEncode.checked, videoEncode.loading, videoEncode.all_ready, videoEncode.checkError, isGenerating, isPolling, matrix])
 
   // Abort polling on unmount so lingering poll doesn't overwrite storage when user navigates away
   useEffect(() => {
@@ -1151,6 +1189,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
   // derive stats safely from metadata or LS
   const respondentsFromLS = getFromLS('cs_step6', { respondents: undefined as any }).respondents
   const studyType = getFromLS('cs_step2', { type: 'grid' }).type
+  const videoTasksNeedRegenerate = studyType === "video" && Boolean(matrix) && matrixStillHasRawVideo()
 
   const meta = (matrix as any)?.metadata || {}
 
@@ -1332,8 +1371,8 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       return visibleLayerKeys.length
     }
 
-    // For grid studies, check if using new category format
-    const gridData = localStorage.getItem('cs_step5_grid')
+    // For grid and video studies, check if using new category format
+    const gridData = localStorage.getItem(studyType === 'video' ? 'cs_step5_video' : 'cs_step5_grid')
     const isCategoryFormat = gridData && JSON.parse(gridData).length > 0 && JSON.parse(gridData)[0].title
 
     if (isCategoryFormat) {
@@ -1635,9 +1674,9 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       // For hybrid: column → apiKey (avoids overwrite when grid/text share category names)
       let elementColumnToApiKey: { [col: string]: string } = {}
 
-      if (studyType === 'grid') {
-        // For grid studies, try to get element names from localStorage first
-        const gridData = localStorage.getItem('cs_step5_grid')
+      if (studyType === 'grid' || studyType === 'video') {
+        // For grid and video studies, try to get element names from localStorage first
+        const gridData = localStorage.getItem(studyType === 'video' ? 'cs_step5_video' : 'cs_step5_grid')
         console.log('[CSV] Grid data from localStorage:', gridData)
         if (gridData) {
           try {
@@ -1863,7 +1902,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
               if (elementKeys.length > 0) {
                 // Try to get element names from localStorage first
-                const gridData = localStorage.getItem('cs_step5_grid')
+                const gridData = localStorage.getItem(studyType === 'video' ? 'cs_step5_video' : 'cs_step5_grid')
                 if (gridData) {
                   try {
                     const categories = JSON.parse(gridData)
@@ -2035,6 +2074,14 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       <div className="space-y-4">
         <h3 className="text-lg font-semibold text-gray-800">Task Matrix</h3>
         <p className="text-sm text-gray-600">Preview tasks generated for respondents.</p>
+        {studyType === "video" && videoEncode.message && (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{videoEncode.message}</p>
+        )}
+        {videoTasksNeedRegenerate && (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            These tasks were built before the videos finished processing. Regenerate tasks so preview and participants play the fast version.
+          </p>
+        )}
 
         {matrix && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -2055,7 +2102,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
         <div className="rounded-lg border bg-white p-4">
           <div className="text-sm font-semibold mb-2">
-            {studyType === 'layer' ? 'Layer Study Algorithm Details' : studyType === 'text' ? 'Text Study Algorithm Details' : studyType === 'hybrid' ? 'Hybrid Study Algorithm Details' : 'Grid Study Algorithm Details'}
+            {studyType === 'layer' ? 'Layer Study Algorithm Details' : studyType === 'text' ? 'Text Study Algorithm Details' : studyType === 'hybrid' ? 'Hybrid Study Algorithm Details' : studyType === 'video' ? 'Video Study Algorithm Details' : 'Grid Study Algorithm Details'}
           </div>
           <ul className="text-xs text-gray-600 list-disc pl-5 space-y-1">
             {studyType === 'layer' ? (
@@ -2366,6 +2413,18 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
                         // Check if this is a text study
                         const isTextStudy = textStatements.length > 0 || studyType === 'text'
 
+                        if (studyType === 'video') {
+                          return (
+                            <div key={tIdx} className="overflow-hidden rounded-lg border">
+                              <div className="flex items-center justify-between bg-slate-50 px-4 py-2 text-xs text-gray-600">
+                                <div>Task {(typeof task?.task_index === 'number') ? task.task_index + 1 : tIdx + 1}</div>
+                                <div>{urls.length} {urls.length === 1 ? 'video' : 'videos'}</div>
+                              </div>
+                              <VideoTaskPreview urls={urls} />
+                            </div>
+                          )
+                        }
+
                         if (isTextStudy && textStatements.length > 0) {
                           // Render text study preview with vertical statement layout
                           return (
@@ -2503,7 +2562,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
               onClick={handleRegenerateTasks}
               variant="outline"
               className="flex-shrink-0"
-              disabled={isGenerating || isPolling || isReadOnly}
+              disabled={isGenerating || isPolling || isReadOnly || videoEncode.blocked}
             >
               {isGenerating ? "Regenerating..." : "Regenerate Tasks"}
             </Button>
@@ -2630,9 +2689,10 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
             }
             onNext()
           }}
-          disabled={Boolean(!matrix) || isPolling || isGenerating || (jobStatus ? jobStatus.status !== 'completed' : false)}
+          disabled={Boolean(!matrix) || isPolling || isGenerating || (jobStatus ? jobStatus.status !== 'completed' : false) || videoEncode.blocked || videoTasksNeedRegenerate}
         >
-          {!matrix ? 'Generate Tasks First' :
+          {!matrix ? (studyType === "video" && videoEncode.blocked ? "Processing videos..." : "Generate Tasks First") :
+            videoTasksNeedRegenerate ? "Regenerate Tasks First" :
             isPolling || isGenerating ? 'Generating...' :
               (jobStatus && jobStatus.status !== 'completed') ? 'Tasks Not Ready' :
                 'Save & Next'}

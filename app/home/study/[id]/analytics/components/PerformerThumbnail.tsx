@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState, useCallback } from "react"
+import { AnalyticsVideoPlayer } from "./AnalyticsMedia"
 
 const TICK_WIDTH = 112
 const THUMB_SIZE = 36
@@ -16,6 +17,7 @@ export interface PerformerThumbnailProps {
   shortName: string
   /** Image URL for thumbnail (null/undefined = text only) */
   imageUrl?: string | null
+  isVideo?: boolean
   /** Called when thumbnail is clicked (only when image is shown). */
   onThumbClick?: (imageUrl: string) => void
   /** Optional class for container */
@@ -26,6 +28,7 @@ export function PerformerThumbnail({
   name,
   shortName,
   imageUrl,
+  isVideo = false,
   onThumbClick,
   className = "",
 }: PerformerThumbnailProps) {
@@ -67,7 +70,12 @@ export function PerformerThumbnail({
             }}
             aria-label={`View ${name} in full size`}
           >
-            <img
+            {isVideo ? (
+              <div className="relative h-full w-full bg-black">
+                <AnalyticsVideoPlayer src={imageUrl!} muted previewFrame className="h-full w-full object-cover" ariaLabel={name} />
+                <span className="absolute inset-0 flex items-center justify-center text-[9px] font-bold text-white">▶</span>
+              </div>
+            ) : <img
               src={imageUrl!}
               alt={name}
               width={THUMB_SIZE}
@@ -77,7 +85,7 @@ export function PerformerThumbnail({
               className="h-full w-full object-contain"
               onError={handleImageError}
               referrerPolicy="no-referrer"
-            />
+            />}
           </button>
         ) : (
           <span

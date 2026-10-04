@@ -234,7 +234,9 @@ export default function StudySharePage() {
                           ? "Layer - Based Study"
                           : shareDetails?.study_type === "text"
                             ? "Text - Based Study"
-                            : "Grid - Based Study"}
+                            : shareDetails?.study_type === "video"
+                              ? "Video - Based Study"
+                              : "Grid - Based Study"}
                       </div>
                     </div>
                     <div>

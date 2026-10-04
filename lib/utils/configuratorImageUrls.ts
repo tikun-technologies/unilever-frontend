@@ -9,6 +9,11 @@ function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value)
 }
 
+function isVideoMediaUrl(url: string): boolean {
+  const path = url.split("?")[0].split("#")[0]
+  return /\.(mp4|webm|mov|m4v|m3u8)$/i.test(path) || /\/video\/upload\//i.test(path)
+}
+
 function shouldUseOptimizedProxy(): boolean {
   if (typeof window === "undefined") return true
   return window.location.protocol !== "file:"
@@ -20,7 +25,7 @@ export function getConfiguratorOptimizedImageUrl(
   quality: number = CONFIGURATOR_IMAGE_QUALITY
 ): string {
   if (!url) return ""
-  if (!isHttpUrl(url)) return url
+  if (!isHttpUrl(url) || isVideoMediaUrl(url)) return url
   if (!shouldUseOptimizedProxy()) return url
 
   const params = new URLSearchParams({
@@ -95,7 +100,8 @@ export function collectConfiguratorDisplayUrls(input: {
   input.categories.forEach((category) => {
     category.elements.forEach((element) => {
       const isText = !element.imageUrl || element.elementType?.toLowerCase() === "text"
-      if (isText || !element.imageUrl) return
+      const isVideo = element.elementType?.toLowerCase() === "video" || isVideoMediaUrl(element.imageUrl || "")
+      if (isText || isVideo || !element.imageUrl) return
       const thumb = getConfiguratorThumbnailUrl(element.imageUrl)
       if (thumb) thumbnailUrls.add(thumb)
     })

@@ -12,6 +12,7 @@ import type { LayerTemplate } from "@/lib/templates/layerTemplates"
 import { studyLayersToFrontendLayers } from "@/lib/templates/templateLayerJson"
 import {
   uploadImages,
+  uploadVideos,
   putUpdateStudyAsync,
   buildStudyPayloadFromLocalStorage,
   upsertStudyDesignConstraint,
@@ -30,6 +31,7 @@ import {
   parseFolderSelection,
   stripFileExtension,
 } from "@/lib/utils/folderUploadUtils"
+import { useVideoEncodeGate } from "@/lib/utils/videoEncodeStatus"
 
 interface ElementItem {
   id: string
@@ -222,7 +224,7 @@ interface CategoryItem {
 interface Step5StudyStructureProps {
   onNext: () => void
   onBack: () => void
-  mode?: "grid" | "layer" | "text" | "hybrid"
+  mode?: "grid" | "layer" | "text" | "hybrid" | "video"
   onDataChange?: () => void
   isReadOnly?: boolean
   isActive?: boolean
@@ -245,6 +247,11 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
   const CATEGORY_MAX = 15
   const ELEMENT_MIN = 3
   const ELEMENT_MAX = 30
+  const isVideoMode = mode === "video"
+  const mediaAccept = isVideoMode
+    ? "video/mp4,video/webm,video/quicktime,.mp4,.webm,.mov,.m4v"
+    : "image/*"
+  const uploadCategoryMedia = (files: File[]) => (isVideoMode ? uploadVideos(files) : uploadImages(files))
 
   const [categories, setCategories] = useState<CategoryItem[]>(() => {
     try {
@@ -269,6 +276,19 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
     } catch { }
     return []
   })
+
+  const videoSourceUrls = useMemo(() => {
+    if (!isVideoMode) return [] as string[]
+    const urls: string[] = []
+    for (const category of categories) {
+      for (const element of category.elements) {
+        const url = element.secureUrl || ""
+        if (/^https?:\/\//i.test(url)) urls.push(url)
+      }
+    }
+    return Array.from(new Set(urls))
+  }, [isVideoMode, categories])
+  const videoEncode = useVideoEncodeGate(isVideoMode && isActive, isVideoMode ? videoSourceUrls : undefined)
 
   // NEW: States for Hybrid mode phases
   const [hybridGridCategories, setHybridGridCategories] = useState<CategoryItem[]>(() => {
@@ -473,7 +493,11 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
       !category.elements || category.elements.length < ELEMENT_MIN
     )
     if (hasInsufficientElements) {
-      return mode === 'text' ? `Add at least ${ELEMENT_MIN} statements to each category` : `Add at least ${ELEMENT_MIN} images to each category`
+      return mode === 'text'
+        ? `Add at least ${ELEMENT_MIN} statements to each category`
+        : mode === 'video'
+          ? `Add at least ${ELEMENT_MIN} videos to each category`
+          : `Add at least ${ELEMENT_MIN} images to each category`
     }
     // For text mode, check if any element has empty name
     if (mode === 'text') {
@@ -653,6 +677,10 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
     if (category && category.elements.length >= ELEMENT_MAX) return
 
     let list = Array.from(files)
+    if (isVideoMode) {
+      list = list.filter((file) => file.type.startsWith("video/") || /\.(mp4|webm|mov|m4v)$/i.test(file.name))
+      if (list.length === 0) return
+    }
     const remaining = ELEMENT_MAX - (category?.elements.length || 0)
     if (list.length > remaining) list = list.slice(0, remaining)
 
@@ -689,7 +717,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
     // Upload files
     if (list.length > 1) {
       try {
-        const results = await uploadImages(list)
+        const results = await uploadCategoryMedia(list)
         setCurrentCategories(prev => prev.map(c =>
           c.id === categoryId
             ? {
@@ -720,7 +748,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
       gridTimerRef.current = null
       if (pending.length === 0) return
       try {
-        const results = await uploadImages(pending.map(p => p.file))
+        const results = await uploadCategoryMedia(pending.map(p => p.file))
         setCurrentCategories(prev => prev.map(c =>
           c.id === categoryId
             ? {
@@ -754,6 +782,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
       maxGroups: CATEGORY_MAX,
       maxImagesPerGroup: ELEMENT_MAX,
       remainingGroupSlots: remainingSlots,
+      media: isVideoMode ? 'video' : 'image',
     })
 
     if (parsed.errors.length > 0) {
@@ -762,7 +791,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
     }
 
     if (parsed.groups.length === 0) {
-      setFolderImportNotice('No images could be imported from the selected folder.')
+      setFolderImportNotice(isVideoMode ? 'No videos could be imported from the selected folder.' : 'No images could be imported from the selected folder.')
       return
     }
 
@@ -801,7 +830,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
     setFolderImportNotice(null)
 
     try {
-      const results = await uploadImages(uploadQueue.map(item => item.file))
+      const results = await uploadCategoryMedia(uploadQueue.map(item => item.file))
       setCurrentCategories(prev => prev.map(category => ({
         ...category,
         elements: category.elements.map(element => {
@@ -817,7 +846,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
   }
 
   const promptAddFolderForCategories = (p?: "grid" | "text") => {
-    openFolderPicker((files) => { void handleFolderImportForCategories(files, p) })
+    openFolderPicker((files) => { void handleFolderImportForCategories(files, p) }, isVideoMode ? "video" : "image")
   }
 
   const updateCategoryElement = (categoryId: string, elementId: string, patch: Partial<ElementItem>, p?: "grid" | "text") => {
@@ -901,7 +930,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
 
       // Ensure all category uploads (including preview-only entries) complete
       let uploadedCategories = categories
-      if (mode === 'grid') {
+      if (mode === 'grid' || mode === 'video') {
         uploadedCategories = await ensureCategoryUploadsEnhanced()
       }
 
@@ -936,7 +965,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                 element_id: String(el.id),
                 name: el.name || '',
                 description: el.description || '',
-                element_type: mode === 'text' ? 'text' : 'image',
+                element_type: mode === 'text' ? 'text' : mode === 'video' ? 'video' : 'image',
                 content: mode === 'text' ? (el.name || '') : el.secureUrl,
                 alt_text: el.name || '',
                 category_id: String(c.id)
@@ -963,7 +992,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
             }))
         }
 
-        putUpdateStudyAsync(studyId, updatePayload, 5)
+        await putUpdateStudyAsync(studyId, updatePayload, 5)
       }
     } catch (e) {
       console.error('Failed in handleNext:', e)
@@ -1045,7 +1074,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
     if (filesToUpload.length === 0) return targetCategories
 
     try {
-      const results = await uploadImages(filesToUpload)
+      const results = await uploadCategoryMedia(filesToUpload)
       return targetCategories.map(category => {
         const updatedElements = category.elements.map(element => {
           const matchIdx = mapIndex.findIndex(m => m.categoryId === category.id && m.elementId === element.id)
@@ -1105,7 +1134,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
     if (filesToUpload.length === 0) return categories
 
     try {
-      const results = await uploadImages(filesToUpload)
+      const results = await uploadCategoryMedia(filesToUpload)
       // Create updated categories with secureUrls
       const updatedCategories = categories.map(category => {
         const updatedElements = category.elements.map(element => {
@@ -1295,11 +1324,38 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
                               {category.elements.map((element, _elIdx) => (
                                 <div key={element.id} className="border rounded-lg p-3">
-                                  <div className="aspect-square bg-gray-100 flex items-center justify-center mb-2 rounded-lg">
+                                  <div className="aspect-square bg-gray-100 flex items-center justify-center mb-2 rounded-lg relative">
+                                    {isVideoMode && element.secureUrl && videoEncode.byUrl[element.secureUrl] && videoEncode.byUrl[element.secureUrl].status !== "unknown" && (
+                                      <span className={`absolute top-1 left-1 z-10 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                                        videoEncode.byUrl[element.secureUrl].status === "ready"
+                                          ? "bg-green-100 text-green-800"
+                                          : videoEncode.byUrl[element.secureUrl].status === "failed"
+                                            ? "bg-red-100 text-red-800"
+                                            : "bg-amber-100 text-amber-800"
+                                      }`}>
+                                        {videoEncode.byUrl[element.secureUrl].status === "ready"
+                                          ? "Ready"
+                                          : videoEncode.byUrl[element.secureUrl].status === "failed"
+                                            ? "Failed"
+                                            : "Processing"}
+                                      </span>
+                                    )}
                                     {(element.secureUrl || element.previewUrl) ? (
-                                      <img src={element.secureUrl || element.previewUrl} alt={element.name} className="max-w-full max-h-full object-contain" />
+                                      isVideoMode ? (
+                                        (element.previewUrl || element.secureUrl || "").split("?")[0].toLowerCase().endsWith(".m3u8") ? (
+                                          <img
+                                            src={(element.previewUrl || element.secureUrl || "").replace(/master\.m3u8(\?.*)?$/i, "poster.jpg$1")}
+                                            alt={element.name}
+                                            className="max-w-full max-h-full object-contain"
+                                          />
+                                        ) : (
+                                          <video src={element.previewUrl || element.secureUrl} muted playsInline preload="metadata" className="max-w-full max-h-full object-contain" />
+                                        )
+                                      ) : (
+                                        <img src={element.secureUrl || element.previewUrl} alt={element.name} className="max-w-full max-h-full object-contain" />
+                                      )
                                     ) : (
-                                      <div className="text-gray-400 text-xs">No Image</div>
+                                      <div className="text-gray-400 text-xs">{isVideoMode ? "No video" : "No Image"}</div>
                                     )}
                                   </div>
                                   <input
@@ -1315,7 +1371,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                               <div
                                 className="border-2 border-dashed border-gray-300 rounded-lg p-3 cursor-pointer hover:bg-gray-50 transition-colors flex flex-col items-center justify-center min-h-[120px]"
                                 onClick={() => {
-                                  const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
+                                  const input = document.createElement('input'); input.type = 'file'; input.accept = mediaAccept; input.multiple = true;
                                   input.onchange = (e) => { const files = (e.target as HTMLInputElement).files; if (files) handleCategoryFiles(category.id, files, p) };
                                   input.click()
                                 }}
@@ -1351,7 +1407,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                             <div
                               className="border-2 border-dashed rounded-lg p-6 text-center text-gray-500 cursor-pointer hover:bg-gray-50 transition-colors"
                               onClick={() => {
-                                const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
+                                const input = document.createElement('input'); input.type = 'file'; input.accept = mediaAccept; input.multiple = true;
                                 input.onchange = (e) => { const files = (e.target as HTMLInputElement).files; if (files) handleCategoryFiles(category.id, files, p) };
                                 input.click()
                               }}
@@ -1373,7 +1429,7 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                               }}
                             >
                               <div className="text-sm">No elements added yet</div>
-                              <div className="text-xs">Drag and drop or click to upload images</div>
+                              <div className="text-xs">Drag and drop or click to upload {isVideoMode ? 'videos' : 'images'}</div>
                             </div>
                           )
                         )}
@@ -1416,8 +1472,15 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
             ? "Configure both phases of your study. Each phase needs at least 3 categories."
             : mode === 'text'
               ? "Organize your study statements into categories."
-              : "Organize your study elements into categories."}
+              : mode === 'video'
+                ? "Organize your videos into categories. Each task shows a few clips together, and the respondent rates that combination."
+                : "Organize your study elements into categories."}
         </p>
+        {isVideoMode && videoEncode.message && (
+          <p className="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            {videoEncode.message}
+          </p>
+        )}
       </div>
 
       {mode === 'hybrid' ? (

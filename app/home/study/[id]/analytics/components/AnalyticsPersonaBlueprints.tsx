@@ -13,7 +13,7 @@ import {
   type BlueprintMetric,
 } from "@/lib/utils/personaBlueprints"
 import { getElementImageUrl, isViewableImageUrl } from "@/lib/utils/analysisDashboard"
-import { ImageLightboxModal } from "@/components/ui/ImageLightboxModal"
+import { AnalyticsMediaLightbox, AnalyticsMediaTile } from "./AnalyticsMedia"
 
 interface AnalyticsPersonaBlueprintsProps {
   analysisData: any
@@ -25,6 +25,7 @@ const STUDY_TYPE_LABELS: Record<StudyType, string> = {
   grid: "Grid elements & categories",
   layer: "Layers & assets",
   hybrid: "Grid + copy per phase",
+  video: "Video assets & categories",
 }
 
 const METRIC_OPTIONS: { value: BlueprintMetric; label: string }[] = [
@@ -63,7 +64,7 @@ function BlueprintElementRow({
           className="h-10 w-10 shrink-0 overflow-hidden rounded-md border border-gray-200 bg-gray-50 cursor-pointer hover:border-[#2674BA]/40 focus:outline-none focus:ring-2 focus:ring-[#2674BA]/30"
           aria-label={`View ${name}`}
         >
-          <img src={imageUrl} alt={name} className="h-full w-full object-contain" />
+          <AnalyticsMediaTile url={imageUrl} name={name} isVideo={studyType === "video"} className="h-full w-full object-contain" />
         </button>
       ) : null}
       <div className="min-w-0 flex-1">
@@ -349,9 +350,10 @@ export function AnalyticsPersonaBlueprints({
         </div>
       )}
 
-      <ImageLightboxModal
+      <AnalyticsMediaLightbox
         src={lightbox.src}
         alt={lightbox.alt}
+        isVideo={studyType === "video"}
         isOpen={lightbox.isOpen}
         onClose={closeLightbox}
       />

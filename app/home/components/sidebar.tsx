@@ -208,7 +208,7 @@ export function Sidebar({
                 </div>
 
                 {/* Menu Sections */}
-                <div className="flex-1 overflow-y-auto px-2 py-4 space-y-6">
+                <div className={`min-h-0 flex-1 px-2 py-4 space-y-6 ${isCollapsed ? "overflow-hidden" : "overflow-y-auto overflow-x-hidden"}`}>
                     <div data-tour="studies-nav">
                         {!isCollapsed && (
                             <p className="px-4 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">

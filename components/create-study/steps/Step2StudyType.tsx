@@ -26,8 +26,8 @@ export function TextStudy() {
   return (
     <div className="w-full h-full bg-gradient-to-br from-blue-100 to-blue-200 rounded-3xl p-2 sm:p-3 shadow-lg flex flex-col">
       {/* Title */}
-      <div className="text-center mb-2 sm:mb-4">
-        <h2 className="text-blue-700 font-semibold text-xs sm:text-sm lg:text-base leading-tight">
+      <div className="text-center mb-1.5 sm:mb-3">
+        <h2 className="text-blue-700 font-semibold text-[11px] sm:text-xs lg:text-sm leading-tight">
           Text Study - Categorized
           <br />
           Statements
@@ -35,19 +35,22 @@ export function TextStudy() {
       </div>
 
       {/* List representation */}
-      <div className="flex-1 flex flex-col gap-1 sm:gap-2 px-1 sm:px-2 mb-1">
-        <div className="h-1 sm:h-2 w-1/3 bg-blue-600/20 rounded mx-auto mb-1 sm:mb-2"></div>
-        <div className="flex items-center gap-1 sm:gap-2">
-          <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500 flex-shrink-0"></div>
-          <div className="h-4 sm:h-6 flex-1 bg-white rounded border border-blue-200"></div>
+      <div className="flex-1 flex flex-col justify-center gap-2 sm:gap-3 px-2">
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></div>
+          <div className="h-1.5 flex-1 bg-blue-400/40 rounded-full"></div>
         </div>
-        <div className="flex items-center gap-1 sm:gap-2">
-          <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500 flex-shrink-0"></div>
-          <div className="h-4 sm:h-6 flex-1 bg-white rounded border border-blue-200"></div>
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></div>
+          <div className="h-1.5 w-4/5 bg-blue-400/40 rounded-full"></div>
         </div>
-        <div className="flex items-center gap-1 sm:gap-2">
-          <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-blue-500 flex-shrink-0"></div>
-          <div className="h-4 sm:h-6 flex-1 bg-white rounded border border-blue-200"></div>
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></div>
+          <div className="h-1.5 flex-1 bg-blue-400/40 rounded-full"></div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-500 flex-shrink-0"></div>
+          <div className="h-1.5 w-3/5 bg-blue-400/40 rounded-full"></div>
         </div>
       </div>
     </div>
@@ -57,31 +60,25 @@ export function TextStudy() {
 // Visual preview for Layer Study (as provided)
 export function LayerStudy() {
   return (
-    <div className="w-full h-full bg-gradient-to-br from-blue-100 to-blue-200 rounded-3xl p-2 sm:p-3 flex flex-col items-center justify-between gap-2 sm:gap-4">
-      {/* Header */}
-      <div className="text-center flex-shrink-0">
-        <h2 className="text-blue-700 font-semibold text-xs sm:text-sm lg:text-base leading-tight">Layer Study - Categorized</h2>
-        <h3 className="text-blue-700 font-semibold text-xs sm:text-sm lg:text-base">Elements (A, B, C, D)</h3>
+    <div className="w-full h-full overflow-hidden bg-gradient-to-br from-blue-100 to-blue-200 rounded-3xl p-2 sm:p-3 flex flex-col">
+      <div className="text-center shrink-0">
+        <h2 className="text-blue-700 font-semibold text-[11px] sm:text-xs lg:text-sm leading-tight">
+          Layer Study -
+          <br />
+          Categorized Elements
+        </h2>
       </div>
 
-      {/* Geometric Shapes */}
-      <div className="flex-1 flex items-center justify-center relative min-h-0 w-full">
-        {/* Large square background */}
-        <div className="w-12 h-12 sm:w-16 sm:h-16 lg:w-24 lg:h-24 border-2 border-blue-600 rounded-lg bg-blue-200/50 relative flex-shrink-0">
+      <div className="flex-1 min-h-0 flex items-center justify-center">
+        <div className="relative w-11 h-14 sm:w-14 sm:h-[76px] lg:w-16 lg:h-20">
+          {/* Large square background */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-11 h-11 sm:w-14 sm:h-14 lg:w-16 lg:h-16 border-2 border-blue-600 rounded-lg bg-blue-200/50"></div>
+          {/* Horizontal rounded rectangle */}
+          <div className="absolute top-7 sm:top-9 lg:top-10 left-1/2 -translate-x-1/2 w-9 h-2.5 sm:w-12 sm:h-3.5 lg:w-14 lg:h-4 bg-blue-400 rounded-full border-2 border-blue-600"></div>
           {/* Vertical rectangle */}
-          <div className="absolute -bottom-3 sm:-bottom-4 lg:-bottom-6 left-1/2 transform -translate-x-1/2 w-5 h-8 sm:w-8 sm:h-12 lg:w-12 lg:h-18 bg-blue-500 rounded-lg border-2 border-blue-600 flex-shrink-0"></div>
+          <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-4 h-8 sm:w-6 sm:h-10 lg:w-7 lg:h-12 bg-blue-500 rounded-lg border-2 border-blue-600"></div>
         </div>
-
-        {/* Horizontal rounded rectangle at bottom */}
-        <div className="absolute bottom-6 sm:bottom-8 lg:bottom-10 w-10 h-3 sm:w-14 sm:h-4 lg:w-20 lg:h-6 bg-blue-400 rounded-full border-2 border-blue-600 flex-shrink-0"></div>
       </div>
-
-      {/* Bottom dots */}
-      {/* <div className="flex space-x-1 sm:space-x-2 flex-shrink-0">
-        {[...Array(6)].map((_, i) => (
-          <div key={i} className="w-1.5 h-1.5 sm:w-2 sm:h-2 lg:w-2.5 lg:h-2.5 bg-blue-400/60 rounded-full flex-shrink-0"></div>
-        ))}
-      </div> */}
     </div>
   )
 }
@@ -91,8 +88,8 @@ export function GridStudy() {
   return (
     <div className="w-full h-full bg-gradient-to-br from-blue-100 to-blue-200 rounded-3xl p-2 sm:p-3 shadow-lg flex flex-col">
       {/* Title */}
-      <div className="text-center mb-2 sm:mb-4">
-        <h2 className="text-blue-700 font-semibold text-xs sm:text-sm lg:text-base leading-tight">
+      <div className="text-center mb-1.5 sm:mb-3">
+        <h2 className="text-blue-700 font-semibold text-[11px] sm:text-xs lg:text-sm leading-tight">
           Grid Study - Image/Text
           <br />
           Elements
@@ -119,13 +116,41 @@ export function GridStudy() {
   )
 }
 // Visual preview for Hybrid Study
+export function VideoStudy() {
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden rounded-3xl bg-gradient-to-br from-blue-100 to-blue-200 p-2 sm:p-3">
+      <div className="shrink-0 text-center">
+        <h2 className="text-blue-700 font-semibold text-[11px] sm:text-xs lg:text-sm leading-tight">
+          Video Study
+          <br />
+          Combined clips
+        </h2>
+      </div>
+      <div className="flex min-h-0 flex-1 items-center justify-center pt-1">
+        <div className="relative h-[82%] max-h-full aspect-[9/16] rounded-xl border-2 border-blue-600 bg-blue-500/85">
+          <div className="absolute inset-x-1.5 top-1.5 h-0.5 rounded-full bg-white/80" />
+          <div className="absolute left-1/2 top-[42%] h-0 w-0 -translate-x-1/2 border-y-[6px] border-y-transparent border-l-[10px] border-l-white sm:border-y-[7px] sm:border-l-[12px]" />
+          <div className="absolute bottom-5 right-1 flex flex-col gap-1">
+            <div className="h-1.5 w-1.5 rounded-full bg-white/90" />
+            <div className="h-1.5 w-1.5 rounded-full bg-white/70" />
+            <div className="h-1.5 w-1.5 rounded-full bg-white/70" />
+          </div>
+          <div className="absolute inset-x-1.5 bottom-1.5 h-1 overflow-hidden rounded-full bg-white/30">
+            <div className="h-full w-2/3 rounded-full bg-white" />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function HybridStudy() {
   return (
     <div className="w-full h-full bg-gradient-to-br from-blue-100 to-blue-200 rounded-3xl p-2 sm:p-3 lg:p-4 shadow-lg flex flex-col">
       {/* Title */}
-      <div className="text-center mb-2 sm:mb-3 lg:mb-4">
-        <h2 className="text-blue-700 font-semibold text-sm sm:text-base lg:text-lg leading-tight">Hybrid Study</h2>
-        <p className="text-[10px] sm:text-xs lg:text-[11px] text-blue-700/80 font-medium mt-1">Grid + Text elements</p>
+      <div className="text-center mb-1.5 sm:mb-2">
+        <h2 className="text-blue-700 font-semibold text-[11px] sm:text-xs lg:text-sm leading-tight">Hybrid Study</h2>
+        <p className="text-[9px] sm:text-[10px] text-blue-700/80 font-medium mt-0.5">Grid + Text elements</p>
       </div>
 
       <div className="flex-1 flex flex-col gap-1 sm:gap-2 lg:gap-3">
@@ -161,7 +186,7 @@ export function HybridStudy() {
 
 export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly = false }: Step2StudyTypeProps) {
   const [type, setType] = useState<StudyType | null>(() => {
-    try { const v = localStorage.getItem('cs_step2'); if (v) { const o = JSON.parse(v); return (o.type === 'layer' || o.type === 'grid' || o.type === 'text' || o.type === 'hybrid') ? o.type : (value ?? 'grid') } } catch { }
+    try { const v = localStorage.getItem('cs_step2'); if (v) { const o = JSON.parse(v); return (o.type === 'layer' || o.type === 'grid' || o.type === 'text' || o.type === 'hybrid' || o.type === 'video') ? o.type : (value ?? 'grid') } } catch { }
     return value ?? 'grid'
   })
   const [mainQuestion, setMainQuestion] = useState(() => {
@@ -234,13 +259,13 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
           className="rounded-2xl p-1 sm:p-2"
         >
           <label className="block text-sm font-semibold text-gray-800 mb-2">Study Type <span className="text-red-500">*</span></label>
-          <p className="text-xs text-gray-500 mb-4">Choose whether your study will use images or text elements</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 lg:gap-4">
+          <p className="text-xs text-gray-500 mb-4">Choose whether your study will use images, text, or video</p>
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 xl:grid-cols-5 xl:gap-3 items-stretch">
             <button
               type="button"
               onClick={() => requestTypeChange("grid")}
               disabled={isReadOnly}
-              className={`border-2 cursor-pointer rounded-3xl aspect-square w-full flex items-center justify-center text-left transition-all ${type === "grid" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
+              className={`overflow-hidden border-2 cursor-pointer rounded-3xl aspect-[4/5] sm:aspect-square w-full min-w-0 flex items-center justify-center text-left transition-all ${type === "grid" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
             >
               <div className="w-full h-full p-1.5 sm:p-2 lg:p-3">
                 <GridStudy />
@@ -251,7 +276,7 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
               type="button"
               onClick={() => requestTypeChange("layer")}
               disabled={isReadOnly}
-              className={`border-2 cursor-pointer rounded-3xl aspect-square w-full flex items-center justify-center text-left transition-all ${type === "layer" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
+              className={`overflow-hidden border-2 cursor-pointer rounded-3xl aspect-[4/5] sm:aspect-square w-full min-w-0 flex items-center justify-center text-left transition-all ${type === "layer" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
             >
               <div className="w-full h-full p-1.5 sm:p-2 lg:p-3">
                 <LayerStudy />
@@ -262,7 +287,7 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
               type="button"
               onClick={() => requestTypeChange("text")}
               disabled={isReadOnly}
-              className={`border-2 cursor-pointer rounded-3xl aspect-square w-full flex items-center justify-center text-left transition-all ${type === "text" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
+              className={`overflow-hidden border-2 cursor-pointer rounded-3xl aspect-[4/5] sm:aspect-square w-full min-w-0 flex items-center justify-center text-left transition-all ${type === "text" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
             >
               <div className="w-full h-full p-1.5 sm:p-2 lg:p-3">
                 <TextStudy />
@@ -273,10 +298,21 @@ export function Step2StudyType({ onNext, onBack, value, onDataChange, isReadOnly
               type="button"
               onClick={() => requestTypeChange("hybrid")}
               disabled={isReadOnly}
-              className={`border-2 cursor-pointer rounded-3xl aspect-square w-full flex items-center justify-center text-left transition-all ${type === "hybrid" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
+              className={`overflow-hidden border-2 cursor-pointer rounded-3xl aspect-[4/5] sm:aspect-square w-full min-w-0 flex items-center justify-center text-left transition-all ${type === "hybrid" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
             >
               <div className="w-full h-full p-1.5 sm:p-2 lg:p-3">
                 <HybridStudy />
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => requestTypeChange("video")}
+              disabled={isReadOnly}
+              className={`overflow-hidden border-2 cursor-pointer rounded-3xl aspect-[4/5] sm:aspect-square w-full min-w-0 flex items-center justify-center text-left transition-all ${type === "video" ? "border-[rgba(38,116,186,1)] ring-2 ring-[rgba(38,116,186,0.2)] bg-[rgba(38,116,186,0.05)] opacity-100" : "border-gray-200 bg-white opacity-50 hover:opacity-100"}`}
+            >
+              <div className="w-full h-full p-1.5 sm:p-2 lg:p-3">
+                <VideoStudy />
               </div>
             </button>
           </div>

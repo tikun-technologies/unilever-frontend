@@ -134,7 +134,7 @@ function ParticipateIntroContent() {
   const estimatedTime = "2-5 minutes"
   const orientationText = publicInfo?.orientation_text || step2?.orientationText || "Welcome to the study!"
   const typeFromInfo = publicInfo?.study_type || step2?.type
-  const studyType = typeFromInfo === "layer" ? "Layer Study" : typeFromInfo === "text" ? "Text Study" : typeFromInfo === "hybrid" ? "Hybrid Study" : "Grid Study"
+  const studyType = typeFromInfo === "video" ? "Video Study" : typeFromInfo === "layer" ? "Layer Study" : typeFromInfo === "text" ? "Text Study" : typeFromInfo === "hybrid" ? "Hybrid Study" : "Grid Study"
 
   let totalTasks = 0
   if (step7matrix && typeof step7matrix === 'object') {

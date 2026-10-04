@@ -27,6 +27,13 @@ function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value)
 }
 
+/** True for uploaded clips and HLS playlists. These must not go through the image proxy. */
+export function isVideoMediaUrl(url: string | null | undefined): boolean {
+  if (!url || typeof url !== "string") return false
+  const path = url.split("?")[0].split("#")[0]
+  return /\.(mp4|webm|mov|m4v|m3u8)$/i.test(path)
+}
+
 /**
  * Returns the display URL for a participate image.
  *
@@ -36,7 +43,7 @@ function isHttpUrl(value: string): boolean {
  */
 export function getParticipateImageUrl(url: string | null | undefined): string {
   if (!url || typeof url !== 'string') return ''
-  if (!isHttpUrl(url)) return url
+  if (!isHttpUrl(url) || isVideoMediaUrl(url)) return url
 
   const params = new URLSearchParams({
     url,

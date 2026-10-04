@@ -65,7 +65,7 @@ interface GridElement {
   categoryId?: string | number
   category?: string | number
   category_name?: string
-  element_type?: 'image' | 'text'
+  element_type?: 'image' | 'text' | 'video'
 }
 
 interface GridCategory {
@@ -248,9 +248,13 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
     }
 
     // Populate Step 5 - Study Structure (Grid, Layer, Text, or Hybrid)
-    if (studyDetails.study_type === 'grid' || studyDetails.study_type === 'text' || studyDetails.study_type === 'hybrid') {
+    if (studyDetails.study_type === 'grid' || studyDetails.study_type === 'text' || studyDetails.study_type === 'hybrid' || studyDetails.study_type === 'video') {
       const isHybrid = studyDetails.study_type === 'hybrid'
-      const storageKey = studyDetails.study_type === 'text' ? 'cs_step5_text' : (isHybrid ? 'cs_step5_hybrid' : 'cs_step5_grid')
+      const storageKey = studyDetails.study_type === 'text'
+        ? 'cs_step5_text'
+        : studyDetails.study_type === 'video'
+          ? 'cs_step5_video'
+          : (isHybrid ? 'cs_step5_hybrid' : 'cs_step5_grid')
       try {
         // If backend provided categories, map them to the frontend category+elements shape
         if (studyDetails.categories && Array.isArray(studyDetails.categories)) {
@@ -262,10 +266,12 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
             const looksLikeUrl = typeof urlCandidate === 'string' && urlCandidate.trim().startsWith('http')
 
             // Use backend provided element_type if available (preferred), otherwise guess based on content
-            const type = el.element_type || (looksLikeUrl ? 'image' : 'text')
+            const type = el.element_type || (looksLikeUrl
+              ? (studyDetails.study_type === 'video' ? 'video' : 'image')
+              : 'text')
 
             // Canonicalize URL: for images, use the candidate. For text, url is empty.
-            const url = type === 'image' ? urlCandidate : ''
+            const url = type === 'image' || type === 'video' ? urlCandidate : ''
             const textContent = el.textContent || el.content || el.name || el.title || (type === 'text' ? urlCandidate : '')
 
             return {
@@ -328,7 +334,24 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
             }
           }
 
-          localStorage.setItem(storageKey, JSON.stringify(transformedCategories))
+          // Guard: don't overwrite a populated local structure with an empty/elementless
+          // backend result (e.g. when a save hasn't propagated yet). This prevents the
+          // "blank on refresh" issue where uploaded media appears to vanish.
+          const backendElementCount = transformedCategories.reduce((sum, c) => sum + (c.elements?.length || 0), 0)
+          let existingLocalElementCount = 0
+          try {
+            const existingRaw = localStorage.getItem(storageKey)
+            if (existingRaw) {
+              const existing = JSON.parse(existingRaw)
+              if (Array.isArray(existing)) {
+                existingLocalElementCount = existing.reduce((sum: number, c: any) => sum + (Array.isArray(c?.elements) ? c.elements.length : 0), 0)
+              }
+            }
+          } catch { }
+
+          if (backendElementCount > 0 || existingLocalElementCount === 0) {
+            localStorage.setItem(storageKey, JSON.stringify(transformedCategories))
+          }
 
           // Special handling for hybrid: split into grid and text keys
           if (isHybrid) {
@@ -910,7 +933,7 @@ export default function CreateStudyPage() {
       if (s2) {
         const v = JSON.parse(s2) as { type?: string }
         if (
-          (v?.type === 'layer' || v?.type === 'grid' || v?.type === 'text' || v?.type === 'hybrid') &&
+          (v?.type === 'layer' || v?.type === 'grid' || v?.type === 'text' || v?.type === 'hybrid' || v?.type === 'video') &&
           v.type !== studyType
         ) {
           setStudyType(v.type)
@@ -1188,7 +1211,7 @@ export default function CreateStudyPage() {
           const s2 = localStorage.getItem('cs_step2')
           if (s2) {
             const v = JSON.parse(s2)
-            if (v?.type === 'layer' || v?.type === 'grid' || v?.type === 'text' || v?.type === 'hybrid') setStudyType(v.type)
+            if (v?.type === 'layer' || v?.type === 'grid' || v?.type === 'text' || v?.type === 'hybrid' || v?.type === 'video') setStudyType(v.type)
           }
 
           // Hydrate current step (1-10 for special creator, 1-9 for non-special)

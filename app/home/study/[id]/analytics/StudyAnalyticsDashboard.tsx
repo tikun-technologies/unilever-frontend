@@ -927,7 +927,7 @@ export function StudyAnalyticsDashboard({
                             <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                                 {isSharedView ? (
                                     <span className="break-words font-medium text-white">
-                                        Shared {studyType === "grid" ? "grid" : studyType === "hybrid" ? "hybrid" : studyType === "text" ? "text" : "layer"} analytics
+                                        Shared {studyType === "grid" ? "grid" : studyType === "video" ? "video" : studyType === "hybrid" ? "hybrid" : studyType === "text" ? "text" : "layer"} analytics
                                     </span>
                                 ) : (
                                     <>
@@ -936,7 +936,7 @@ export function StudyAnalyticsDashboard({
                                 <Link href={homeHref} className="shrink-0 text-blue-200 transition-colors hover:text-white">Studies</Link>
                                 <span className="shrink-0 text-blue-300 opacity-50">/</span>
                                 <span className="break-words font-medium text-white">
-                                    {studyType === "grid" ? "Grid Study" : studyType === "hybrid" ? "Hybrid Study" : studyType === "text" ? "Text Study" : "Layer Study"} Analytics
+                                    {studyType === "grid" ? "Grid Study" : studyType === "video" ? "Video Study" : studyType === "hybrid" ? "Hybrid Study" : studyType === "text" ? "Text Study" : "Layer Study"} Analytics
                                 </span>
                                     </>
                                 )}
@@ -1339,7 +1339,7 @@ export function StudyAnalyticsDashboard({
                                         <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.32, duration: 0.4 }} className="mt-10">
                                             <AnalyticsPersonaBlueprints
                                                 analysisData={analysisData}
-                                                studyType={studyType as "text" | "grid" | "layer" | "hybrid"}
+                                                studyType={studyType as "text" | "grid" | "layer" | "hybrid" | "video"}
                                             />
                                         </motion.div>
                                     </motion.div>

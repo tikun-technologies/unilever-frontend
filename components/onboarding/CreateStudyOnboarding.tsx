@@ -12,7 +12,7 @@ import {
   skipCreateStudyOnboarding,
 } from "@/lib/api/onboardingApi"
 
-type StudyType = "grid" | "layer" | "text" | "hybrid"
+type StudyType = "grid" | "layer" | "text" | "hybrid" | "video"
 
 const GUIDE_SHOWN_UP_TO_KEY = CREATE_STUDY_GUIDE_SHOWN_UP_TO_KEY
 const ONBOARDING_ACTIVE_KEY = CREATE_STUDY_ONBOARDING_ACTIVE_KEY
@@ -108,6 +108,12 @@ function getStep5Guide(studyType: StudyType): GuideStep {
         title: "Step 5: Study Structure",
         description: "Add categories and text statements within each category.",
         hint: "Group your text statements into categories for participants to review.",
+      }
+    case "video":
+      return {
+        title: "Step 5: Study Structure",
+        description: "Add categories and upload videos into each category.",
+        hint: "Create categories and add at least three videos in each one.",
       }
   }
 }

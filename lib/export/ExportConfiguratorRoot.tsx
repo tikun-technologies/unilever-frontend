@@ -35,6 +35,7 @@ type AnalyticsView = "overview" | "configurator" | "detail"
 
 function studyTypeLabel(studyType: string): string {
   if (studyType === "grid") return "Grid Study"
+  if (studyType === "video") return "Video Study"
   if (studyType === "hybrid") return "Hybrid Study"
   if (studyType === "text") return "Text Study"
   return "Layer Study"
@@ -134,7 +135,7 @@ export function ExportConfiguratorRoot({ payload }: { payload: ExportConfigurato
                 <div className="mt-10">
                   <AnalyticsPersonaBlueprints
                     analysisData={analysisData}
-                    studyType={studyType as "text" | "grid" | "layer" | "hybrid"}
+                    studyType={studyType as "text" | "grid" | "layer" | "hybrid" | "video"}
                   />
                 </div>
               </motion.div>

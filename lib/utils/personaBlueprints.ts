@@ -27,7 +27,7 @@ function getSectionKey(metric: BlueprintMetric, segmentType: string): string {
   return `${prefix} ${tabName}`
 }
 
-export type StudyType = "text" | "grid" | "layer" | "hybrid"
+export type StudyType = "text" | "grid" | "layer" | "hybrid" | "video"
 
 export interface Persona {
   segmentType: string

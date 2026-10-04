@@ -15,6 +15,7 @@ import Image from "next/image"
 import { motion, AnimatePresence } from "framer-motion"
 import { StudyLaunchCongrats } from "@/components/onboarding/StudyLaunchCongrats"
 import { getConfiguratorThumbnailUrl } from "@/lib/utils/configuratorImageUrls"
+import { PreviewVideoCard } from "@/components/media/PreviewVideoCard"
 
 interface AccordionSectionProps {
   title: string
@@ -167,7 +168,23 @@ const ElementCard = ({ element }: { element: any }) => {
   )
 }
 
-const CategoryElementsDisplay = ({ elements, imageFirst = false }: { elements: any[]; imageFirst?: boolean }) => {
+const CategoryElementsDisplay = ({ elements, imageFirst = false, asVideo = false }: { elements: any[]; imageFirst?: boolean; asVideo?: boolean }) => {
+  if (asVideo) {
+    const clips = elements.filter((element) => String(element?.element_type || "video").toLowerCase() !== "text")
+    if (clips.length === 0) return <div className="text-sm text-gray-500">No elements to display</div>
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {clips.map((element: any, elementIndex: number) => (
+          <PreviewVideoCard
+            key={element.element_id || element.id || elementIndex}
+            src={String(element.content || element.url || element.secureUrl || "")}
+            name={String(element.name || element.alt_text || "")}
+          />
+        ))}
+      </div>
+    )
+  }
+
   const textElements = elements.filter(isTextElement)
   const imageElements = elements.filter((element) => !isTextElement(element))
 
@@ -591,7 +608,7 @@ export default function StudyManagementPage() {
               <span className="mx-2">/</span>
               <Link href={homeHref} className="text-blue-200"><span className="text-blue-200">Studies</span></Link>
               <span className="mx-2">/</span>
-              <span className="text-white">{study.study_type === "grid" ? "Grid Study" : study.study_type === "hybrid" ? "Hybrid Study" : study.study_type === "text" ? "Text Study" : "Layer Study"}</span>
+              <span className="text-white">{study.study_type === "grid" ? "Grid Study" : study.study_type === "video" ? "Video Study" : study.study_type === "hybrid" ? "Hybrid Study" : study.study_type === "text" ? "Text Study" : "Layer Study"}</span>
             </nav>
 
             {/* Title and Actions */}
@@ -666,7 +683,7 @@ export default function StudyManagementPage() {
             {/* Top row: title + actions */}
             <div className="px-4 sm:px-6 pt-4 pb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-base font-semibold shrink-0" style={{ color: '#2674BA' }}>
-                {study.study_type === "layer" ? "Layer Study" : study.study_type === "text" ? "Text Study" : study.study_type === "hybrid" ? "Hybrid Study" : "Grid Study"}
+                {study.study_type === "layer" ? "Layer Study" : study.study_type === "text" ? "Text Study" : study.study_type === "hybrid" ? "Hybrid Study" : study.study_type === "video" ? "Video Study" : "Grid Study"}
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 {studyUserRole?.toLowerCase() !== "viewer" && (
@@ -706,7 +723,7 @@ export default function StudyManagementPage() {
               </div>
               <div className="flex items-center gap-2 min-w-0">
                 <span className="text-gray-700 shrink-0">Type :</span>
-                <span className="text-gray-700">{study.study_type === 'layer' ? 'Layer - Based' : study.study_type === 'hybrid' ? 'Hybrid - Based' : study.study_type === 'text' ? 'Text - Based' : 'Grid - Based'}</span>
+                <span className="text-gray-700">{study.study_type === 'layer' ? 'Layer - Based' : study.study_type === 'hybrid' ? 'Hybrid - Based' : study.study_type === 'text' ? 'Text - Based' : study.study_type === 'video' ? 'Video - Based' : 'Grid - Based'}</span>
               </div>
               <div className="flex flex-col gap-2 sm:col-span-2 lg:col-span-1 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                 <div className="flex items-center gap-2 min-w-0">
@@ -947,7 +964,7 @@ export default function StudyManagementPage() {
                           </span>
                         )}
                       </div>
-                      <CategoryElementsDisplay elements={elements} imageFirst={isHybridStudy} />
+                      <CategoryElementsDisplay elements={elements} imageFirst={isHybridStudy} asVideo={study.study_type === "video"} />
                     </div>
                   )
                 })}

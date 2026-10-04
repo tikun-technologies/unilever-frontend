@@ -15,7 +15,7 @@ import {
 } from "@/lib/analyticsShare"
 
 // Types that mirror backend contract
-export type StudyType = "grid" | "layer" | "text" | "hybrid"
+export type StudyType = "grid" | "layer" | "text" | "hybrid" | "video"
 
 const CLASSIFICATION_ID_MAX_LENGTH = 10
 
@@ -52,7 +52,7 @@ export interface ElementPayload {
   element_id: string
   name: string
   description: string
-  element_type: "image" | "text"
+  element_type: "image" | "text" | "video"
   content: string // URL to the uploaded image
   alt_text: string
   category_id: string
@@ -62,7 +62,7 @@ export interface CategoryPayload {
   category_id: string
   name: string
   order: number
-  phase_type?: "grid" | "text" // NEW: phase type for hybrid studies
+  phase_type?: "grid" | "text" | "video"
 }
 
 export interface StudyLayerPayload {
@@ -373,6 +373,145 @@ export async function uploadImages(files: File[] | FileList): Promise<UploadImag
   return data.results || []
 }
 
+// Legacy path: stream the file through the API (API relays it to Azure).
+// Kept as a fallback for when the direct-upload endpoints are unavailable.
+async function uploadSingleVideo(file: File): Promise<UploadImageResult> {
+  const form = new FormData()
+  form.append("files", file)
+  const res = await fetchWithAuth(`${API_BASE_URL}/uploads/videos`, {
+    method: "POST",
+    body: form,
+  })
+  if (!res.ok) {
+    const text = await res.text().catch(() => "")
+    throw new Error(`Video upload failed (${res.status}): ${text}`)
+  }
+  const data = (await res.json()) as UploadImagesResponse
+  const result = (data.results || [])[0]
+  if (!result) {
+    const failed = (data.errors || []).map((err) => err.error).filter(Boolean)
+    throw new Error(failed[0] || "Video upload failed")
+  }
+  return result
+}
+
+interface VideoUploadSas {
+  upload_url: string
+  public_url: string
+  public_id: string
+  content_type: string
+}
+
+// PUT the file straight to Azure Blob using a SAS URL, with progress events.
+function putBlobWithProgress(
+  url: string,
+  file: File,
+  contentType: string,
+  onProgress?: (fraction: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open("PUT", url, true)
+    xhr.setRequestHeader("x-ms-blob-type", "BlockBlob")
+    xhr.setRequestHeader("x-ms-blob-content-type", contentType)
+    if (onProgress && xhr.upload) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded / e.total)
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve()
+      else reject(new Error(`Blob upload failed (${xhr.status})`))
+    }
+    xhr.onerror = () => reject(new Error("Blob upload network error"))
+    xhr.ontimeout = () => reject(new Error("Blob upload timed out"))
+    xhr.send(file)
+  })
+}
+
+// Direct-to-Azure upload: ask the API for a SAS, PUT the file to Blob, then
+// register the asset so its HLS encode is queued. Removes the API relay hop,
+// so large videos upload far faster. Falls back to the legacy path when the
+// SAS endpoints are not deployed yet.
+async function uploadSingleVideoDirect(
+  file: File,
+  index: number,
+  onProgress?: (fraction: number) => void,
+): Promise<UploadImageResult> {
+  let sas: VideoUploadSas
+  try {
+    const sasRes = await fetchWithAuth(`${API_BASE_URL}/uploads/videos/sas`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ filename: file.name, size: file.size }),
+    })
+    if (sasRes.status === 404 || sasRes.status === 405) {
+      // Older API without the direct-upload endpoints.
+      return { ...(await uploadSingleVideo(file)), index }
+    }
+    if (!sasRes.ok) {
+      const text = await sasRes.text().catch(() => "")
+      throw new Error(`Could not start upload (${sasRes.status}): ${text}`)
+    }
+    sas = (await sasRes.json()) as VideoUploadSas
+  } catch (e) {
+    // Network failure reaching the SAS endpoint: fall back to the legacy path.
+    return { ...(await uploadSingleVideo(file)), index }
+  }
+
+  try {
+    await putBlobWithProgress(sas.upload_url, file, sas.content_type, onProgress)
+  } catch {
+    // Direct PUT failed (e.g. storage CORS not allowing this origin). Fall back
+    // to the legacy relay path so the upload still succeeds, just slower.
+    return { ...(await uploadSingleVideo(file)), index }
+  }
+
+  const compRes = await fetchWithAuth(`${API_BASE_URL}/uploads/videos/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ public_id: sas.public_id }),
+  })
+  if (!compRes.ok) {
+    const text = await compRes.text().catch(() => "")
+    throw new Error(`Video upload finalize failed (${compRes.status}): ${text}`)
+  }
+  const data = (await compRes.json()) as { result?: UploadImageResult }
+  if (!data.result) throw new Error("Video upload failed")
+  return { ...data.result, index }
+}
+
+export async function uploadVideos(files: File[] | FileList): Promise<UploadImageResult[]> {
+  const list: File[] = Array.from(files as any)
+  if (list.length === 0) return []
+
+  // Upload videos as separate parallel requests (bounded concurrency) so that
+  // multiple large files transfer simultaneously over different connections
+  // instead of streaming one big multipart body sequentially. Order preserved.
+  const CONCURRENCY = 3
+  const results: UploadImageResult[] = new Array(list.length)
+  let nextIndex = 0
+  let firstError: unknown = null
+
+  const worker = async () => {
+    while (true) {
+      const i = nextIndex++
+      if (i >= list.length) break
+      try {
+        results[i] = await uploadSingleVideoDirect(list[i], i)
+      } catch (e) {
+        if (!firstError) firstError = e
+        return
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, list.length) }, () => worker()))
+
+  if (firstError) throw firstError
+  return results
+}
+
 // Create a new study using the backend API contract
 export async function createStudy(payload: CreateStudyPayload): Promise<{ id: string } & any> {
   // Inject project_id from URL if missing
@@ -481,6 +620,7 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
   const s2 = get("cs_step2", { type: "grid", mainQuestion: "", orientationText: "" }) as any
   const s3 = get("cs_step3", { minValue: 1, maxValue: 5, minLabel: "", maxLabel: "", middleLabel: "" }) as any
   const grid = get<any[]>("cs_step5_grid", [])
+  const video = get<any[]>("cs_step5_video", [])
   const text = get<any[]>("cs_step5_text", []) // NEW: Get text study data
   const hybridGrid = get<any[]>("cs_step5_hybrid_grid", []) // NEW: Get hybrid grid data
   const hybridText = get<any[]>("cs_step5_hybrid_text", []) // NEW: Get hybrid text data
@@ -510,12 +650,13 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
   const rawType = s2.type || "grid"
   const normalizedType = rawType.toLowerCase()
 
-  if (normalizedType === "grid" || normalizedType === "text" || normalizedType === "hybrid") {
-    // Grid/Text/Hybrid mode: check if using new category format or legacy format
+  if (normalizedType === "grid" || normalizedType === "text" || normalizedType === "hybrid" || normalizedType === "video") {
+    // Grid/Text/Hybrid/Video mode: check if using new category format or legacy format
     const isHybrid = normalizedType === "hybrid"
 
-    const buildElements = (sourceData: any[], typeSuffix: "grid" | "text") => {
+    const buildElements = (sourceData: any[], typeSuffix: "grid" | "text" | "video") => {
       const isTextMode = typeSuffix === "text"
+      const mediaType = typeSuffix === "video" ? "video" : "image"
       const isCategoryFormat = sourceData.length > 0 && sourceData[0].title && sourceData[0].elements
 
       let localCategories: CategoryPayload[] = []
@@ -537,7 +678,7 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
                 element_id: String(e.id || crypto.randomUUID?.() || `E_${typeSuffix}_${idx + 1}`),
                 name: e.name || `Element ${idx + 1}`,
                 description: e.description || "",
-                element_type: isTextMode ? "text" : "image",
+                element_type: isTextMode ? "text" : mediaType,
                 content: isTextMode ? e.name : e.secureUrl,
                 alt_text: e.name || `Element ${idx + 1}`,
                 category_id: String(category.id || `C_${typeSuffix}_${catIdx + 1}`),
@@ -550,7 +691,7 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
             element_id: String(item.id || crypto.randomUUID?.() || `E_${typeSuffix}_${idx + 1}`),
             name: item.name || `Element ${idx + 1}`,
             description: item.description || "",
-            element_type: isTextMode ? "text" : "image",
+            element_type: isTextMode ? "text" : mediaType,
             content: isTextMode ? item.name : item.secureUrl,
             alt_text: item.name || `Element ${idx + 1}`,
             category_id: `default-category-${typeSuffix}`,
@@ -565,8 +706,8 @@ export function buildStudyPayloadFromLocalStorage(): CreateStudyPayload {
       categories = [...gridResult.categories, ...textResult.categories]
       elements = [...gridResult.elements, ...textResult.elements]
     } else {
-      const sourceData = normalizedType === "text" ? text : grid
-      const result = buildElements(sourceData, normalizedType as "grid" | "text")
+      const sourceData = normalizedType === "text" ? text : normalizedType === "video" ? video : grid
+      const result = buildElements(sourceData, normalizedType as "grid" | "text" | "video")
       categories = result.categories
       elements = result.elements
     }
@@ -824,14 +965,14 @@ export interface TaskGenerationCategoryPayload {
   category_id: string
   name: string
   order: number
-  phase_type?: "grid" | "text" // NEW: phase type for hybrid studies
+  phase_type?: "grid" | "text" | "video"
 }
 
 export interface TaskGenerationElementPayload {
   element_id: string
   name: string
   description: string
-  element_type: "image" | "text"
+  element_type: "image" | "text" | "video"
   content: string
   alt_text: string
   category_id: string
@@ -908,7 +1049,10 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
   const studyType = String(s2.type || "grid").toLowerCase()
   const isHybrid = studyType === 'hybrid'
 
-  const grid = get<any[]>(isHybrid ? "cs_step5_hybrid_grid" : "cs_step5_grid", [])
+  const grid = get<any[]>(
+    isHybrid ? "cs_step5_hybrid_grid" : studyType === "video" ? "cs_step5_video" : "cs_step5_grid",
+    []
+  )
   const text = get<any[]>(isHybrid ? "cs_step5_hybrid_text" : "cs_step5_text", [])
   const layer = get<any[]>("cs_step5_layer", [])
   const layerBackground = get<any | null>("cs_step5_layer_background", null)
@@ -982,12 +1126,13 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
   let study_layers: any[] = []
 
   const stype = s2.type as StudyType
-  if (stype === "grid" || stype === "text" || stype === "hybrid") {
+  if (stype === "grid" || stype === "text" || stype === "hybrid" || stype === "video") {
     // Grid/Text/Hybrid mode: check if using new category format or legacy format
     const isHybrid = stype === "hybrid"
 
-    const buildElementsForTaskGen = (sourceData: any[], typeSuffix: "grid" | "text") => {
+    const buildElementsForTaskGen = (sourceData: any[], typeSuffix: "grid" | "text" | "video") => {
       const isTextMode = typeSuffix === "text"
+      const mediaType = typeSuffix === "video" ? "video" : "image"
       const isCategoryFormat = sourceData.length > 0 && sourceData[0].title && sourceData[0].elements
 
       let localCategories: TaskGenerationCategoryPayload[] = []
@@ -1013,7 +1158,7 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
                 element_id: ensureUUID(e.id),
                 name: String(e.name || `Element ${elIdx + 1}`),
                 description: String(e.description || ""),
-                element_type: isTextMode ? "text" : "image",
+                element_type: isTextMode ? "text" : mediaType,
                 content: isTextMode ? String(e.name || "") : String(e.secureUrl),
                 alt_text: String(e.name || `Element ${elIdx + 1}`),
                 category_id: categoryId,
@@ -1033,7 +1178,7 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
             element_id: ensureUUID(e.id),
             name: String(e.name || `Element ${idx + 1}`),
             description: String(e.description || ""),
-            element_type: isTextMode ? "text" : "image",
+            element_type: isTextMode ? "text" : mediaType,
             content: isTextMode ? String(e.name || "") : String(e.secureUrl),
             alt_text: String(e.name || `Element ${idx + 1}`),
             category_id: defaultCategoryId,
@@ -1049,7 +1194,7 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
       elements = [...gridResult.elements, ...textResult.elements]
     } else {
       const sourceData = stype === "text" ? text : grid
-      const result = buildElementsForTaskGen(sourceData, stype as "grid" | "text")
+      const result = buildElementsForTaskGen(sourceData, stype as "grid" | "text" | "video")
       categories = result.categories
       elements = result.elements
     }
@@ -1175,7 +1320,7 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
     language,
     main_question: s2.mainQuestion || "",
     orientation_text: s2.orientationText || "",
-    study_type: ((s2.type as StudyType) === 'layer' ? 'layer' : (s2.type as StudyType) === 'text' ? 'text' : (s2.type as StudyType) === 'hybrid' ? 'hybrid' : 'grid') as StudyType,
+    study_type: (['layer', 'text', 'hybrid', 'video'].includes(String(s2.type)) ? s2.type : 'grid') as StudyType,
     phase_order: (s2.type as StudyType) === 'hybrid' ? phaseOrder : undefined,
     rating_scale: {
       min_value: Number(s3.minValue ?? 1),
@@ -3700,7 +3845,7 @@ export async function deleteStudy(studyId: string): Promise<void> {
 
 // Update Study - Step 2
 export interface UpdateStudyPayload {
-  type: "grid" | "layer" | "text" | "hybrid"
+  type: "grid" | "layer" | "text" | "hybrid" | "video"
   last_step?: number
   main_question: string
   orientation_text: string

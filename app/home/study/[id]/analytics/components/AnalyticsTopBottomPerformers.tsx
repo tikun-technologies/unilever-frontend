@@ -4,7 +4,7 @@ import React, { useState, useCallback } from "react"
 import { motion } from "framer-motion"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts"
 import { getTopBottomPerformers } from "@/lib/utils/analysisDashboard"
-import { ImageLightboxModal } from "@/components/ui/ImageLightboxModal"
+import { AnalyticsMediaLightbox } from "./AnalyticsMedia"
 import { PerformerThumbnail } from "./PerformerThumbnail"
 
 const METRICS = ["Top Down", "Bottom Up", "Response Time"] as const
@@ -22,10 +22,11 @@ export function AnalyticsTopBottomPerformers({ analysisData, studyType }: Analyt
     isOpen: boolean
     src: string | null
     alt: string
+    isVideo?: boolean
   }>({ isOpen: false, src: null, alt: "" })
 
-  const handleThumbClick = useCallback((imageUrl: string, name: string) => {
-    setLightbox({ isOpen: true, src: imageUrl, alt: name })
+  const handleThumbClick = useCallback((imageUrl: string, name: string, isVideo: boolean) => {
+    setLightbox({ isOpen: true, src: imageUrl, alt: name, isVideo })
   }, [])
 
   const handleLightboxClose = useCallback(() => {
@@ -60,7 +61,8 @@ export function AnalyticsTopBottomPerformers({ analysisData, studyType }: Analyt
                 name={item.name}
                 shortName={item.shortName}
                 imageUrl={item.imageUrl}
-                onThumbClick={(url) => handleThumbClick(url, item.name)}
+                isVideo={item.elementType?.toLowerCase() === "video" || (studyType || "").toLowerCase() === "video"}
+                onThumbClick={(url) => handleThumbClick(url, item.name, item.elementType?.toLowerCase() === "video" || (studyType || "").toLowerCase() === "video")}
               />
             </g>
           )
@@ -135,9 +137,10 @@ export function AnalyticsTopBottomPerformers({ analysisData, studyType }: Analyt
           </div>
         )
       })}
-      <ImageLightboxModal
+      <AnalyticsMediaLightbox
         src={lightbox.src}
         alt={lightbox.alt}
+        isVideo={Boolean(lightbox.isVideo)}
         isOpen={lightbox.isOpen}
         onClose={handleLightboxClose}
       />

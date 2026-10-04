@@ -85,7 +85,7 @@ export async function getProjectById(projectId: string): Promise<Project> {
 }
 
 export type ProjectStudyStatus = "active" | "draft" | "completed" | "paused"
-export type ProjectStudyType = "grid" | "layer" | "text" | "hybrid"
+export type ProjectStudyType = "grid" | "layer" | "text" | "hybrid" | "video"
 export type ProjectStudyTimeRange = "all" | "7d" | "30d" | "90d" | "365d"
 
 export interface ProjectStudyListItem {

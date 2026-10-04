@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { ChevronDown, ChevronUp } from "lucide-react"
 import { AuthGuard } from "@/components/auth/AuthGuard"
 import { DashboardHeader } from "../../../../../components/dashboard-header"
+import { PreviewVideoCard } from "@/components/media/PreviewVideoCard"
 import { getResponseSessionDetails, type ResponseSessionDetails, type SessionTaskItem } from "@/lib/api/ResponseAPI"
 import { getParticipateImageUrl } from "@/lib/utils/participateImageUrls"
 
@@ -11,8 +13,138 @@ function resolveTaskType(task: SessionTaskItem, studyType?: string): string {
   const explicit = task.task_type || (task as { phase_type?: string }).phase_type
   if (explicit) return explicit
   const normalized = String(studyType || "").toLowerCase()
-  if (normalized === "layer" || normalized === "text" || normalized === "grid") return normalized
+  if (normalized === "layer" || normalized === "text" || normalized === "grid" || normalized === "video") return normalized
   return "grid"
+}
+
+function collectShownMedia(task: SessionTaskItem): Array<{ url: string; name?: string }> {
+  const list: Array<{ url: string; name?: string }> = []
+
+  if (task.elements_shown_content && typeof task.elements_shown_content === "object") {
+    const contentObj = task.elements_shown_content as Record<string, unknown>
+    const shownMap = getShownElementsMap(task)
+
+    Object.entries(contentObj).forEach(([key, val]) => {
+      const shown = key in shownMap
+        ? isElementShown(shownMap[key])
+        : Boolean(val && typeof val === "object" && "visible" in val && isElementShown(val))
+      if (!shown) return
+      if (val && typeof val === "object") {
+        const record = val as { url?: unknown; content?: unknown; name?: unknown }
+        const url = typeof record.url === "string" ? record.url : typeof record.content === "string" ? record.content : ""
+        if (url) list.push({ url, name: typeof record.name === "string" && record.name.trim() ? record.name : key })
+      } else if (typeof val === "string" && val) {
+        list.push({ url: val, name: key })
+      }
+    })
+  }
+
+  if (list.length === 0 && task.elements_shown_in_task && typeof task.elements_shown_in_task === "object") {
+    const map = task.elements_shown_in_task as Record<string, unknown>
+    Object.keys(map)
+      .filter((key) => key.endsWith("_content"))
+      .forEach((key) => {
+        const base = key.replace(/_content$/, "")
+        const url = String(map[key] || "")
+        if (Number(map[base]) === 1 && url) list.push({ url, name: base })
+      })
+  }
+
+  if (list.length === 0 && task.elements_shown && typeof task.elements_shown === "object") {
+    const map = task.elements_shown as Record<string, unknown>
+    Object.keys(map)
+      .filter((key) => key.endsWith("_content"))
+      .forEach((key) => {
+        const base = key.replace(/_content$/, "")
+        const url = String(map[key] || "")
+        if (Number(map[base]) === 1 && url) list.push({ url, name: base })
+      })
+  }
+
+  return list
+}
+
+/** One portrait clip, then the next underneath. Paused and unmuted until the viewer presses play. */
+function TaskVideoScroller({ clips }: { clips: Array<{ url: string; name?: string }> }) {
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const [active, setActive] = useState(0)
+
+  useEffect(() => {
+    const root = scrollerRef.current
+    if (!root) return
+    const cards = Array.from(root.querySelectorAll<HTMLElement>("[data-response-clip]"))
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0]
+      if (visible) {
+        const index = Number((visible.target as HTMLElement).dataset.index)
+        if (!Number.isNaN(index)) setActive(index)
+      }
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) return
+        entry.target.querySelector("video")?.pause()
+      })
+    }, { root, threshold: [0.6] })
+    cards.forEach((card) => observer.observe(card))
+    return () => observer.disconnect()
+  }, [clips])
+
+  const goTo = (index: number) => {
+    const root = scrollerRef.current
+    if (!root) return
+    const next = Math.max(0, Math.min(clips.length - 1, index))
+    const card = root.querySelector<HTMLElement>(`[data-index="${next}"]`)
+    if (!card) return
+    const top = card.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop
+    root.scrollTo({ top, behavior: "smooth" })
+    setActive(next)
+  }
+
+  return (
+    <div className="min-w-0 w-full">
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-xs uppercase tracking-wide text-gray-500">Videos in this task</div>
+        <div className="text-xs font-medium text-gray-700">{active + 1} of {clips.length}</div>
+      </div>
+      <div className="flex flex-col items-center gap-3 sm:flex-row sm:items-start sm:justify-center">
+        <div
+          ref={scrollerRef}
+          className="max-h-[min(78dvh,760px)] w-full max-w-[min(100%,340px)] overflow-y-auto overscroll-y-contain rounded-xl border border-gray-200 bg-gray-50 p-2 snap-y snap-mandatory [scrollbar-width:thin] sm:p-3"
+        >
+          <div className="flex flex-col gap-3">
+            {clips.map((clip, index) => (
+              <div key={`${clip.url}-${index}`} data-response-clip data-index={index} className="snap-start snap-always">
+                <PreviewVideoCard src={clip.url} name={clip.name} />
+              </div>
+            ))}
+          </div>
+        </div>
+        {clips.length > 1 && (
+          <div className="flex gap-2 sm:flex-col sm:pt-1">
+            <button
+              type="button"
+              onClick={() => goTo(active - 1)}
+              disabled={active <= 0}
+              aria-label="Previous video"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-800 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronUp className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => goTo(active + 1)}
+              disabled={active >= clips.length - 1}
+              aria-label="Next video"
+              className="flex h-10 w-10 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-800 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <ChevronDown className="h-5 w-5" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
 }
 
 function isElementShown(element: unknown): boolean {
@@ -86,6 +218,10 @@ export default function ResponseDetailsPage() {
   )
   const isLayerStudy = useMemo(
     () => studyType === "layer" || tasks.some((t) => resolveTaskType(t, studyType) === "layer"),
+    [studyType, tasks]
+  )
+  const isVideoStudy = useMemo(
+    () => studyType === "video" || tasks.some((t) => resolveTaskType(t, studyType) === "video"),
     [studyType, tasks]
   )
 
@@ -201,7 +337,7 @@ export default function ResponseDetailsPage() {
                   <StatRow label="TOTAL DURATION" value={fmtDur(data.total_study_duration)} />
                   <StatRow label="START TIME" value={fmtDate(data.session_start_time)} />
                   <StatRow label="END TIME" value={fmtDate(data.session_end_time)} />
-                  <StatRow label="STUDY TYPE" value={(data as any).study_type || (tasks.length > 0 && tasks.every(t => t.task_type === tasks[0].task_type) ? (tasks[0].task_type === 'grid' ? 'Grid' : tasks[0].task_type === 'text' ? 'Texts' : 'Layer') : 'Hybrid')} />
+                  <StatRow label="STUDY TYPE" value={(data as any).study_type === "video" ? "Video" : (data as any).study_type || (tasks.length > 0 && tasks.every(t => t.task_type === tasks[0].task_type) ? (tasks[0].task_type === 'video' ? 'Video' : tasks[0].task_type === 'grid' ? 'Grid' : tasks[0].task_type === 'text' ? 'Texts' : 'Layer') : 'Hybrid')} />
                 </div>
               </div>
 
@@ -211,15 +347,16 @@ export default function ResponseDetailsPage() {
                   <div className="text-[15px] font-semibold" style={{ color: '#2674BA' }}>Task Details ({tasks.length} Task)</div>
                 </div>
                 <div className="p-4">
-                  <div className="max-h-[420px] overflow-auto pr-2 space-y-4">
+                  <div className={isVideoStudy ? "space-y-4" : "max-h-[420px] overflow-auto pr-2 space-y-4"}>
                     {tasks.map((t, idx) => {
                       const taskType = resolveTaskType(t, studyType)
                       const isLayerTask = taskType === "layer"
                       const isTextTask = taskType === "text"
+                      const isVideoTask = taskType === "video" || (studyType === "video" && !isLayerTask && !isTextTask)
 
                       return (
                       <div key={`${t.task_id || 'task'}_${idx}`} className="border rounded-lg">
-                        <div className="grid grid-cols-1 md:grid-cols-[350px_1fr] gap-4 p-4">
+                        <div className={isVideoTask ? "grid grid-cols-1 gap-4 p-4 lg:grid-cols-[260px_minmax(0,1fr)] lg:items-start" : "grid grid-cols-1 md:grid-cols-[350px_1fr] gap-4 p-4"}>
                           {/* Left: meta */}
                           <div className="space-y-2">
                             <div className="text-sm text-gray-700">Task {idx + 1}</div>
@@ -243,14 +380,14 @@ export default function ResponseDetailsPage() {
                               <div className="mt-2 pt-2 border-t border-gray-100">
                                 <div className="text-xs text-gray-500 uppercase">TASK TYPE :</div>
                                 <div className="text-sm font-medium text-gray-700 capitalize">
-                                  {taskType === 'grid' ? 'Grid' : taskType === 'text' ? 'Texts' : taskType === 'layer' ? 'Layer' : taskType}
+                                  {isVideoTask ? 'Video' : taskType === 'grid' ? 'Grid' : taskType === 'text' ? 'Texts' : taskType === 'layer' ? 'Layer' : taskType}
                                 </div>
                               </div>
                             </div>
                           </div>
 
                           {/* Right: images/elements */}
-                          <div className={isLayerTask || isTextTask ? "flex justify-center w-full" : "grid grid-cols-2 gap-4 items-center"}>
+                          <div className={isVideoTask ? "min-w-0 w-full" : isLayerTask || isTextTask ? "flex justify-center w-full" : "grid grid-cols-2 gap-4 items-center"}>
                             {isLayerTask && (t.elements_shown_content || t.elements_shown || t.elements_shown_in_task) && (
                               (() => {
                                 const layerElements: Array<{ url: string, z: number, alt: string, transform?: { x: number, y: number, width: number, height: number } }> = []
@@ -413,7 +550,16 @@ export default function ResponseDetailsPage() {
                                 )
                               })()
                             )}
-                            {!isLayerTask && !isTextTask && (
+                            {isVideoTask && (
+                              (() => {
+                                const clips = collectShownMedia(t)
+                                if (clips.length === 0) {
+                                  return <div className="text-sm text-gray-500">No videos to display</div>
+                                }
+                                return <TaskVideoScroller clips={clips} />
+                              })()
+                            )}
+                            {!isLayerTask && !isTextTask && !isVideoTask && (
                               (() => {
                                 const list: Array<{ url: string; name?: string; alt_text?: string }> = []
 

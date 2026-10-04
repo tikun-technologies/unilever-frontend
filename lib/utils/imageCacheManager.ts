@@ -301,6 +301,7 @@ class ImageCacheManager {
     const urls: string[] = []
 
     tasks.forEach((task) => {
+      if (task?.type === "video") return
       // Processed task shape
       if (task.layeredImages?.length) {
         task.layeredImages.forEach((img: any) => {
@@ -404,7 +405,9 @@ class ImageCacheManager {
       }
     })
 
-    const uniqueUrls = [...new Set(urls)].filter((url) => url && url.startsWith('http'))
+    const uniqueUrls = [...new Set(urls)].filter(
+      (url) => url && url.startsWith('http') && !/\.(mp4|webm|mov|m4v|m3u8)(\?|#|$)/i.test(url),
+    )
     console.log(`Extracted ${uniqueUrls.length} image URLs from ${tasks.length} tasks`)
     return uniqueUrls
   }

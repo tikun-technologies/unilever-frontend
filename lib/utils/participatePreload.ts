@@ -1,5 +1,6 @@
 import { imageCacheManager, type ParticipatePreloadPhase } from '@/lib/utils/imageCacheManager'
 import { getParticipateImageUrl } from '@/lib/utils/participateImageUrls'
+import { prewarmVideoPhase } from '@/lib/utils/videoPrewarm'
 
 function flattenAssignedTasks(assigned: unknown): any[] {
   if (!Array.isArray(assigned)) return []
@@ -65,6 +66,7 @@ export function loadParticipateTasksFromStorage(): {
 export function runParticipatePhasePreload(phase: ParticipatePreloadPhase): void {
   const { tasks, backgroundUrl } = loadParticipateTasksFromStorage()
   if (tasks.length === 0) return
+  prewarmVideoPhase(tasks, phase)
   void imageCacheManager
     .preloadParticipatePhase(tasks, phase, backgroundUrl, getParticipateImageUrl)
     .catch(() => undefined)
@@ -119,6 +121,7 @@ export function loadPreviewTasksFromStorage(): {
 export function runPreviewPhasePreload(phase: ParticipatePreloadPhase): void {
   const { tasks, backgroundUrl } = loadPreviewTasksFromStorage()
   if (tasks.length === 0) return
+  prewarmVideoPhase(tasks, phase)
   void imageCacheManager
     .preloadParticipatePhase(tasks, phase, backgroundUrl, getParticipateImageUrl)
     .catch(() => undefined)

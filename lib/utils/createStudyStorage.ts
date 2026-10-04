@@ -7,6 +7,7 @@ const CREATE_STUDY_STORAGE_KEYS = [
   "cs_step6_optional_classification",
   "cs_step6_optional_classification_completed",
   "cs_step5_grid",
+  "cs_step5_video",
   "cs_step5_text",
   "cs_step5_hybrid",
   "cs_step5_hybrid_grid",
@@ -33,11 +34,11 @@ const CREATE_STUDY_STORAGE_KEYS = [
   "cs_step8",
 ] as const
 
-export type CreateStudyType = "grid" | "layer" | "text" | "hybrid"
+export type CreateStudyType = "grid" | "layer" | "text" | "hybrid" | "video"
 
 function normalizeStudyType(raw: unknown): CreateStudyType | null {
   const v = String(raw || "").toLowerCase().trim()
-  if (v === "grid" || v === "layer" || v === "text" || v === "hybrid") return v
+  if (v === "grid" || v === "layer" || v === "text" || v === "hybrid" || v === "video") return v
   return null
 }
 
@@ -161,8 +162,8 @@ export function isStudyStructureReadyForCurrentType(): boolean {
     const hasValidMediaElement = (element: any) =>
       Boolean(element && (element.secureUrl || element.previewUrl || element.textContent))
 
-    if (type === "grid") {
-      const gridData = localStorage.getItem("cs_step5_grid")
+    if (type === "grid" || type === "video") {
+      const gridData = localStorage.getItem(type === "video" ? "cs_step5_video" : "cs_step5_grid")
       if (!gridData) return false
       const grid = JSON.parse(gridData)
       const isCategoryFormat = grid.length > 0 && grid[0] && grid[0].title && grid[0].elements
