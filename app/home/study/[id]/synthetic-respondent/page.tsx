@@ -437,6 +437,31 @@ export default function SyntheticRespondentPage() {
     )
   }
 
+  if (study?.study_type === "video") {
+    return (
+      <AuthGuard requireAuth={true}>
+        <div className="min-h-screen" style={{ background: "#F0F5FB" }}>
+          <DashboardHeader />
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+            <div className="rounded-2xl border border-gray-200 bg-white p-8 text-center">
+              <Bot className="mx-auto mb-4 h-10 w-10 text-gray-400" />
+              <h2 className="text-lg font-semibold text-gray-900">AI synthetic study is not available</h2>
+              <p className="mt-2 text-sm text-gray-600">AI synthetic study is not available for a video-based study.</p>
+              <button
+                type="button"
+                onClick={() => router.push(studyHref)}
+                className="mt-6 rounded-lg px-4 py-2 text-sm font-medium text-white"
+                style={{ background: BRAND }}
+              >
+                Back to study
+              </button>
+            </div>
+          </div>
+        </div>
+      </AuthGuard>
+    )
+  }
+
   if (error || !study) {
     return (
       <AuthGuard requireAuth={true}>
@@ -459,8 +484,6 @@ export default function SyntheticRespondentPage() {
   const studyLabel =
     study.study_type === "grid"
       ? "Grid Study"
-      : study.study_type === "video"
-        ? "Video Study"
       : study.study_type === "hybrid"
         ? "Hybrid Study"
         : study.study_type === "text"

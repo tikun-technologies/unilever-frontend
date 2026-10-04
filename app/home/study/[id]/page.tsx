@@ -741,7 +741,7 @@ export default function StudyManagementPage() {
               </div>
             </div>
              {/* AI agentic respondents CTA - commented out */}
-            {study.status === "completed" ? (
+            {study.status === "completed" || study.study_type === "video" ? (
               <div
                 className="mx-4 sm:mx-6 mb-4 block rounded-xl p-3 sm:p-4 transition-all duration-300 border border-gray-200 bg-gray-50 opacity-70 cursor-not-allowed"
                 aria-disabled="true"
@@ -752,7 +752,11 @@ export default function StudyManagementPage() {
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-gray-500 text-sm">Don&apos;t have respondents? We&apos;ve got you.</p>
-                    <p className="text-gray-400 text-xs mt-0.5">AI agentic respondents — not available for completed studies.</p>
+                    <p className="text-gray-400 text-xs mt-0.5">
+                      {study.study_type === "video"
+                        ? "AI synthetic study is not available for a video-based study."
+                        : "AI agentic respondents — not available for completed studies."}
+                    </p>
                   </div>
                   <ChevronDown className="w-4 h-4 text-gray-300 ml-auto -rotate-90 shrink-0" aria-hidden />
                 </div>

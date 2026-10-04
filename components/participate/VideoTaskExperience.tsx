@@ -148,10 +148,14 @@ function ClipMedia({
     const node = claimed ?? document.createElement("video")
     setWarmPlaybackInterest(src, true)
     node.playsInline = true
+    node.loop = true
     node.preload = "auto"
     node.setAttribute("playsinline", "")
+    // The scroll list must receive the drag. A playing video on Android
+    // otherwise swallows the swipe, so only the arrow buttons can move it.
+    node.style.pointerEvents = "none"
     if (poster) node.poster = poster
-    node.className = "h-full w-full object-cover"
+    node.className = "pointer-events-none h-full w-full object-cover"
     host.appendChild(node)
     mainRef.current = node
 
@@ -292,7 +296,7 @@ function ClipMedia({
   useEffect(() => {
     const node = mainRef.current
     if (!node || !mounted) return
-    node.className = `h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`
+    node.className = `pointer-events-none h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`
   }, [fit, mounted])
 
   // Playback for the active clip. Neighbours only buffer; nothing here ever
@@ -435,11 +439,25 @@ function ClipMedia({
       // clip when another audible one starts. Resume unless we paused it.
       if (!cancelled && !node.ended) scheduleStart(150)
     }
+    // HLS on Android often ignores the loop attribute and freezes on the last
+    // frame. Start the same clip again from the beginning.
+    const onEnded = () => {
+      if (cancelled) return
+      logRef.current("loop-restart", mediaSnapshot(node))
+      try {
+        if (hlsRef.current) hlsRef.current.startLoad(0)
+        node.currentTime = 0
+      } catch {
+        /* seeking can throw before the first frame exists */
+      }
+      void node.play().catch(() => undefined)
+    }
     node.addEventListener("loadeddata", onPlayable)
     node.addEventListener("canplay", onPlayable)
     node.addEventListener("playing", onPlaying)
     node.addEventListener("waiting", onWaiting)
     node.addEventListener("pause", onUnexpectedPause)
+    node.addEventListener("ended", onEnded)
     void start()
 
     return () => {
@@ -451,6 +469,7 @@ function ClipMedia({
       node.removeEventListener("playing", onPlaying)
       node.removeEventListener("waiting", onWaiting)
       node.removeEventListener("pause", onUnexpectedPause)
+      node.removeEventListener("ended", onEnded)
     }
   }, [shouldPlay, wantSound, mounted, soundAttempt]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -626,6 +645,7 @@ export function VideoTaskExperience({
   const activeRef = useRef(0)
   const activeVideoRef = useRef<HTMLVideoElement | null>(null)
   const settleTimer = useRef<number | null>(null)
+  const touchingRef = useRef(false)
 
   const [activeIndex, setActiveIndex] = useState(0)
   const [settled, setSettled] = useState(true)
@@ -681,21 +701,41 @@ export function VideoTaskExperience({
       const drift = Math.abs(feed.scrollTop / height - activeRef.current)
       if (drift > 0.04) setSettled(false)
       if (settleTimer.current) window.clearTimeout(settleTimer.current)
+      // Wait until the finger lifts. Settling mid-drag swaps the playing clip
+      // and is what tears the picture on slower Android phones.
+      if (touchingRef.current) return
+      settleTimer.current = window.setTimeout(settle, 90)
+    }
+    const onTouchStart = () => {
+      touchingRef.current = true
+      if (settleTimer.current) window.clearTimeout(settleTimer.current)
+    }
+    const onTouchEnd = () => {
+      touchingRef.current = false
+      if (settleTimer.current) window.clearTimeout(settleTimer.current)
       settleTimer.current = window.setTimeout(settle, 90)
     }
 
     feed.addEventListener("scroll", onScroll, { passive: true })
     feed.addEventListener("scrollend", settle)
+    feed.addEventListener("touchstart", onTouchStart, { passive: true })
+    feed.addEventListener("touchend", onTouchEnd, { passive: true })
+    feed.addEventListener("touchcancel", onTouchEnd, { passive: true })
     return () => {
       feed.removeEventListener("scroll", onScroll)
       feed.removeEventListener("scrollend", settle)
+      feed.removeEventListener("touchstart", onTouchStart)
+      feed.removeEventListener("touchend", onTouchEnd)
+      feed.removeEventListener("touchcancel", onTouchEnd)
       if (settleTimer.current) window.clearTimeout(settleTimer.current)
     }
   }, [phase, settle])
 
   // Keep the snapped clip aligned when the browser chrome resizes the visual viewport.
+  // Skip this while a finger is down: Android resizes the screen during a swipe
+  // and jumping back to the current clip is what makes the next video refuse to open.
   useEffect(() => {
-    if (phase !== "watch" || !box.height) return
+    if (phase !== "watch" || !box.height || touchingRef.current) return
     const feed = feedRef.current
     if (!feed) return
     const top = activeRef.current * feed.clientHeight

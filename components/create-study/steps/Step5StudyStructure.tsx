@@ -289,6 +289,39 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
     return Array.from(new Set(urls))
   }, [isVideoMode, categories])
   const videoEncode = useVideoEncodeGate(isVideoMode && isActive, isVideoMode ? videoSourceUrls : undefined)
+  const videoUploadProgress = useMemo(() => {
+    if (!isVideoMode) return null
+    let total = 0
+    let uploading = 0
+    let awaitingEncode = 0
+    let ready = 0
+    let failed = 0
+    for (const category of categories) {
+      for (const element of category.elements) {
+        if (!element.file && !element.previewUrl && !element.secureUrl) continue
+        total += 1
+        if (!element.secureUrl) {
+          uploading += 1
+          continue
+        }
+        const status = videoEncode.byUrl[element.secureUrl]?.status
+        if (status === "ready") ready += 1
+        else if (status === "failed") failed += 1
+        else awaitingEncode += 1
+      }
+    }
+    return { total, uploading, awaitingEncode, ready, failed }
+  }, [isVideoMode, categories, videoEncode.byUrl])
+  const videoUploadMessage = useMemo(() => {
+    if (!videoUploadProgress || videoUploadProgress.total === 0) return null
+    const { total, uploading, awaitingEncode, ready, failed } = videoUploadProgress
+    if (uploading === 0 && awaitingEncode === 0 && failed === 0) return null
+    const uploaded = total - uploading
+    const parts = [`${uploaded} of ${total} uploaded`, `${ready} of ${total} ready`]
+    if (uploading > 0) parts.push(`${uploading} still uploading`)
+    if (failed > 0) parts.push(`${failed} failed`)
+    return `${parts.join(". ")}.`
+  }, [videoUploadProgress])
 
   // NEW: States for Hybrid mode phases
   const [hybridGridCategories, setHybridGridCategories] = useState<CategoryItem[]>(() => {
@@ -1325,21 +1358,28 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                               {category.elements.map((element, _elIdx) => (
                                 <div key={element.id} className="border rounded-lg p-3">
                                   <div className="aspect-square bg-gray-100 flex items-center justify-center mb-2 rounded-lg relative">
-                                    {isVideoMode && element.secureUrl && videoEncode.byUrl[element.secureUrl] && videoEncode.byUrl[element.secureUrl].status !== "unknown" && (
-                                      <span className={`absolute top-1 left-1 z-10 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                                        videoEncode.byUrl[element.secureUrl].status === "ready"
-                                          ? "bg-green-100 text-green-800"
-                                          : videoEncode.byUrl[element.secureUrl].status === "failed"
-                                            ? "bg-red-100 text-red-800"
-                                            : "bg-amber-100 text-amber-800"
-                                      }`}>
-                                        {videoEncode.byUrl[element.secureUrl].status === "ready"
+                                    {isVideoMode && (element.secureUrl || element.previewUrl || element.file) && (() => {
+                                      const encodeStatus = element.secureUrl ? videoEncode.byUrl[element.secureUrl]?.status : undefined
+                                      const label = !element.secureUrl
+                                        ? "Uploading"
+                                        : encodeStatus === "ready"
                                           ? "Ready"
-                                          : videoEncode.byUrl[element.secureUrl].status === "failed"
+                                          : encodeStatus === "failed"
                                             ? "Failed"
-                                            : "Processing"}
-                                      </span>
-                                    )}
+                                            : "Uploaded"
+                                      const tone = label === "Ready"
+                                        ? "bg-green-100 text-green-800"
+                                        : label === "Failed"
+                                          ? "bg-red-100 text-red-800"
+                                          : label === "Uploaded"
+                                            ? "bg-amber-100 text-amber-800"
+                                            : "bg-gray-100 text-gray-700"
+                                      return (
+                                        <span className={`absolute top-1 left-1 z-10 rounded px-1.5 py-0.5 text-[10px] font-medium ${tone}`}>
+                                          {label}
+                                        </span>
+                                      )
+                                    })()}
                                     {(element.secureUrl || element.previewUrl) ? (
                                       isVideoMode ? (
                                         (element.previewUrl || element.secureUrl || "").split("?")[0].toLowerCase().endsWith(".m3u8") ? (
@@ -1476,9 +1516,9 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                 ? "Organize your videos into categories. Each task shows a few clips together, and the respondent rates that combination."
                 : "Organize your study elements into categories."}
         </p>
-        {isVideoMode && videoEncode.message && (
+        {isVideoMode && videoUploadMessage && (
           <p className="mt-2 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            {videoEncode.message}
+            {videoUploadMessage}
           </p>
         )}
       </div>
