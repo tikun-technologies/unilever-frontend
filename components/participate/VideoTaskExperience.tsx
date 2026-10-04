@@ -45,27 +45,38 @@ function writeSoundPref(on: boolean) {
 }
 
 function useVisualViewportBox() {
-  const [box, setBox] = useState({ top: 0, left: 0, width: 0, height: 0 })
+  const [box, setBox] = useState(() => ({
+    top: 0,
+    left: 0,
+    width: typeof window !== "undefined" ? window.innerWidth : 0,
+    height: typeof window !== "undefined" ? window.innerHeight : 0,
+  }))
 
   useEffect(() => {
     const apply = () => {
       const vv = window.visualViewport
-      setBox({
-        top: vv?.offsetTop ?? 0,
-        left: vv?.offsetLeft ?? 0,
-        width: vv?.width ?? window.innerWidth,
-        height: vv?.height ?? window.innerHeight,
+      const width = vv?.width ?? window.innerWidth
+      const height = vv?.height ?? window.innerHeight
+      setBox((prev) => {
+        // Prevent continuous state updates and re-renders during scrolling
+        if (Math.abs(prev.width - width) < 2 && Math.abs(prev.height - height) < 2) {
+          return prev
+        }
+        return {
+          top: 0,
+          left: 0,
+          width,
+          height,
+        }
       })
     }
     apply()
     const vv = window.visualViewport
     vv?.addEventListener("resize", apply)
-    vv?.addEventListener("scroll", apply)
     window.addEventListener("resize", apply)
     window.addEventListener("orientationchange", apply)
     return () => {
       vv?.removeEventListener("resize", apply)
-      vv?.removeEventListener("scroll", apply)
       window.removeEventListener("resize", apply)
       window.removeEventListener("orientationchange", apply)
     }
@@ -154,6 +165,8 @@ function ClipMedia({
     // The scroll list must receive the drag. A playing video on Android
     // otherwise swallows the swipe, so only the arrow buttons can move it.
     node.style.pointerEvents = "none"
+    node.style.transform = "translateZ(0)"
+    node.style.backfaceVisibility = "hidden"
     if (poster) node.poster = poster
     node.className = "pointer-events-none h-full w-full object-cover"
     host.appendChild(node)
@@ -496,17 +509,20 @@ function ClipMedia({
   if (!mounted) {
     return poster ? (
       // eslint-disable-next-line @next/next/no-img-element
-      <img src={poster} alt="" className="h-full w-full object-cover" />
+      <img src={poster} alt="" className="pointer-events-none h-full w-full object-cover" />
     ) : (
-      <div className="h-full w-full bg-black" />
+      <div className="h-full w-full bg-black pointer-events-none" />
     )
   }
 
   return (
-    <div className={`relative h-full w-full overflow-hidden bg-black ${isMobile ? "" : "rounded-xl shadow-lg"}`}>
-      <div ref={hostRef} className="h-full w-full" />
+    <div
+      className={`pointer-events-none relative h-full w-full overflow-hidden bg-black ${isMobile ? "" : "rounded-xl shadow-lg"}`}
+      style={{ transform: "translateZ(0)" }}
+    >
+      <div ref={hostRef} className="pointer-events-none h-full w-full" />
       {!ready && shouldPlay && !poster && !needsTap && (
-        <div className="absolute inset-0 z-20 flex items-center justify-center">
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-white" />
         </div>
       )}
@@ -515,7 +531,7 @@ function ClipMedia({
           type="button"
           onClick={playFromTap}
           aria-label="Play video"
-          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/40 text-white"
+          className="pointer-events-auto absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/40 text-white"
         >
           <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white/90 text-gray-900 shadow-lg">
             <Play className="ml-1 h-8 w-8" />
@@ -644,11 +660,9 @@ export function VideoTaskExperience({
   const feedRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef(0)
   const activeVideoRef = useRef<HTMLVideoElement | null>(null)
-  const settleTimer = useRef<number | null>(null)
   const touchingRef = useRef(false)
 
   const [activeIndex, setActiveIndex] = useState(0)
-  const [settled, setSettled] = useState(true)
   const [phase, setPhase] = useState<"watch" | "rate">(clips.length === 0 ? "rate" : "watch")
   const [failed, setFailed] = useState<Record<number, boolean>>({})
   const [retryCount, setRetryCount] = useState<Record<number, number>>({})
@@ -675,74 +689,102 @@ export function VideoTaskExperience({
     feed.scrollTo({ top: next * height, behavior })
   }, [clips.length])
 
-  const settle = useCallback(() => {
-    const feed = feedRef.current
-    if (!feed || phase !== "watch") return
-    const height = feed.clientHeight || 1
-    let index = Math.round(feed.scrollTop / height)
-    index = Math.max(0, Math.min(clips.length, index))
-
-    if (index === clips.length) {
-      setPhase("rate")
-      return
-    }
-
-    activeRef.current = index
-    setActiveIndex(index)
-    setSettled(true)
-  }, [clips.length, phase])
-
   useEffect(() => {
     const feed = feedRef.current
     if (!feed || phase !== "watch") return
 
-    const onScroll = () => {
-      const height = feed.clientHeight || 1
-      const drift = Math.abs(feed.scrollTop / height - activeRef.current)
-      if (drift > 0.04) setSettled(false)
-      if (settleTimer.current) window.clearTimeout(settleTimer.current)
-      // Wait until the finger lifts. Settling mid-drag swaps the playing clip
-      // and is what tears the picture on slower Android phones.
-      if (touchingRef.current) return
-      settleTimer.current = window.setTimeout(settle, 90)
+    const handleIndexChange = (newIndex: number) => {
+      if (newIndex === clips.length) {
+        setPhase("rate")
+        return
+      }
+      if (newIndex >= 0 && newIndex < clips.length && newIndex !== activeRef.current) {
+        activeRef.current = newIndex
+        setActiveIndex(newIndex)
+      }
     }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        let bestEntry: IntersectionObserverEntry | null = null
+        for (const entry of entries) {
+          if (entry.isIntersecting && (!bestEntry || entry.intersectionRatio > bestEntry.intersectionRatio)) {
+            bestEntry = entry
+          }
+        }
+        if (bestEntry && bestEntry.intersectionRatio >= 0.55) {
+          const idx = Number((bestEntry.target as HTMLElement).dataset.index)
+          if (!Number.isNaN(idx)) {
+            handleIndexChange(idx)
+          }
+        }
+      },
+      {
+        root: feed,
+        threshold: [0.55],
+      }
+    )
+
+    const sections = feed.querySelectorAll<HTMLElement>("section[data-index]")
+    sections.forEach((sec) => observer.observe(sec))
+
+    const onScrollEnd = () => {
+      const height = feed.clientHeight || 1
+      const settledIndex = Math.max(0, Math.min(clips.length, Math.round(feed.scrollTop / height)))
+      handleIndexChange(settledIndex)
+    }
+
+    let scrollTimeout: number | null = null
+    const onScroll = () => {
+      if (touchingRef.current) return
+      if (scrollTimeout) window.clearTimeout(scrollTimeout)
+      scrollTimeout = window.setTimeout(onScrollEnd, 120)
+    }
+
     const onTouchStart = () => {
       touchingRef.current = true
-      if (settleTimer.current) window.clearTimeout(settleTimer.current)
+      if (scrollTimeout) window.clearTimeout(scrollTimeout)
     }
+
     const onTouchEnd = () => {
       touchingRef.current = false
-      if (settleTimer.current) window.clearTimeout(settleTimer.current)
-      settleTimer.current = window.setTimeout(settle, 90)
+      if (scrollTimeout) window.clearTimeout(scrollTimeout)
+      scrollTimeout = window.setTimeout(onScrollEnd, 120)
+    }
+
+    const handleScrollEnd = () => {
+      if (!touchingRef.current) onScrollEnd()
     }
 
     feed.addEventListener("scroll", onScroll, { passive: true })
-    feed.addEventListener("scrollend", settle)
+    feed.addEventListener("scrollend", handleScrollEnd)
     feed.addEventListener("touchstart", onTouchStart, { passive: true })
     feed.addEventListener("touchend", onTouchEnd, { passive: true })
     feed.addEventListener("touchcancel", onTouchEnd, { passive: true })
+
     return () => {
+      observer.disconnect()
       feed.removeEventListener("scroll", onScroll)
-      feed.removeEventListener("scrollend", settle)
+      feed.removeEventListener("scrollend", handleScrollEnd)
       feed.removeEventListener("touchstart", onTouchStart)
       feed.removeEventListener("touchend", onTouchEnd)
       feed.removeEventListener("touchcancel", onTouchEnd)
-      if (settleTimer.current) window.clearTimeout(settleTimer.current)
+      if (scrollTimeout) window.clearTimeout(scrollTimeout)
     }
-  }, [phase, settle])
+  }, [phase, clips.length])
 
-  // Keep the snapped clip aligned when the browser chrome resizes the visual viewport.
-  // Skip this while a finger is down: Android resizes the screen during a swipe
-  // and jumping back to the current clip is what makes the next video refuse to open.
+  // Keep the snapped clip aligned only when rotating the device.
   useEffect(() => {
-    if (phase !== "watch" || !box.height || touchingRef.current) return
-    const feed = feedRef.current
-    if (!feed) return
-    const top = activeRef.current * feed.clientHeight
-    if (Math.abs(feed.scrollTop - top) > 2) {
-      feed.scrollTo({ top, behavior: "auto" })
+    if (phase !== "watch") return
+    const onOrientation = () => {
+      const feed = feedRef.current
+      if (!feed) return
+      const height = feed.clientHeight || 1
+      feed.scrollTo({ top: activeRef.current * height, behavior: "auto" })
     }
-  }, [box.height, phase])
+    window.addEventListener("orientationchange", onOrientation)
+    return () => window.removeEventListener("orientationchange", onOrientation)
+  }, [phase])
 
   useEffect(() => {
     if (phase !== "watch") return
@@ -752,7 +794,6 @@ export function VideoTaskExperience({
       const dir = event.key === "ArrowDown" ? 1 : -1
       const target = activeRef.current + dir
       if (target < 0 || target > clips.length) return
-      setSettled(false)
       scrollToIndex(target)
     }
     window.addEventListener("keydown", onKey)
@@ -762,7 +803,6 @@ export function VideoTaskExperience({
   const nudge = (dir: 1 | -1) => {
     const target = activeRef.current + dir
     if (target < 0 || target > clips.length) return
-    setSettled(false)
     scrollToIndex(target)
   }
 
@@ -786,15 +826,14 @@ export function VideoTaskExperience({
     writeSoundPref(false)
   }
 
-  const frameStyle = {
-    position: "fixed" as const,
-    top: box.top,
-    left: box.left,
-    width: box.width || "100%",
-    height: box.height || "100dvh",
+  const frameStyle: React.CSSProperties = {
+    position: "fixed",
+    inset: 0,
+    width: "100%",
+    height: "100dvh",
     zIndex: 30,
     display: "flex",
-    flexDirection: "column" as const,
+    flexDirection: "column",
   }
 
   const counter = clips.length > 0 ? `Video ${Math.min(activeIndex + 1, clips.length)} of ${clips.length}` : ""
@@ -816,7 +855,7 @@ export function VideoTaskExperience({
   )
 
   const ratingPanel = (
-    <div className="flex h-full w-full flex-col bg-white text-gray-900">
+    <div className="pointer-events-auto flex h-full w-full flex-col bg-white text-gray-900">
       {isMobile ? (
         <div
           className="flex-shrink-0 px-4 sm:px-8"
@@ -856,15 +895,25 @@ export function VideoTaskExperience({
       {!isMobile && desktopHeader}
       <div
         ref={feedRef}
-        className={`min-h-0 w-full flex-1 snap-y snap-mandatory overflow-y-scroll overscroll-none [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isMobile ? "" : "bg-white"}`}
-        style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
+        className={`min-h-0 w-full flex-1 snap-y snap-mandatory overflow-y-scroll overscroll-y-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isMobile ? "" : "bg-white"}`}
+        style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y", transform: "translateZ(0)" }}
       >
         {clips.map((src, index) => {
-          const mounted = Math.abs(index - activeIndex) <= 1
-          const shouldPlay = settled && index === activeIndex && !failed[index]
+          const mounted = isMobile
+            ? index === activeIndex || index === activeIndex + 1
+            : Math.abs(index - activeIndex) <= 1
+          const shouldPlay = index === activeIndex && !failed[index]
           return (
-            <section key={`${src}-${index}`} className={`relative h-full w-full shrink-0 snap-start snap-always ${isMobile ? "" : "flex items-center justify-center bg-white"}`}>
-              <div className={isMobile ? "h-full w-full" : "h-full w-auto max-h-full max-w-full aspect-[9/16]"}>
+            <section
+              key={`${src}-${index}`}
+              data-index={index}
+              className={`relative h-full w-full shrink-0 snap-start ${isMobile ? "" : "flex items-center justify-center bg-white"}`}
+              style={{
+                contain: isMobile ? "content" : undefined,
+                transform: "translateZ(0)",
+              }}
+            >
+              <div className={isMobile ? "h-full w-full pointer-events-none" : "h-full w-auto max-h-full max-w-full aspect-[9/16] pointer-events-none"}>
                 <ClipMedia
                   key={`${src}-${index}-${retryCount[index] || 0}`}
                   src={src}
@@ -879,7 +928,7 @@ export function VideoTaskExperience({
                 />
               </div>
               {failed[index] && index === activeIndex && (
-                <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/70 px-6 text-center">
+                <div className="pointer-events-auto absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/70 px-6 text-center">
                   <p className="text-sm text-white/90">This video could not be played.</p>
                   <button
                     type="button"
@@ -900,7 +949,15 @@ export function VideoTaskExperience({
             </section>
           )
         })}
-        <section key="rating" className="h-full w-full shrink-0 snap-start snap-always">
+        <section
+          key="rating"
+          data-index={clips.length}
+          className="h-full w-full shrink-0 snap-start"
+          style={{
+            contain: isMobile ? "content" : undefined,
+            transform: "translateZ(0)",
+          }}
+        >
           {ratingPanel}
         </section>
       </div>
