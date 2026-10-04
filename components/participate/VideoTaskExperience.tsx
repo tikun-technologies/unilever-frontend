@@ -165,8 +165,6 @@ function ClipMedia({
     // The scroll list must receive the drag. A playing video on Android
     // otherwise swallows the swipe, so only the arrow buttons can move it.
     node.style.pointerEvents = "none"
-    node.style.transform = "translateZ(0)"
-    node.style.backfaceVisibility = "hidden"
     if (poster) node.poster = poster
     node.className = "pointer-events-none h-full w-full object-cover"
     host.appendChild(node)
@@ -518,7 +516,6 @@ function ClipMedia({
   return (
     <div
       className={`pointer-events-none relative h-full w-full overflow-hidden bg-black ${isMobile ? "" : "rounded-xl shadow-lg"}`}
-      style={{ transform: "translateZ(0)" }}
     >
       <div ref={hostRef} className="pointer-events-none h-full w-full" />
       {!ready && shouldPlay && !poster && !needsTap && (
@@ -896,7 +893,7 @@ export function VideoTaskExperience({
       <div
         ref={feedRef}
         className={`min-h-0 w-full flex-1 snap-y snap-mandatory overflow-y-scroll overscroll-y-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isMobile ? "" : "bg-white"}`}
-        style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y", transform: "translateZ(0)" }}
+        style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y" }}
       >
         {clips.map((src, index) => {
           const mounted = isMobile
@@ -908,10 +905,6 @@ export function VideoTaskExperience({
               key={`${src}-${index}`}
               data-index={index}
               className={`relative h-full w-full shrink-0 snap-start ${isMobile ? "" : "flex items-center justify-center bg-white"}`}
-              style={{
-                contain: isMobile ? "content" : undefined,
-                transform: "translateZ(0)",
-              }}
             >
               <div className={isMobile ? "h-full w-full pointer-events-none" : "h-full w-auto max-h-full max-w-full aspect-[9/16] pointer-events-none"}>
                 <ClipMedia
@@ -953,10 +946,6 @@ export function VideoTaskExperience({
           key="rating"
           data-index={clips.length}
           className="h-full w-full shrink-0 snap-start"
-          style={{
-            contain: isMobile ? "content" : undefined,
-            transform: "translateZ(0)",
-          }}
         >
           {ratingPanel}
         </section>

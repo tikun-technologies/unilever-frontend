@@ -2224,9 +2224,6 @@
   .overscroll-contain {
     overscroll-behavior: contain;
   }
-  .overscroll-none {
-    overscroll-behavior: none;
-  }
   .overscroll-x-none {
     overscroll-behavior-x: none;
   }
