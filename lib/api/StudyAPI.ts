@@ -1549,7 +1549,6 @@ export async function pollJobStatus(
 
   let attempt = 1
   let lastProgress = 0
-  let consecutiveHighProgressChecks = 0
 
   const throwIfAborted = () => {
     if (signal?.aborted) {
@@ -1593,57 +1592,23 @@ export async function pollJobStatus(
       // Adaptive polling: faster when progress is high
       let intervalDelay = baseIntervalDelay
 
-      // If progress reaches 100%, immediately try result endpoint
-      if (currentProgress >= 100) {
-        console.log(`🎯 Progress at 100%, immediately checking result endpoint...`)
+      // Once generation is nearly done, ask for the tasks themselves.
+      // The status payload can sit below "completed" after the tasks already exist.
+      if (currentProgress >= 90) {
         try {
           const result = await getTaskGenerationResult(jobId)
-          // If result has tasks, job is actually complete even if status isn't updated yet
           if (result && result.tasks) {
-            console.log('✅ Result endpoint returned data at 100% progress, job is complete!')
-            // Return a completed status object
+            console.log('✅ Result endpoint returned tasks, job is complete')
             return {
               ...status,
-              status: 'completed' as const
+              status: 'completed' as const,
+              progress: 100,
             }
           }
-        } catch (resultError) {
-          // Result endpoint may not be ready yet, continue polling but very fast
-          console.log('⚠️ Result endpoint not ready yet at 100%, continuing with fast polling...')
+        } catch {
+          // Result is not stored yet. Check again on the next pass.
         }
-        intervalDelay = 1000 // Fast polling while waiting for result endpoint
-      }
-      // If progress >= 95%, poll every 1 second
-      else if (currentProgress >= 95) {
-        intervalDelay = 1000
-        consecutiveHighProgressChecks++
-        console.log(`⚡ High progress detected (${currentProgress}%), fast polling: ${intervalDelay}ms`)
-
-        // If progress reaches 99%+, try result endpoint proactively every 2 checks
-        if (currentProgress >= 99 && consecutiveHighProgressChecks >= 2) {
-          console.log(`🔍 Progress at ${currentProgress}%, proactively checking result endpoint...`)
-          try {
-            const result = await getTaskGenerationResult(jobId)
-            // If result has tasks, job is actually complete even if status isn't updated yet
-            if (result && result.tasks) {
-              console.log('✅ Result endpoint returned data, job is complete!')
-              // Return a completed status object
-              return {
-                ...status,
-                status: 'completed' as const
-              }
-            }
-          } catch (resultError) {
-            // Result endpoint may not be ready yet, continue polling
-            console.log('⚠️ Result endpoint not ready yet, continuing to poll...')
-          }
-          consecutiveHighProgressChecks = 0 // Reset counter after proactive check
-        }
-      }
-      // If progress >= 90%, poll every 2 seconds
-      else if (currentProgress >= 90) {
-        intervalDelay = 2000
-        console.log(`⚡ Near completion (${currentProgress}%), moderate polling: ${intervalDelay}ms`)
+        intervalDelay = 5000
       }
       // If progress >= 80%, poll every 3 seconds
       else if (currentProgress >= 80) {
@@ -1666,7 +1631,6 @@ export async function pollJobStatus(
       console.log(`⏳ Retrying in ${baseIntervalDelay}ms...`)
       await waitWithAbort(baseIntervalDelay)
       attempt++
-      consecutiveHighProgressChecks = 0 // Reset on error
     }
   }
 }
@@ -1883,6 +1847,12 @@ export function subscribeTaskGenerationStatus(
               progress: message.progress,
               message: message.message
             })
+            // Tasks are stored before some sockets send a separate completed event.
+            if (typeof message.progress === 'number' && message.progress >= 100) {
+              jobCompleted = true
+              onComplete()
+              cleanup()
+            }
           } else if (message.type === 'completed') {
             console.log('[WS] Job completed:', jobId)
             jobCompleted = true
@@ -2032,10 +2002,36 @@ export async function generateTasksWithPolling(
       return new Promise((resolve, reject) => {
         let settled = false
         let unsubscribeProgress: (() => void) | null = null
+        let resultProbe: number | null = null
+
+        const stopProbe = () => {
+          if (resultProbe !== null) window.clearInterval(resultProbe)
+          resultProbe = null
+        }
+
+        // Status can stay at 90 after the tasks are already stored. Ask for the
+        // result directly instead of polling status until a completed event arrives.
+        const startResultProbe = () => {
+          if (resultProbe !== null || settled) return
+          resultProbe = window.setInterval(() => {
+            if (settled) {
+              stopProbe()
+              return
+            }
+            void getTaskGenerationResult(effectiveJobId)
+              .then((result) => {
+                if (result?.tasks) void completeJob()
+              })
+              .catch(() => {
+                /* tasks are not stored yet */
+              })
+          }, 4000)
+        }
 
         const completeJob = async () => {
           if (settled) return
           settled = true
+          stopProbe()
           unsubscribeProgress?.()
           try {
             console.log('🔄 Job completed, fetching final result...')
@@ -2057,6 +2053,7 @@ export async function generateTasksWithPolling(
         const failJob = (error: string) => {
           if (settled) return
           settled = true
+          stopProbe()
           unsubscribeProgress?.()
           reject(new Error(error))
         }
@@ -2073,6 +2070,10 @@ export async function generateTasksWithPolling(
                   message: job.message,
                 })
               }
+              if (typeof job.progress === 'number' && job.progress >= 90) startResultProbe()
+              if (job.status === 'completed' || (typeof job.progress === 'number' && job.progress >= 100)) {
+                void completeJob()
+              }
             },
             onComplete: () => {
               void completeJob()
@@ -2086,6 +2087,7 @@ export async function generateTasksWithPolling(
             effectiveJobId,
             (status) => {
               if (onProgress) onProgress(status)
+              if (typeof status.progress === 'number' && status.progress >= 90) startResultProbe()
             },
             () => {
               void completeJob()
@@ -2099,6 +2101,7 @@ export async function generateTasksWithPolling(
           signal.addEventListener(
             'abort',
             () => {
+              stopProbe()
               unsubscribeProgress?.()
               if (!settled) {
                 settled = true

@@ -26,6 +26,7 @@ import {
   type TrackedJob,
 } from '@/lib/jobs/jobTypes'
 import { getTaskGenerationStatus } from '@/lib/api/StudyAPI'
+import { recordVideoEncodeEvent, recordVideoEncodeSnapshot } from '@/lib/utils/videoEncodeStatus'
 
 const STEP7_JOB_KEY = 'cs_step7_job_state'
 
@@ -345,6 +346,12 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
           .map((j) => normalizeJobFromApi(j as Record<string, unknown>))
           .filter(Boolean) as TrackedJob[]
         applySnapshot(parsed)
+        recordVideoEncodeSnapshot(raw.videos)
+        return
+      }
+
+      if (event === 'video_encode') {
+        recordVideoEncodeEvent(raw)
         return
       }
 

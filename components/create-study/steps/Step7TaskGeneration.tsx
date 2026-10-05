@@ -12,7 +12,7 @@ import {
   getCurrentStudyType,
   isStudyStructureReadyForCurrentType,
 } from "@/lib/utils/createStudyStorage"
-import { collectVideoSourceUrls, fetchVideoEncodeStatus, matrixStillHasRawVideo, useVideoEncodeGate, videoEncodeMessage } from "@/lib/utils/videoEncodeStatus"
+import { matrixStillHasRawVideo } from "@/lib/utils/videoEncodeStatus"
 import JSZip from "jszip"
 
 function normalizeResultStudyType(raw: unknown): string | null {
@@ -95,8 +95,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
   const abortControllerRef = useRef<AbortController | null>(null)
   const isLoadingFromCache = useRef<boolean>(false)
   const staleTypeRegenLockRef = useRef<boolean>(false)
-  const videoEncode = useVideoEncodeGate(active)
-  const videoGenerateLock = useRef(false)
   const handleRegenerateTasksRef = useRef<() => Promise<void>>(async () => {})
   // Preview anchoring to background fit box
   const previewContainerRef = useRef<HTMLDivElement>(null)
@@ -565,23 +563,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
   const generateNow = async () => {
     if (isReadOnly) return
-    if (getCurrentStudyType() === "video") {
-      const urls = collectVideoSourceUrls()
-      if (urls.length > 0) {
-        try {
-          const status = await fetchVideoEncodeStatus(urls)
-          if (!status.all_ready) {
-            setPollingError(videoEncodeMessage(status))
-            setIsGenerating(false)
-            return
-          }
-        } catch {
-          setPollingError("Could not check whether videos finished processing. Try again in a moment.")
-          setIsGenerating(false)
-          return
-        }
-      }
-    }
     try {
       // Check if there's already a job in progress in localStorage
       const existingJobState = loadJobState()
@@ -1051,7 +1032,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         setMatrix(JSON.parse(hasCachedMatrix))
       } catch (error) {
         console.error('[Step7] Error loading cached matrix:', error)
-        if (getCurrentStudyType() !== "video") generateNow()
+        generateNow()
       }
       return
     }
@@ -1064,27 +1045,11 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       return
     }
 
-    // Video studies wait until every upload has finished encoding.
-    if (getCurrentStudyType() === "video") return
-
-    // Only generate if no job and no cached matrix
+    // Only generate if no job and no cached matrix.
+    // Videos are already processed before this step, so generation starts the same way as other study types.
     console.log('[Step7] No job or matrix found, starting generation')
     generateNow()
   }, [active])
-
-  useEffect(() => {
-    if (!active) return
-    if (getCurrentStudyType() !== "video") return
-    if (!videoEncode.checked || videoEncode.loading || videoEncode.checkError || !videoEncode.all_ready) return
-    if (isGenerating || isPolling || matrix) return
-    if (typeof window !== "undefined" && localStorage.getItem("cs_step7_matrix") && !areGeneratedTasksStale()) return
-    if (loadGenerationError()) return
-    if (videoGenerateLock.current) return
-    videoGenerateLock.current = true
-    void generateNow().finally(() => {
-      videoGenerateLock.current = false
-    })
-  }, [active, videoEncode.checked, videoEncode.loading, videoEncode.all_ready, videoEncode.checkError, isGenerating, isPolling, matrix])
 
   // Abort polling on unmount so lingering poll doesn't overwrite storage when user navigates away
   useEffect(() => {
@@ -2074,9 +2039,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       <div className="space-y-4">
         <h3 className="text-lg font-semibold text-gray-800">Task Matrix</h3>
         <p className="text-sm text-gray-600">Preview tasks generated for respondents.</p>
-        {studyType === "video" && videoEncode.message && (
-          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{videoEncode.message}</p>
-        )}
         {videoTasksNeedRegenerate && (
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             These tasks were built before the videos finished processing. Regenerate tasks so preview and participants play the fast version.
@@ -2562,7 +2524,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
               onClick={handleRegenerateTasks}
               variant="outline"
               className="flex-shrink-0"
-              disabled={isGenerating || isPolling || isReadOnly || videoEncode.blocked}
+              disabled={isGenerating || isPolling || isReadOnly}
             >
               {isGenerating ? "Regenerating..." : "Regenerate Tasks"}
             </Button>
@@ -2689,9 +2651,9 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
             }
             onNext()
           }}
-          disabled={Boolean(!matrix) || isPolling || isGenerating || (jobStatus ? jobStatus.status !== 'completed' : false) || videoEncode.blocked || videoTasksNeedRegenerate}
+          disabled={Boolean(!matrix) || isPolling || isGenerating || (jobStatus ? jobStatus.status !== 'completed' : false) || videoTasksNeedRegenerate}
         >
-          {!matrix ? (studyType === "video" && videoEncode.blocked ? "Processing videos..." : "Generate Tasks First") :
+          {!matrix ? "Generate Tasks First" :
             videoTasksNeedRegenerate ? "Regenerate Tasks First" :
             isPolling || isGenerating ? 'Generating...' :
               (jobStatus && jobStatus.status !== 'completed') ? 'Tasks Not Ready' :

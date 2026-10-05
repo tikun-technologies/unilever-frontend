@@ -1,12 +1,12 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { PreviewVideoCard } from "@/components/media/PreviewVideoCard"
-import { createStudyFromLocalStorage, fetchWithAuth, buildStudyPayloadFromLocalStorage, putUpdateStudyAsync, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
+import { createStudyFromLocalStorage, fetchWithAuth, buildStudyPayloadFromLocalStorage, putUpdateStudyAsync } from "@/lib/api/StudyAPI"
 import { formatAgeSplitForDisplay, validateAudienceSegmentation } from "@/lib/utils/audienceSegmentationValidation"
 import { areGeneratedTasksStale } from "@/lib/utils/createStudyStorage"
-import { matrixStillHasRawVideo, useVideoEncodeGate } from "@/lib/utils/videoEncodeStatus"
+import { matrixStillHasRawVideo } from "@/lib/utils/videoEncodeStatus"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
 
 function get<T>(key: string, fallback: T): T {
@@ -104,8 +104,6 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const [isGeneratingTasks, setIsGeneratingTasks] = useState(false)
   const [tasksStale, setTasksStale] = useState(false)
   const [taskProgress, setTaskProgress] = useState(0)
-  const taskWsCleanupRef = useRef<(() => void) | null>(null)
-  const taskWsJobIdRef = useRef<string | null>(null)
   const [, setPreviewRevision] = useState(0)
 
   useEffect(() => {
@@ -118,9 +116,8 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
   const step2 = get('cs_step2', { type: 'grid', mainQuestion: '', orientationText: '' })
   const isHybrid = step2.type === 'hybrid'
   const isVideoStudy = step2.type === 'video'
-  const videoEncode = useVideoEncodeGate(isVideoStudy)
   const videoTasksNeedRegenerate = isVideoStudy && matrixStillHasRawVideo()
-  const videoLaunchBlocked = isVideoStudy && (videoEncode.blocked || videoTasksNeedRegenerate)
+  const videoLaunchBlocked = videoTasksNeedRegenerate
   const phaseOrder = get<("grid" | "text" | "mix")[] | "mix">('cs_step5_hybrid_phase_order', ["grid", "text"])
   const step3 = get('cs_step3', { minValue: 1, maxValue: 5, minLabel: '', maxLabel: '', middleLabel: '' })
   const step4 = get('cs_step4', [])
@@ -170,80 +167,23 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
       ? videoData.categories
       : videoData?.elements || [])
 
-  // Sync task generation / staleness state and attach the dedicated task-generation WebSocket when needed.
+  // The launch step stays mounted behind the task step. Read the job Step 7 already
+  // owns. Do not open a second socket or poll status from here.
   useEffect(() => {
-    const stopTaskSocket = () => {
-      taskWsCleanupRef.current?.()
-      taskWsCleanupRef.current = null
-      taskWsJobIdRef.current = null
-    }
-
     const update = () => {
       setTasksStale(areGeneratedTasksStale())
       const active = isJobStateActive()
       setIsGeneratingTasks(active)
-
-      if (!active) {
-        stopTaskSocket()
-        return
-      }
-
+      if (!active) return
       try {
         const raw = localStorage.getItem('cs_step7_job_state')
         if (!raw) return
         const jobState = JSON.parse(raw) as {
-          jobId?: string
           progress?: number
-          status?: { progress?: number; message?: string }
-          startTime?: number
-          studyId?: string | null
+          status?: { progress?: number }
         }
-        const jobId = jobState.jobId
-        if (!jobId) return
-
         const progress = jobState.progress ?? jobState.status?.progress ?? 0
         setTaskProgress(Math.round(progress))
-
-        if (taskWsJobIdRef.current === jobId && taskWsCleanupRef.current) return
-
-        stopTaskSocket()
-        taskWsJobIdRef.current = jobId
-        taskWsCleanupRef.current = subscribeTaskGenerationStatus(
-          jobId,
-          (status) => {
-            const nextProgress = typeof status.progress === 'number' ? status.progress : 0
-            setTaskProgress((prev) => Math.max(prev, Math.round(nextProgress)))
-            setIsGeneratingTasks(status.status === 'processing' || status.status === 'pending')
-            try {
-              localStorage.setItem(
-                'cs_step7_job_state',
-                JSON.stringify({
-                  ...jobState,
-                  status,
-                  progress: nextProgress,
-                  timestamp: Date.now(),
-                })
-              )
-              window.dispatchEvent(new CustomEvent('stepDataChanged'))
-            } catch { /* ignore */ }
-          },
-          () => {
-            setTaskProgress(100)
-            setIsGeneratingTasks(false)
-            stopTaskSocket()
-            try {
-              localStorage.removeItem('cs_step7_job_state')
-              localStorage.setItem('cs_step7_tasks', JSON.stringify({ completed: true, timestamp: Date.now() }))
-              localStorage.setItem('cs_step8', JSON.stringify({ completed: true, timestamp: Date.now() }))
-              window.dispatchEvent(new CustomEvent('stepDataChanged'))
-              onDataChange?.()
-            } catch { /* ignore */ }
-          },
-          () => {
-            setIsGeneratingTasks(false)
-            stopTaskSocket()
-          }
-        )
       } catch {
         /* ignore */
       }
@@ -251,14 +191,12 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
 
     update()
     const poll = setInterval(update, 2000)
-    const handler = () => update()
-    window.addEventListener('stepDataChanged', handler)
+    window.addEventListener('stepDataChanged', update)
     return () => {
       clearInterval(poll)
-      window.removeEventListener('stepDataChanged', handler)
-      stopTaskSocket()
+      window.removeEventListener('stepDataChanged', update)
     }
-  }, [onDataChange])
+  }, [])
 
   // Update last_step on mount so resuming brings user here
   useEffect(() => {
@@ -306,8 +244,8 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
       setLaunchError('Classification and post-classification questions cannot use the same question title. Please update them before launching.')
       return
     }
-    if (step2.type === 'video' && (videoEncode.blocked || matrixStillHasRawVideo())) {
-      setLaunchError(videoEncode.message || 'Regenerate tasks after every video has finished processing, then launch.')
+    if (step2.type === 'video' && matrixStillHasRawVideo()) {
+      setLaunchError('Regenerate tasks after every video has finished processing, then launch.')
       return
     }
 
@@ -561,10 +499,7 @@ export function Step8LaunchPreview({ onBack, onDataChange, isReadOnly = false, u
         )}
       </div>
       <p className="text-sm text-gray-600">Review all details before launching. This view summarizes your current setup.</p>
-      {isVideoStudy && videoEncode.message && (
-        <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">{videoEncode.message}</p>
-      )}
-      {videoTasksNeedRegenerate && !videoEncode.blocked && (
+      {videoTasksNeedRegenerate && (
         <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
           Regenerate tasks in the previous step. These tasks still point at the original video files.
         </p>

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useSyncExternalStore } from "react"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
 import { fetchWithAuth } from "@/lib/api/StudyAPI"
 import { getCurrentStudyType } from "@/lib/utils/createStudyStorage"
@@ -124,79 +124,132 @@ export function matrixStillHasRawVideo(): boolean {
   }
 }
 
+const encodeByUrl = new Map<string, VideoEncodeItem>()
+const encodeListeners = new Set<() => void>()
+let encodeRevision = 0
+let encodeSnapshotSeen = false
+
+function emitEncodeStore() {
+  encodeRevision += 1
+  encodeListeners.forEach((listener) => listener())
+}
+
+function subscribeEncodeStore(listener: () => void) {
+  encodeListeners.add(listener)
+  return () => encodeListeners.delete(listener)
+}
+
+function readEncodeRevision() {
+  return encodeRevision
+}
+
+function isHlsUrl(url: string) {
+  return url.split("?")[0].toLowerCase().endsWith(".m3u8")
+}
+
+function itemFromEvent(raw: Record<string, unknown>): VideoEncodeItem | null {
+  const url = typeof raw.url === "string" ? raw.url : ""
+  if (!url) return null
+  const status = typeof raw.status === "string" && raw.status ? raw.status : "processing"
+  const playback = typeof raw.playback_url === "string" && raw.playback_url ? raw.playback_url : url
+  const poster = typeof raw.poster_url === "string" ? raw.poster_url : null
+  return { url, status, playback_url: playback, poster_url: poster }
+}
+
+/** Live encode update from the global jobs websocket. */
+export function recordVideoEncodeEvent(raw: Record<string, unknown>) {
+  const item = itemFromEvent(raw)
+  if (!item) return
+  encodeByUrl.set(item.url, item)
+  emitEncodeStore()
+}
+
+/** Videos included with the jobs websocket snapshot when the socket connects. */
+export function recordVideoEncodeSnapshot(items: unknown) {
+  encodeSnapshotSeen = true
+  if (Array.isArray(items)) {
+    for (const raw of items) {
+      if (!raw || typeof raw !== "object") continue
+      const item = itemFromEvent(raw as Record<string, unknown>)
+      if (item) encodeByUrl.set(item.url, item)
+    }
+  }
+  emitEncodeStore()
+}
+
+function knownEncodeItem(url: string): VideoEncodeItem {
+  const known = encodeByUrl.get(url)
+  if (known) return known
+  if (isHlsUrl(url)) {
+    return { url, status: "ready", playback_url: url, poster_url: null }
+  }
+  return { url, status: "processing", playback_url: url, poster_url: null }
+}
+
+function summarizeKnown(urls: string[]): VideoEncodeSummary {
+  const items = urls.map(knownEncodeItem)
+  const byUrl: Record<string, VideoEncodeItem> = {}
+  let ready = 0
+  let processing = 0
+  let failed = 0
+  for (const item of items) {
+    byUrl[item.url] = item
+    if (item.status === "failed") failed += 1
+    else if (item.status === "processing") processing += 1
+    else ready += 1
+  }
+  return {
+    items,
+    ready,
+    processing,
+    failed,
+    total: items.length,
+    all_ready: processing === 0 && failed === 0,
+    byUrl,
+  }
+}
+
 export function useVideoEncodeGate(enabled: boolean, explicitUrls?: string[]) {
   const urlsKey = explicitUrls ? [...explicitUrls].sort().join("\n") : ""
-  const [storageTick, setStorageTick] = useState(0)
-  const [summary, setSummary] = useState<VideoEncodeSummary>(EMPTY)
-  const [loading, setLoading] = useState(false)
-  const [checked, setChecked] = useState(false)
-  const [checkError, setCheckError] = useState<string | null>(null)
+  useSyncExternalStore(subscribeEncodeStore, readEncodeRevision, readEncodeRevision)
 
-  useEffect(() => {
-    if (explicitUrls) return
-    const bump = () => setStorageTick((value) => value + 1)
-    window.addEventListener("stepDataChanged", bump)
-    return () => window.removeEventListener("stepDataChanged", bump)
-  }, [explicitUrls])
+  const urls = useMemo(() => {
+    if (!enabled) return [] as string[]
+    if (explicitUrls) return explicitUrls.filter(Boolean)
+    if (getCurrentStudyType() !== "video") return [] as string[]
+    return collectVideoSourceUrls()
+  }, [enabled, explicitUrls, urlsKey])
 
+  // The socket snapshot covers videos uploaded after owner tracking. Ask once
+  // about any clip it does not know, instead of polling status.
   useEffect(() => {
-    if (!enabled) {
-      setSummary(EMPTY)
-      setLoading(false)
-      setChecked(true)
-      setCheckError(null)
-      return
-    }
+    if (!enabled || !encodeSnapshotSeen || urls.length === 0) return
+    const unknown = urls.filter((url) => !encodeByUrl.has(url) && !isHlsUrl(url))
+    if (unknown.length === 0) return
     let stopped = false
-    let timer = 0
-
-    const tick = async () => {
-      const urls = explicitUrls ?? collectVideoSourceUrls()
-      if (!explicitUrls && getCurrentStudyType() !== "video") {
-        if (!stopped) {
-          setSummary(EMPTY)
-          setLoading(false)
-          setChecked(true)
-          setCheckError(null)
-        }
-        return
-      }
-      if (urls.length === 0) {
-        if (!stopped) {
-          setSummary(EMPTY)
-          setLoading(false)
-          setChecked(true)
-          setCheckError(null)
-        }
-        return
-      }
-      try {
-        const next = await fetchVideoEncodeStatus(urls)
+    void fetchVideoEncodeStatus(unknown)
+      .then((summary) => {
         if (stopped) return
-        setSummary(next)
-        setLoading(false)
-        setChecked(true)
-        setCheckError(null)
-        if (!next.all_ready) timer = window.setTimeout(tick, 4000)
-      } catch {
-        if (stopped) return
-        setLoading(false)
-        setChecked(true)
-        setCheckError("Could not check video processing. Retrying...")
-        timer = window.setTimeout(tick, 8000)
-      }
-    }
-
-    setLoading(true)
-    setChecked(false)
-    void tick()
+        summary.items.forEach((item) => encodeByUrl.set(item.url, item))
+        emitEncodeStore()
+      })
+      .catch(() => {
+        /* the next socket event still updates these clips */
+      })
     return () => {
       stopped = true
-      window.clearTimeout(timer)
     }
-  }, [enabled, urlsKey, storageTick, explicitUrls])
+  }, [enabled, urls])
 
-  const applies = enabled && (explicitUrls ? explicitUrls.length > 0 : getCurrentStudyType() === "video")
-  const blocked = applies && (!checked || loading || !summary.all_ready || Boolean(checkError))
-  return { ...summary, loading, checked, checkError, blocked, message: checkError || videoEncodeMessage(summary) }
+  const summary = !enabled || urls.length === 0 ? EMPTY : summarizeKnown(urls)
+  const applies = enabled && urls.length > 0
+  const blocked = applies && !summary.all_ready
+  return {
+    ...summary,
+    loading: false,
+    checked: true,
+    checkError: null,
+    blocked,
+    message: videoEncodeMessage(summary),
+  }
 }
