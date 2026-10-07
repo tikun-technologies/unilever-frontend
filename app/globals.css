@@ -45,6 +45,34 @@
 }
 
 :root {
+  --font-geist-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-geist-mono: "Geist Mono", ui-monospace, monospace;
+  --font-inter: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-poppins: "Poppins", sans-serif;
+  --font-roboto: "Roboto", sans-serif;
+  --font-montserrat: "Montserrat", sans-serif;
+  --font-open-sans: "Open Sans", sans-serif;
+  --font-lato: "Lato", sans-serif;
+  --font-oswald: "Oswald", sans-serif;
+  --font-raleway: "Raleway", sans-serif;
+  --font-merriweather: "Merriweather", serif;
+  --font-playfair-display: "Playfair Display", serif;
+  --font-rubik: "Rubik", sans-serif;
+  --font-ubuntu: "Ubuntu", sans-serif;
+  --font-nunito: "Nunito", sans-serif;
+  --font-source-sans-3: "Source Sans 3", sans-serif;
+  --font-pt-sans: "PT Sans", sans-serif;
+  --font-noto-sans: "Noto Sans", sans-serif;
+  --font-work-sans: "Work Sans", sans-serif;
+  --font-quicksand: "Quicksand", sans-serif;
+  --font-bebas-neue: "Bebas Neue", sans-serif;
+  --font-dancing-script: "Dancing Script", cursive;
+  --font-pacifico: "Pacifico", cursive;
+  --font-lobster: "Lobster", cursive;
+  --font-great-vibes: "Great Vibes", cursive;
+  --font-satisfy: "Satisfy", cursive;
+  --font-caveat: "Caveat", cursive;
+  --font-indie-flower: "Indie Flower", cursive;
   --radius: 0.625rem;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
