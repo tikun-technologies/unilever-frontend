@@ -56,12 +56,15 @@ export function markStudyQuotaClosed(studyId: string) {
   }
 }
 
+/** Samplicio over-quota callback. RIS=40 is their quota-full status. */
+const QUOTA_FULL_REDIRECT_BASE = "https://samplicio.us/s/ClientCallBack.aspx?RIS=40"
+
 /**
- * CINT quota-full URL. Set NEXT_PUBLIC_CINT_QUOTA_FULL_URL.
- * The respondent id from the study link is added as RID.
+ * Over-quota redirect. The respondent id captured from rid, RID, frid, or firid
+ * is written into the RID parameter.
  */
 export function quotaFullRedirectUrl(rid: string | null, serverUrl?: string | null): string | null {
-  const base = (serverUrl || process.env.NEXT_PUBLIC_CINT_QUOTA_FULL_URL || "").trim()
+  const base = (serverUrl || process.env.NEXT_PUBLIC_CINT_QUOTA_FULL_URL || QUOTA_FULL_REDIRECT_BASE).trim()
   if (!base) return null
   try {
     const url = new URL(base)
