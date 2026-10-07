@@ -90,7 +90,7 @@ export default function SyntheticRespondentPage() {
   const studyHref = `/home/study/${studyId}${projectQuery}`
   const { user } = useAuth()
   const isSpecialCreator = checkIsSpecialCreator(user?.email ?? null)
-  const { registerJob, watchJob } = useJobNotifications()
+  const { registerJob, watchJob, isConnected } = useJobNotifications()
 
   const [study, setStudy] = useState<StudyDetails | null>(null)
   const [studyBasic2, setStudyBasic2] = useState<StudyBasicDetails2 | null>(null)
@@ -216,6 +216,8 @@ export default function SyntheticRespondentPage() {
 
     const handleProgress = (completed: number, progress: number, message?: string) => {
       console.log(`[Synthetic] Progress: ${completed}/${totalRespondents} (${progress.toFixed(1)}%)`, message)
+      // A "starting" event can report 0, or an older count. Never pull the bar backward.
+      if (completed < targetCompletedRef.current) return
       targetCompletedRef.current = completed
       const displayed = displayedCountRef.current
       if (completed > displayed) startAnimation()
@@ -308,8 +310,10 @@ export default function SyntheticRespondentPage() {
       const currentCompleted = requested > 0 ? Math.round((progressPct / 100) * requested) : 0
       
       console.log(`[Synthetic] Job in progress: ${currentCompleted}/${requested} (${progressPct}%)`)
-      targetCompletedRef.current = currentCompleted
-      setCompletedCount(currentCompleted)
+      if (currentCompleted > targetCompletedRef.current) {
+        targetCompletedRef.current = currentCompleted
+        setCompletedCount((cur) => Math.max(cur, currentCompleted))
+      }
       
       // Start WebSocket subscription
       startWebSocketSubscription(jobId, requested)
@@ -323,7 +327,12 @@ export default function SyntheticRespondentPage() {
     }
   }, [studyId, startWebSocketSubscription])
 
-  // Main effect: handle job subscription when running
+  const checkAndResumeJobRef = useRef(checkAndResumeJob)
+  checkAndResumeJobRef.current = checkAndResumeJob
+
+  // Main effect: handle job subscription when running.
+  // Do not depend on checkAndResumeJob: that callback changes when the study
+  // title loads, and its cleanup was dropping the watcher and the animation.
   useEffect(() => {
     if (!isRunning || !simulateJobId) return
 
@@ -332,7 +341,7 @@ export default function SyntheticRespondentPage() {
     isResumingRef.current = false
 
     // Check current status and start WebSocket
-    checkAndResumeJob(simulateJobId, respondentCount)
+    checkAndResumeJobRef.current(simulateJobId, respondentCount)
 
     return () => {
       // Cleanup on unmount or when job changes
@@ -349,7 +358,69 @@ export default function SyntheticRespondentPage() {
         animateTimerRef.current = null
       }
     }
-  }, [isRunning, simulateJobId, respondentCount, checkAndResumeJob])
+  }, [isRunning, simulateJobId, respondentCount])
+
+  // Live counts come from the global job socket. This status read runs only
+  // while that socket is down, and only one request is in flight at a time.
+  useEffect(() => {
+    if (!isRunning || !simulateJobId || isConnected) return
+    const jobId = simulateJobId
+    const total = respondentCount
+    let cancelled = false
+
+    const applyPolledStatus = (status: Awaited<ReturnType<typeof getSimulateAIStatus>>) => {
+      if (cancelled || jobCompletedRef.current) return
+
+      if (status.status === "completed") {
+        jobCompletedRef.current = true
+        lastStatusRef.current = "completed"
+        const finalCount = status.respondents_requested ?? total
+        targetCompletedRef.current = Math.max(targetCompletedRef.current, finalCount)
+        setCompletedCount(targetCompletedRef.current)
+        setIsRunning(false)
+        setShowSuccess(true)
+        try { localStorage.removeItem(STORAGE_KEY(studyId)) } catch { /* ignore */ }
+        return
+      }
+
+      if (status.status === "failed" || status.status === "cancelled") {
+        jobCompletedRef.current = true
+        lastStatusRef.current = status.status
+        if (status.error) setSimulateError(status.error)
+        setIsRunning(false)
+        try { localStorage.removeItem(STORAGE_KEY(studyId)) } catch { /* ignore */ }
+        return
+      }
+
+      const requested = status.respondents_requested ?? total
+      const progressPct = status.progress ?? 0
+      const currentCompleted = requested > 0 ? Math.round((progressPct / 100) * requested) : 0
+      if (currentCompleted <= targetCompletedRef.current) return
+      if (animateTimerRef.current) {
+        clearInterval(animateTimerRef.current)
+        animateTimerRef.current = null
+      }
+      targetCompletedRef.current = currentCompleted
+      setCompletedCount(currentCompleted)
+    }
+
+    let inFlight = false
+    const tick = () => {
+      if (cancelled || jobCompletedRef.current || inFlight) return
+      inFlight = true
+      getSimulateAIStatus(jobId)
+        .then(applyPolledStatus)
+        .catch(() => { /* keep the last count */ })
+        .finally(() => { inFlight = false })
+    }
+
+    const timer = window.setInterval(tick, 2000)
+    tick()
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [isRunning, simulateJobId, respondentCount, studyId, isConnected])
 
   // Handle visibility change - reconnect when tab becomes visible
   useEffect(() => {
