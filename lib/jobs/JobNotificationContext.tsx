@@ -109,30 +109,30 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
   }, [jobsMap])
 
   const notifyWatchers = useCallback((job: TrackedJob) => {
-    const watcherKey = job.jobId ?? job.notificationId
-    const watchers = watchersRef.current.get(watcherKey)
-    if (!watchers) return
-    watchers.forEach((cb) => {
-      try {
-        if (isActiveJobStatus(job.status)) {
-          cb.onProgress?.(job)
-        } else if (job.status === 'completed') {
-          cb.onComplete?.(job)
-        } else if (job.status === 'failed' || job.status === 'cancelled') {
-          cb.onError?.(job, job.error || job.message || 'Job failed')
+    const keys = [job.jobId, job.notificationId].filter((key): key is string => Boolean(key))
+    const seen = new Set<JobWatchCallbacks>()
+    keys.forEach((key) => {
+      const watchers = watchersRef.current.get(key)
+      if (!watchers) return
+      watchers.forEach((cb) => {
+        if (seen.has(cb)) return
+        seen.add(cb)
+        try {
+          if (isActiveJobStatus(job.status)) {
+            cb.onProgress?.(job)
+          } else if (job.status === 'completed') {
+            cb.onComplete?.(job)
+          } else if (job.status === 'failed' || job.status === 'cancelled') {
+            cb.onError?.(job, job.error || job.message || 'Job failed')
+          }
+        } catch {
+          /* ignore listener errors */
         }
-      } catch {
-        /* ignore listener errors */
-      }
+      })
     })
   }, [])
 
-  const scheduleNotifyWatchers = useCallback(
-    (job: TrackedJob) => {
-      queueMicrotask(() => notifyWatchers(job))
-    },
-    [notifyWatchers]
-  )
+  const notifiedJobSignatureRef = useRef<Map<string, string>>(new Map())
 
   const upsertJob = useCallback(
     (incoming: Partial<TrackedJob> & { notificationId?: string; jobId?: string }, options?: { markUnread?: boolean }) => {
@@ -140,8 +140,6 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
       if (!notificationId || dismissedSetRef.current.has(notificationId)) {
         return
       }
-
-      let mergedJob: TrackedJob | null = null
 
       setJobsMap((prev) => {
         const existing = prev[notificationId]
@@ -162,17 +160,13 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
                       ? false
                       : existing?.unread ?? false
 
-        mergedJob = mergeJob(existing, { ...incoming, notificationId, unread })
+        const mergedJob = mergeJob(existing, { ...incoming, notificationId, unread })
         const next = { ...prev, [notificationId]: mergedJob }
         jobsMapRef.current = next
         return next
       })
-
-      if (mergedJob) {
-        scheduleNotifyWatchers(mergedJob)
-      }
     },
-    [scheduleNotifyWatchers]
+    []
   )
 
   const syncStep7JobState = useCallback((jobId: string, studyId: string) => {
@@ -200,6 +194,22 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
       /* ignore */
     }
   }, [])
+
+  // Notify after the job list commits. Doing this inside the setState updater
+  // drops the callback whenever React defers that updater, so the task page
+  // never hears that generation finished.
+  useEffect(() => {
+    for (const job of Object.values(jobsMap)) {
+      if (job.notificationType !== 'job') continue
+      const signature = `${job.status}|${job.progress}|${job.message ?? ''}|${job.error ?? ''}|${job.updatedAt}`
+      if (notifiedJobSignatureRef.current.get(job.notificationId) === signature) continue
+      notifiedJobSignatureRef.current.set(job.notificationId, signature)
+      if (job.jobKind === 'task_generation' && job.jobId && isActiveJobStatus(job.status)) {
+        syncStep7JobState(job.jobId, job.studyId)
+      }
+      notifyWatchers(job)
+    }
+  }, [jobsMap, notifyWatchers, syncStep7JobState])
 
   const registerJob = useCallback(
     (input: RegisterJobInput) => {
@@ -397,20 +407,8 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
           typeof raw.respondents_completed === 'number' ? raw.respondents_completed : undefined,
       })
 
-      const job = getJob(jobId || notificationId)
-      if (job?.jobKind === 'task_generation') {
-        syncStep7JobState(jobId, job.studyId)
-      }
-
-      if (status === 'completed' && job?.jobKind === 'task_generation') {
-        try {
-          localStorage.removeItem(STEP7_JOB_KEY)
-        } catch {
-          /* ignore */
-        }
-      }
     },
-    [applySnapshot, getJob, syncStep7JobState, upsertJob]
+    [applySnapshot, upsertJob]
   )
 
   const startPollingFallback = useCallback(() => {

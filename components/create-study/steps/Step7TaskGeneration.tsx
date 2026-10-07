@@ -74,7 +74,9 @@ interface Step7TaskGenerationProps {
 }
 
 export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChange, isReadOnly = false, lastStepNumber = 7 }: Step7TaskGenerationProps) {
-  const { registerJob, watchJob } = useJobNotifications()
+  const { registerJob, watchJob, jobs } = useJobNotifications()
+  const latestTaskJobIdRef = useRef<string | null>(null)
+  const appliedTaskResultJobRef = useRef<string | null>(null)
   const [isGenerating, setIsGenerating] = useState(false)
   const [matrix, setMatrix] = useState<any | null>(null)
   const [isStatsOpen, setIsStatsOpen] = useState(false)
@@ -166,9 +168,11 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         // Accept both object format { status: { status: 'processing' } } and string/flat format
         const s = jobState.status
         const statusStr = typeof s === 'string' ? s : s?.status
-        const isActive = statusStr === 'processing' || statusStr === 'pending'
-        const isCompletedOrFailed = statusStr === 'completed' || statusStr === 'failed'
-        if (jobState.jobId && (isActive || (!statusStr && !isCompletedOrFailed))) {
+        const isActive = statusStr === 'processing' || statusStr === 'pending' || statusStr === 'started'
+        const isFailed = statusStr === 'failed'
+        // A completed job still has to load its tasks. Keep the id so the
+        // result endpoint can be called after a refresh.
+        if (jobState.jobId && (isActive || statusStr === 'completed' || (!statusStr && !isFailed))) {
           return jobState
         } else {
           console.log('[Step7] Job state found but job is completed/failed, clearing...')
@@ -462,7 +466,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     }
 
     const currentType = getCurrentStudyType()
-    const resultType = normalizeResultStudyType(result?.metadata?.study_type)
+    const resultType = normalizeResultStudyType(result?.metadata?.study_type || result?.study_type)
     // Discard late results from a previous study type after the user changed type.
     if (currentType && resultType && resultType !== currentType) {
       console.warn('[Step7] Discarding task result for mismatched study type:', { currentType, resultType })
@@ -560,6 +564,66 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       onDataChange?.()
     } catch { }
   }
+
+  // The notification bell and this page share one job list. When generation
+  // finishes, load the tasks here even if the bell is closed. Grid, text,
+  // video, layer, and hybrid all come back from the same result endpoint.
+  useEffect(() => {
+    let studyId: string | null = null
+    try {
+      const raw = localStorage.getItem('cs_study_id')
+      studyId = raw ? (() => { try { const p = JSON.parse(raw); return typeof p === 'string' ? p : String(p) } catch { return raw } })() : null
+    } catch { /* ignore */ }
+
+    const activeJobs = jobs.filter((job) =>
+      job.jobKind === 'task_generation' &&
+      job.jobId &&
+      (job.status === 'pending' || job.status === 'started' || job.status === 'processing') &&
+      (!studyId || job.studyId === studyId)
+    )
+    if (activeJobs.length > 0) {
+      activeJobs.sort((a, b) => b.updatedAt - a.updatedAt)
+      latestTaskJobIdRef.current = activeJobs[0].jobId || null
+    }
+
+    const targetId = latestTaskJobIdRef.current
+    if (!targetId || appliedTaskResultJobRef.current === targetId) return
+    const finished = jobs.find((job) => job.jobId === targetId && job.status === 'completed')
+    if (!finished) return
+
+    appliedTaskResultJobRef.current = targetId
+    const controller = abortControllerRef.current
+    const applyResult = async (attempt: number) => {
+      try {
+        const result = await getTaskGenerationResult(targetId)
+        if (!result?.tasks) {
+          if (attempt < 2) {
+            window.setTimeout(() => { void applyResult(attempt + 1) }, 1500)
+            return
+          }
+          appliedTaskResultJobRef.current = null
+          return
+        }
+        savePreviewAndComplete(result)
+        clearJobState()
+        clearTimerState()
+        stopTimerSaving()
+        setJobStartTime(null)
+        setHighestProgress(0)
+        setIsGenerating(false)
+        setIsPolling(false)
+        if (abortControllerRef.current === controller) controller?.abort()
+      } catch (error) {
+        console.log('[Step7] Result not ready yet:', error)
+        if (attempt < 2) {
+          window.setTimeout(() => { void applyResult(attempt + 1) }, 1500)
+          return
+        }
+        appliedTaskResultJobRef.current = null
+      }
+    }
+    void applyResult(0)
+  }, [jobs])
 
   const generateNow = async () => {
     if (isReadOnly) return
