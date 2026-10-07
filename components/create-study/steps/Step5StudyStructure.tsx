@@ -2960,6 +2960,14 @@ function LayerMode({
     )
   }
 
+  const MAX_DESIGN_CONSTRAINT_NAME_LENGTH = 2000
+
+  const limitConstraintName = (name: string) => {
+    const trimmed = name.trim()
+    if (trimmed.length <= MAX_DESIGN_CONSTRAINT_NAME_LENGTH) return trimmed
+    return `${trimmed.slice(0, MAX_DESIGN_CONSTRAINT_NAME_LENGTH - 1).trimEnd()}…`
+  }
+
   const getConstraintNameFromElements = (
     anchors: ConstraintElementRef[],
     blocked: ConstraintElementRef[]
@@ -2968,8 +2976,8 @@ function LayerMode({
     const blockedNames = getSelectedConstraintOptions(blocked).map((option) => option.imageName.trim())
     const anchorPart = anchorNames.filter(Boolean).join(', ')
     const blockedPart = blockedNames.filter(Boolean).join(', ')
-    if (anchorPart && blockedPart) return `${anchorPart} vs ${blockedPart}`
-    return anchorPart || blockedPart
+    if (anchorPart && blockedPart) return limitConstraintName(`${anchorPart} vs ${blockedPart}`)
+    return limitConstraintName(anchorPart || blockedPart)
   }
 
   const getDefaultConstraintName = (
@@ -2982,11 +2990,16 @@ function LayerMode({
         .map((constraint) => constraint.name.trim().toLowerCase())
     )
     const elementName = draft ? getConstraintNameFromElements(draft.anchors, draft.blocked).trim() : ''
-    let baseName = elementName || 'Design Constraint'
+    const baseName = elementName || 'Design Constraint'
     let index = elementName ? 2 : 1
-    let candidate = elementName || `Design Constraint ${index}`
+    let candidate = limitConstraintName(elementName || `Design Constraint ${index}`)
     while (usedNames.has(candidate.toLowerCase())) {
-      candidate = elementName ? `${baseName} (${index})` : `Design Constraint ${index}`
+      const suffix = ` (${index})`
+      const room = MAX_DESIGN_CONSTRAINT_NAME_LENGTH - suffix.length
+      const trimmedBase = baseName.length > room
+        ? `${baseName.slice(0, Math.max(1, room - 1)).trimEnd()}…`
+        : baseName
+      candidate = limitConstraintName(elementName ? `${trimmedBase}${suffix}` : `Design Constraint ${index}`)
       index += 1
     }
     return candidate
@@ -3349,7 +3362,7 @@ function LayerMode({
     const validated = validateConstraintDraft()
     if (!validated) return
 
-    const trimmedName = constraintNameDraft.trim()
+    const trimmedName = limitConstraintName(constraintNameDraft)
     if (!trimmedName) {
       setConstraintNameError('Enter a design constraint name.')
       return
