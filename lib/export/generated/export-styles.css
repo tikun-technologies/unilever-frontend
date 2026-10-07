@@ -4845,6 +4845,9 @@
       --tw-ring-color: color-mix(in oklab, var(--color-blue-500) 20%, transparent);
     }
   }
+  .focus-within\:ring-red-200:focus-within {
+    --tw-ring-color: var(--color-red-200);
+  }
   @media (hover: hover) {
     .hover\:-translate-y-0\.5:hover {
       --tw-translate-y: calc(var(--spacing) * -0.5);
@@ -5881,6 +5884,9 @@
     }
     .sm\:w-32 {
       width: calc(var(--spacing) * 32);
+    }
+    .sm\:w-44 {
+      width: calc(var(--spacing) * 44);
     }
     .sm\:w-\[28px\] {
       width: 28px;

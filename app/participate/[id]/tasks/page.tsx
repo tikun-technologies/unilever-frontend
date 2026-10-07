@@ -18,7 +18,6 @@ import {
   clearMergeState,
   MERGE_STORAGE_KEYS,
 } from "@/lib/config/mergedStudies"
-
 const PENDING_TASKS_STORAGE_KEY = 'pending_task_responses'
 
 // Save pending task payloads to localStorage as backup

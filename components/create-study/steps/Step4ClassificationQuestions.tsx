@@ -10,6 +10,19 @@ interface Option {
 	option_id?: string
 	text: string
 	option_text?: string
+	max_respondents?: number | null
+}
+
+const parseOptionLimit = (value: unknown): number | null => {
+	if (value == null || value === "") return null
+	const parsed = Number(value)
+	return Number.isFinite(parsed) ? parsed : null
+}
+
+const optionLimitError = (value: number | null | undefined): string | null => {
+	if (value == null) return null
+	if (!Number.isInteger(value) || value < 1) return "Use a whole number of 1 or more, or leave blank."
+	return null
 }
 
 interface QuestionCard {
@@ -68,7 +81,7 @@ export function Step4ClassificationQuestions({
 							id: normalizeClassificationId(q.question_id || q.id, createClassificationId()),
 							title: q.title || q.question_text || "",
 							required: typeof q.required === 'boolean' ? q.required : q.is_required !== false,
-							options: Array.isArray(options) && options.length > 0 ? options.map(o => ({ id: normalizeClassificationId(o.id || o.option_id, createClassificationId()), text: o.text || o.option_text || "" })) : [
+							options: Array.isArray(options) && options.length > 0 ? options.map(o => ({ id: normalizeClassificationId(o.id || o.option_id, createClassificationId()), text: o.text || o.option_text || "", max_respondents: parseOptionLimit(o.max_respondents) })) : [
 								{ id: createClassificationId(), text: "" },
 								{ id: createClassificationId(), text: "" },
 							],
@@ -166,6 +179,10 @@ export function Step4ClassificationQuestions({
 		setQuestions((prev) => prev.map(q => q.id === qid ? { ...q, options: q.options.map(o => o.id === oid ? { ...o, text } : o) } : q))
 	}
 
+	const updateOptionLimit = (qid: string, oid: string, max_respondents: number | null) => {
+		setQuestions((prev) => prev.map(q => q.id === qid ? { ...q, options: q.options.map(o => o.id === oid ? { ...o, max_respondents } : o) } : q))
+	}
+
 	const toggleRequired = (qid: string) => {
 		setQuestions((prev) => prev.map(q => q.id === qid ? { ...q, required: !q.required } : q))
 	}
@@ -229,11 +246,15 @@ export function Step4ClassificationQuestions({
 	const activeQuestions = isOptionalStep ? questions.filter(q => !isQuestionBlank(q)) : questions
 	const isSkippingOptionalStep = isOptionalStep && activeQuestions.length === 0
 
+	const hasInvalidLimits = !isOptionalStep && activeQuestions.some(q =>
+		q.options.some(o => optionLimitError(o.max_respondents) !== null)
+	)
+
 	const canProceed = isSkippingOptionalStep || (activeQuestions.every(q =>
 		q.title.trim().length > 0 &&
 		q.options.length >= 2 &&
 		q.options.every(o => o.text.trim().length > 0)
-	) && !hasDuplicates && !hasCrossStepDuplicates)
+	) && !hasDuplicates && !hasCrossStepDuplicates && !hasInvalidLimits)
 
 	return (
 		<div>
@@ -412,27 +433,66 @@ export function Step4ClassificationQuestions({
 
 									<div className="mt-6">
 										<div className="text-sm font-semibold text-gray-800 mb-2">Answer Options <span className="text-red-500">*</span></div>
-										<div className="text-xs text-gray-500 mb-3">Minimum 2 options required</div>
+										<div className="text-xs text-gray-500 mb-3">
+											Minimum 2 options required
+											{!isOptionalStep && " · Leave the respondent limit blank for no cap."}
+										</div>
 										<div className="space-y-3">
-											{q.options.map((o) => (
-												<div key={o.id} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-													<input
-														className="flex-1 rounded-lg border border-gray-200 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[rgba(38,116,186,0.3)] disabled:bg-gray-50 disabled:text-gray-500"
-														placeholder="e.g., Moderately important"
-														value={o.text}
-														onChange={(e) => updateOptionText(q.id, o.id, e.target.value)}
-														disabled={isReadOnly}
-													/>
+											{q.options.map((o) => {
+												const limitError = isOptionalStep ? null : optionLimitError(o.max_respondents)
+												return (
+												<div key={o.id} className="flex flex-col gap-2 sm:flex-row sm:items-start">
+													<div className="min-w-0 flex-1">
+														<input
+															className="h-10 w-full rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-[rgba(38,116,186,0.3)] disabled:bg-gray-50 disabled:text-gray-500"
+															placeholder="e.g., Moderately important"
+															value={o.text}
+															onChange={(e) => updateOptionText(q.id, o.id, e.target.value)}
+															disabled={isReadOnly}
+														/>
+													</div>
+													{!isOptionalStep && (
+														<div className="w-full sm:w-44">
+															<div className={`flex h-10 items-center rounded-lg border bg-white px-3 focus-within:ring-2 ${
+																limitError
+																	? "border-red-400 focus-within:ring-red-200"
+																	: "border-gray-200 focus-within:ring-[rgba(38,116,186,0.3)]"
+															} ${isReadOnly ? "bg-gray-50" : ""}`}>
+																<span className="shrink-0 text-xs font-medium text-gray-500">Limit</span>
+																<input
+																	type="text"
+																	inputMode="numeric"
+																	aria-label="Respondent limit"
+																	title="Maximum respondents for this option. Leave blank for no cap."
+																	className="ml-2 w-full bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400 disabled:text-gray-500"
+																	placeholder="No limit"
+																	value={o.max_respondents == null ? "" : String(o.max_respondents)}
+																	onChange={(e) => {
+																		const raw = e.target.value.trim()
+																		if (raw === "") {
+																			updateOptionLimit(q.id, o.id, null)
+																			return
+																		}
+																		if (!/^\d+$/.test(raw)) return
+																		updateOptionLimit(q.id, o.id, Number(raw))
+																	}}
+																	disabled={isReadOnly}
+																/>
+															</div>
+															{limitError && <p className="mt-1 text-xs text-red-500">{limitError}</p>}
+														</div>
+													)}
 													<Button
 														variant="outline"
 														onClick={() => !isReadOnly && removeOption(q.id, o.id)}
 														disabled={q.options.length <= 2 || isReadOnly}
-														className="sm:w-auto w-full disabled:opacity-50 disabled:cursor-not-allowed text-xs h-9"
+														className="h-10 w-full shrink-0 text-xs disabled:cursor-not-allowed disabled:opacity-50 sm:mt-0 sm:w-auto"
 													>
 														Remove
 													</Button>
 												</div>
-											))}
+												)
+											})}
 										</div>
 										<div className="mt-4">
 											<Button

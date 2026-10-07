@@ -12,7 +12,6 @@ import {
   readParticipateProjectReturn,
 } from "@/lib/participate/projectReturnUrl"
 import { clearMergeState } from "@/lib/config/mergedStudies"
-
 const PENDING_TASKS_STORAGE_KEY = 'pending_task_responses'
 
 export default function ThankYouPage() {
@@ -260,7 +259,7 @@ export default function ThankYouPage() {
   // Auto-redirect for special creator studies - 5 seconds countdown to restart study
   useEffect(() => {
     if (!isHydrated || !isSpecialCreatorStudy || !currentStudyId) return
-    
+
     // Don't start restart countdown if there's already a rid redirect or return-to-project URL
     const rid = localStorage.getItem('redirect_rid')
     if (rid) return

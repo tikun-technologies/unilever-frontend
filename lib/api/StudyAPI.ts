@@ -90,6 +90,8 @@ export interface AnswerOptionPayload {
   id: string
   text: string
   order?: number
+  /** Maximum respondents who may select this option. Omitted when there is no cap. */
+  max_respondents?: number
 }
 
 export interface ClassificationQuestionPayload {
@@ -597,11 +599,18 @@ export function buildClassificationQuestionsPayloadFromLocalStorage(
           question_type: "multiple_choice",
           is_required: q.required !== false,
           order,
-          answer_options: validOptions.map((option: any, optIdx: number) => ({
-            id: normalizeClassificationId(option.id || option.option_id, String.fromCharCode(65 + optIdx)),
-            text: option.text || "",
-            order: optIdx + 1
-          })),
+          answer_options: validOptions.map((option: any, optIdx: number) => {
+            const answerOption: AnswerOptionPayload = {
+              id: normalizeClassificationId(option.id || option.option_id, String.fromCharCode(65 + optIdx)),
+              text: option.text || "",
+              order: optIdx + 1,
+            }
+            const limit = Number(option.max_respondents)
+            if (!optional && Number.isInteger(limit) && limit >= 1) {
+              answerOption.max_respondents = limit
+            }
+            return answerOption
+          }),
           optional_classification_question: optional,
           config: optional ? { optional_classification_question: true } : {}
         }

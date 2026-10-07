@@ -73,6 +73,15 @@ export interface ClassificationAnswerItem {
 export interface SubmitClassificationAnswersPayload {
 	answers: ClassificationAnswerItem[]
 	finalize_response?: boolean
+	/** Reserve screening-option seats. Send only on the final screening Continue. */
+	enforce_quota?: boolean
+}
+
+export interface SubmitClassificationResult {
+	success?: boolean
+	quota_full?: boolean
+	message?: string
+	redirect_url?: string | null
 }
 
 export interface SubmitTaskPayload {
@@ -366,7 +375,7 @@ export async function updateUserPersonalInfo(sessionId: string, personalInfo: Pe
 }
 
 /** Submit classification answers (per-click or batched) with session_id in query */
-export async function submitClassificationAnswers(sessionId: string, payload: SubmitClassificationAnswersPayload): Promise<any> {
+export async function submitClassificationAnswers(sessionId: string, payload: SubmitClassificationAnswersPayload): Promise<SubmitClassificationResult> {
 	const q = encodeURIComponent(sessionId)
 	const response = await fetch(`${API_BASE_URL}/responses/submit-classification?session_id=${q}`, {
 		method: 'POST',

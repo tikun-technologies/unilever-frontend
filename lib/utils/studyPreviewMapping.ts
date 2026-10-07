@@ -57,6 +57,7 @@ export function hydrateLocalStorageFromStudy(data: any) {
             options: q.answer_options?.map((o: any) => ({
                 id: normalizeClassificationId(o.id || o.option_id, crypto.randomUUID()),
                 text: o.text || o.option_text,
+                max_respondents: typeof o.max_respondents === "number" && o.max_respondents >= 1 ? o.max_respondents : null,
             })),
         }))
         const regularQuestions = s4.filter((q: any) => !q.optional_classification_question)

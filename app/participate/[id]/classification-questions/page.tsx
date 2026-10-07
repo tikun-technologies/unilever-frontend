@@ -6,6 +6,8 @@ import { useState, useEffect, useRef } from "react"
 import { submitClassificationAnswers } from "@/lib/api/ResponseAPI"
 import { runParticipatePhasePreload } from "@/lib/utils/participatePreload"
 import { FRAGRANCE_QUESTION_ID } from "@/lib/config/specialCreators"
+import { markStudyQuotaClosed, quotaFullRedirectUrl, studyDetailsHaveOptionQuotas } from "@/lib/participate/quotaClosed"
+import { QuotaClosedScreen } from "@/components/participate/QuotaClosedScreen"
 
 interface ClassificationQuestion {
   id: string
@@ -24,6 +26,7 @@ export default function ClassificationQuestionsPage() {
   const [questions, setQuestions] = useState<ClassificationQuestion[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [quotaClosed, setQuotaClosed] = useState(false)
 
   // Track time spent on classification page
   const classStartRef = useRef<number>(Date.now())
@@ -193,9 +196,31 @@ export default function ClassificationQuestionsPage() {
             let success = false
             for (let attempt = 0; attempt < 4 && !success; attempt++) {
               try {
-                await submitClassificationAnswers(String(sessionId), { answers: allAnswers })
+                const result = await submitClassificationAnswers(String(sessionId), {
+                  answers: allAnswers,
+                  enforce_quota: studyDetailsHaveOptionQuotas(),
+                })
+                if (result?.quota_full) {
+                  const rid = localStorage.getItem("redirect_rid")
+                  markStudyQuotaClosed(String(params.id))
+                  const target = quotaFullRedirectUrl(rid, result.redirect_url)
+                  if (target) {
+                    window.location.replace(target)
+                    return
+                  }
+                  setQuotaClosed(true)
+                  setIsSubmitting(false)
+                  return
+                }
                 success = true
-              } catch {
+              } catch (error) {
+                const message = error instanceof Error ? error.message : ""
+                if (message.includes("404") || message.includes("Session not found")) {
+                  markStudyQuotaClosed(String(params.id))
+                  setQuotaClosed(true)
+                  setIsSubmitting(false)
+                  return
+                }
                 if (attempt < 3) {
                   await new Promise(r => setTimeout(r, 1000 * (attempt + 1)))
                 }
@@ -220,6 +245,10 @@ export default function ClassificationQuestionsPage() {
   }
 
   const canProceed = questions.every(q => !q.required || q.selected !== null)
+
+  if (quotaClosed) {
+    return <QuotaClosedScreen />
+  }
 
   if (isLoading) {
     return (

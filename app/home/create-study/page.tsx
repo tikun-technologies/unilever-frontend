@@ -48,6 +48,7 @@ interface AnswerOption {
   text?: string
   option_text?: string
   order?: number
+  max_respondents?: number | null
 }
 
 interface GridElement {
@@ -210,7 +211,8 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
             .sort((a: AnswerOption, b: AnswerOption) => (a.order || 0) - (b.order || 0))
             .map((opt: AnswerOption) => ({
               id: normalizeClassificationId(opt.id || opt.option_id, crypto.randomUUID()),
-              text: opt.text || opt.option_text || ''
+              text: opt.text || opt.option_text || '',
+              max_respondents: typeof opt.max_respondents === "number" && opt.max_respondents >= 1 ? opt.max_respondents : null,
             }))
         }
       })
