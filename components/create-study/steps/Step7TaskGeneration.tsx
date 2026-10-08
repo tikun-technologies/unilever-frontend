@@ -5,8 +5,7 @@ import { useEffect, useState, useRef, useMemo, useCallback } from "react"
 import { Mail } from "lucide-react"
 import { VideoTaskPreview } from "@/components/create-study/VideoTaskPreview"
 import { Button } from "@/components/ui/button"
-import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, getTaskGenerationResult, precheckTaskGeneration, validateDesignConstraints, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
-import { resolvePrecheckDecision } from "@/lib/utils/taskGenerationPrecheck"
+import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, getTaskGenerationResult, validateDesignConstraints, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
 import { useJobNotifications } from "@/lib/jobs/JobNotificationContext"
 import {
   areGeneratedTasksStale,
@@ -685,29 +684,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
           handleTaskGenerationFailure(validationMessage)
           return
         }
-      }
-
-      try {
-        const precheck = await precheckTaskGeneration(payload)
-        if (typeof precheck?.can_generate !== 'boolean') {
-          throw new Error('Task precheck returned an unexpected response')
-        }
-        const decision = resolvePrecheckDecision({
-          ok: true,
-          can_generate: precheck.can_generate,
-          tasks_per_respondent: precheck.tasks_per_respondent,
-          multiplier: precheck.multiplier,
-          reason: precheck.reason,
-        })
-        if (!decision.proceed) {
-          handleTaskGenerationFailure(decision.reason)
-          return
-        }
-        if (decision.tasksPerRespondent > 0) {
-          payload.tasks_per_respondent = decision.tasksPerRespondent
-        }
-      } catch (precheckError) {
-        console.warn('[Step7] Task precheck failed, continuing at 1.5×', precheckError)
       }
 
       const ac = new AbortController()
