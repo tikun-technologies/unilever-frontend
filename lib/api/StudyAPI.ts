@@ -5,6 +5,7 @@ import {
   readDesignConstraintsFromLocalStorage,
 } from "@/lib/utils/designConstraintsStorage"
 import { buildAgeDistributionPayload } from "@/lib/utils/audienceSegmentationValidation"
+import type { TaskGenerationPrecheckResponse } from "@/lib/utils/taskGenerationPrecheck"
 import { API_BASE_URL } from "./LoginApi"
 import {
   ANALYTICS_SHARE_HEADER,
@@ -1034,6 +1035,9 @@ export interface TaskGenerationPayload {
   }>
   aspect_ratio?: string
   project_id?: string
+  /** 0 or omitted = backend uses 1.5× element count. */
+  tasks_per_respondent?: number
+  phase_order?: ("grid" | "text" | "mix")[]
 }
 
 export interface ValidateDesignConstraintsResponse {
@@ -1379,6 +1383,31 @@ export function buildTaskGenerationPayloadFromLocalStorage(): TaskGenerationPayl
 
   console.log('Task generation payload:', payload)
   return payload
+}
+
+const PRECHECK_TIMEOUT_MS = 2000
+
+export async function precheckTaskGeneration(payload: TaskGenerationPayload): Promise<TaskGenerationPrecheckResponse> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), PRECHECK_TIMEOUT_MS)
+  try {
+    const res = await fetchWithAuth(`${API_BASE_URL}/studies/generate-tasks/precheck`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    })
+    const text = await res.text().catch(() => "")
+    let data: any = {}
+    try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+    if (!res.ok) {
+      const msg = (data && (data.detail || data.message)) || text || `Task precheck failed (${res.status})`
+      throw Object.assign(new Error(typeof msg === "string" ? msg : JSON.stringify(msg)), { status: res.status, data })
+    }
+    return data as TaskGenerationPrecheckResponse
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 export async function generateTasks(payload: TaskGenerationPayload): Promise<any> {

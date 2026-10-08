@@ -10,6 +10,7 @@ import { useState, useEffect } from "react"
 import { Project, assignStudyToProject } from "@/api/projectApi"
 import { mapStudyToProject, unmapStudyFromProject, getStudyProjectMapping } from "@/lib/utils/projectUtils"
 import { prepareFreshCreateStudy } from "@/lib/utils/createStudyStorage"
+import { clearStoredTaskJob } from "@/lib/utils/taskGenerationJobState"
 import { ShareStudyModal } from "@/components/create-study/ShareStudyModal"
 
 interface StudyGridProps {
@@ -123,8 +124,9 @@ export function StudyGrid({
     if (study.status === 'draft') {
       setLoadingStudyId(study.id)
 
-      // Do NOT clear job state here - create-study page will clear it only when switching to a different study.
-      // Preserving job state allows resuming polling when returning to Study A after opening Study B.
+      // Drop any job saved for a different study. The draft loader writes a job
+      // back only when this study's preview includes its own job id.
+      clearStoredTaskJob()
 
       // Get last_step from study object or from cache
       let lastStep = study.last_step || 1

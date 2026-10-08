@@ -17,6 +17,7 @@ import {
   StudiesResponse,
 } from "@/lib/api/StudyAPI"
 import { API_BASE_URL } from "@/lib/api/LoginApi"
+import { clearStoredTaskJob } from "@/lib/utils/taskGenerationJobState"
 import { Sidebar } from "./components/sidebar"
 import { CreateProjectModal } from "./components/create-project-modal"
 import { EditProjectModal } from "./components/edit-project-modal"
@@ -646,6 +647,7 @@ function DashboardContent() {
       localStorage.setItem("cs_resuming_draft", "true")
       localStorage.removeItem("cs_is_fresh_start")
       localStorage.removeItem("cs_step8")
+      clearStoredTaskJob()
       const url = selectedProjectId
         ? `/home/create-study?proj_id=${selectedProjectId}`
         : "/home/create-study"

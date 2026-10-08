@@ -20,6 +20,7 @@ import { useAuth } from "@/lib/auth/AuthContext"
 import { checkIsSpecialCreator } from "@/lib/config/specialCreators"
 import { validateAudienceSegmentation, getAudienceSegmentationFromLocalStorage } from "@/lib/utils/audienceSegmentationValidation"
 import { areGeneratedTasksStale } from "@/lib/utils/createStudyStorage"
+import { clearStoredTaskJob, previewJobId, storeTaskJobFromPreview } from "@/lib/utils/taskGenerationJobState"
 
 import { CreateStudyOnboarding } from "@/components/onboarding/CreateStudyOnboarding"
 import { shouldShowCreateStudyWalkthrough } from "@/lib/api/onboardingApi"
@@ -143,6 +144,7 @@ function prepareDraftResumeFromStudyId(studyId: string, lastStep?: number | null
   localStorage.setItem('cs_resuming_draft', 'true')
   localStorage.removeItem('cs_is_fresh_start')
   localStorage.removeItem('cs_step8')
+  clearStoredTaskJob()
   if (typeof lastStep === 'number' && lastStep >= 1) {
     localStorage.setItem('cs_current_step', String(lastStep))
     localStorage.setItem('cs_study_last_step', String(lastStep))
@@ -597,26 +599,14 @@ const loadDraftStudyData = async (studyId: string, shouldUpdateStep: boolean = t
       localStorage.removeItem('cs_step6')
     }
 
-    // When jobId is present, tasks are being generated asynchronously. Do NOT store
-    // tasks from the response (they are stale). Clear cached task data and store job
-    // state so Step7 shows generating state and polls for completion.
-    if (studyDetails.jobId || (studyDetails as any).job_id) {
-      // Clear any stale cached task data
+    // Drop any job left by another study. Write a job back only when this
+    // study's preview includes its own job id.
+    const resumedJobId = previewJobId(studyDetails)
+    storeTaskJobFromPreview(studyId, studyDetails)
+    if (resumedJobId) {
       localStorage.removeItem('cs_step7_matrix')
       localStorage.removeItem('cs_step7_tasks')
-
-      const jobId = studyDetails.jobId || (studyDetails as any).job_id
-      const startTime = studyDetails.startTime ?? (studyDetails as any).start_time ?? Date.now()
-      const jobState = {
-        jobId,
-        progress: studyDetails.progress || 0,
-        startTime,
-        status: studyDetails.status ?? (studyDetails as any).status ?? { status: 'processing' },
-        studyId: studyId,
-        timestamp: Date.now()
-      }
-      localStorage.setItem('cs_step7_job_state', JSON.stringify(jobState))
-      console.log('[LoadDraft] jobId present - generation in progress, stored job state:', jobState)
+      console.log('[LoadDraft] Preview job id stored for this study')
     } else if (studyDetails.tasks) {
       // No active job - tasks from response are final. Store preview and mark completed.
       localStorage.setItem('cs_step7_tasks', JSON.stringify({
@@ -1111,6 +1101,7 @@ export default function CreateStudyPage() {
             'cs_step6',
             'cs_step7_tasks',
             'cs_step7_matrix',
+            'cs_step7_job_state',
             'cs_step7_timer_state',
             'cs_study_last_step',
             'cs_backup_steps',
@@ -1122,8 +1113,8 @@ export default function CreateStudyPage() {
                 localStorage.removeItem(key)
               } catch { }
             })
-            // Do NOT clear cs_step7_job_state when switching - preserve it so when returning to Study A
-            // after opening Study B, we can resume polling. Step7 and loadDraftStudyData handle the rest.
+            // Job state is not kept across studies. loadDraft writes it back only
+            // when this study's preview includes its own job id.
           }
 
           try {

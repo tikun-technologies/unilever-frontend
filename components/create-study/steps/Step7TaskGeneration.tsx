@@ -5,7 +5,8 @@ import { useEffect, useState, useRef, useMemo, useCallback } from "react"
 import { Mail } from "lucide-react"
 import { VideoTaskPreview } from "@/components/create-study/VideoTaskPreview"
 import { Button } from "@/components/ui/button"
-import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, getTaskGenerationResult, validateDesignConstraints, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
+import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, getTaskGenerationResult, precheckTaskGeneration, validateDesignConstraints, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
+import { resolvePrecheckDecision } from "@/lib/utils/taskGenerationPrecheck"
 import { useJobNotifications } from "@/lib/jobs/JobNotificationContext"
 import {
   areGeneratedTasksStale,
@@ -25,7 +26,10 @@ const GENERATION_ERROR_KEY = 'cs_step7_generation_error'
 
 function getTaskGenerationFailureSuggestion(errorMessage: string): string {
   const lower = String(errorMessage).toLowerCase()
-  const isCapacityError = /t\s*\/?\s*e|preflight|not enough|insufficient|a_min|absence|capacity|unable to lock t|design constraint|infeasible/i.test(lower)
+  const isCapacityError = /t\s*\/?\s*e|preflight|not enough|insufficient|a_min|absence|capacity|unable to lock t|design constraint|infeasible|cannot be generated/i.test(lower)
+  if (/cannot be generated/i.test(lower)) {
+    return 'This study cannot be generated within 2× tasks per respondent. Remove images from the layer named below, or loosen its design constraints.'
+  }
   if (isCapacityError) {
     return 'Try adding more elements or categories in Step 5, loosening design constraints, or reducing tasks per respondent.'
   }
@@ -37,7 +41,7 @@ function getTaskGenerationFailureSuggestion(errorMessage: string): string {
 
 function isTaskGenerationCapacityError(errorMessage: string): boolean {
   const lower = String(errorMessage).toLowerCase()
-  return /t\s*\/?\s*e|preflight|not enough|insufficient|a_min|absence|capacity|unable to lock t|design constraint|infeasible/i.test(lower)
+  return /t\s*\/?\s*e|preflight|not enough|insufficient|a_min|absence|capacity|unable to lock t|design constraint|infeasible|cannot be generated/i.test(lower)
 }
 
 function saveGenerationError(message: string) {
@@ -683,6 +687,29 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         }
       }
 
+      try {
+        const precheck = await precheckTaskGeneration(payload)
+        if (typeof precheck?.can_generate !== 'boolean') {
+          throw new Error('Task precheck returned an unexpected response')
+        }
+        const decision = resolvePrecheckDecision({
+          ok: true,
+          can_generate: precheck.can_generate,
+          tasks_per_respondent: precheck.tasks_per_respondent,
+          multiplier: precheck.multiplier,
+          reason: precheck.reason,
+        })
+        if (!decision.proceed) {
+          handleTaskGenerationFailure(decision.reason)
+          return
+        }
+        if (decision.tasksPerRespondent > 0) {
+          payload.tasks_per_respondent = decision.tasksPerRespondent
+        }
+      } catch (precheckError) {
+        console.warn('[Step7] Task precheck failed, continuing at 1.5×', precheckError)
+      }
+
       const ac = new AbortController()
       abortControllerRef.current = ac
 
@@ -920,8 +947,9 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         currentStudyId = raw ? (() => { try { const p = JSON.parse(raw); return typeof p === 'string' ? p : String(p) } catch { return raw } })() : null
       } catch { }
       if (jobStudyId && currentStudyId && jobStudyId !== currentStudyId) {
-        console.log('[Step7] Job belongs to different study (job:', jobStudyId, 'current:', currentStudyId, '), skipping resume but preserving job state for when user returns')
-        // Do NOT clear job state - preserve it so when user returns to the other study, polling can resume
+        console.log('[Step7] Job belongs to different study (job:', jobStudyId, 'current:', currentStudyId, '), clearing it')
+        clearPersistedJobState()
+        clearTimerState()
         shouldCheckCachedMatrix = true
       } else {
         console.log('[Step7] ✅ Found existing job, checking if completed:', jobId)
@@ -1022,8 +1050,23 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     if (!active) return
 
     // If we have job state and we're not polling, try to resume (handles "went home and came back" and key-remount races)
-    const existingJobState = loadJobState()
+    let existingJobState = loadJobState()
     const hasCachedMatrix = localStorage.getItem('cs_step7_matrix')
+
+    if (existingJobState && (existingJobState.jobId || existingJobState.status?.job_id)) {
+      const foreignStudyId = existingJobState.studyId
+      let openStudyId: string | null = null
+      try {
+        const raw = localStorage.getItem('cs_study_id')
+        openStudyId = raw ? (() => { try { const p = JSON.parse(raw); return typeof p === 'string' ? p : String(p) } catch { return raw } })() : null
+      } catch { }
+      if (foreignStudyId && openStudyId && foreignStudyId !== openStudyId) {
+        console.log('[Step7] Clearing job state for a different study before generation')
+        clearPersistedJobState()
+        clearTimerState()
+        existingJobState = null
+      }
+    }
 
     if (existingJobState && (existingJobState.jobId || existingJobState.status?.job_id)) {
       if (isPolling) {
@@ -1032,15 +1075,6 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       }
       // Have job state but not polling (e.g. we aborted when navigating away, or mount was aborted by key change) - resume
       const jobId = existingJobState.jobId || existingJobState.status?.job_id
-      const jobStudyId = existingJobState.studyId
-      let currentStudyId: string | null = null
-      try {
-        const raw = localStorage.getItem('cs_study_id')
-        currentStudyId = raw ? (() => { try { const p = JSON.parse(raw); return typeof p === 'string' ? p : String(p) } catch { return raw } })() : null
-      } catch { }
-      if (jobStudyId && currentStudyId && jobStudyId !== currentStudyId) {
-        return
-      }
       if (!isResuming.current) {
         console.log('[Step7] Step active with job state but not polling, resuming:', jobId)
         setJobStatus(existingJobState.status)
@@ -1157,7 +1191,9 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       } catch { /* ignore */ }
       
       if (jobStudyId && currentStudyId && jobStudyId !== currentStudyId) {
-        console.log('[Step7] Job belongs to different study, skipping reconnect')
+        console.log('[Step7] Job belongs to different study, clearing it')
+        clearPersistedJobState()
+        clearTimerState()
         return
       }
       

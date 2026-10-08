@@ -28,7 +28,9 @@ import {
 import { getTaskGenerationStatus } from '@/lib/api/StudyAPI'
 import { recordVideoEncodeEvent, recordVideoEncodeSnapshot } from '@/lib/utils/videoEncodeStatus'
 
-const STEP7_JOB_KEY = 'cs_step7_job_state'
+import { readOpenStudyId, shouldPersistStep7Job, TASK_JOB_STATE_KEY } from '@/lib/utils/taskGenerationJobState'
+
+const STEP7_JOB_KEY = TASK_JOB_STATE_KEY
 
 type JobsMap = Record<string, TrackedJob>
 
@@ -170,6 +172,7 @@ export function JobNotificationProvider({ children }: { children: React.ReactNod
   )
 
   const syncStep7JobState = useCallback((jobId: string, studyId: string) => {
+    if (!shouldPersistStep7Job(readOpenStudyId(), studyId)) return
     const job = Object.values(jobsMapRef.current).find((item) => item.jobId === jobId)
     if (!job || job.jobKind !== 'task_generation') return
     try {
