@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client"
 
-import { Fragment, useEffect, useMemo, useRef, useState, forwardRef, useCallback, type CSSProperties, type ReactNode, type Ref } from "react"
+import { Fragment, useEffect, useMemo, useRef, useState, forwardRef, useCallback, type CSSProperties, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { Rnd } from "react-rnd"
 import { Button } from "@/components/ui/button"
@@ -24,13 +24,6 @@ import {
   readDesignConstraintsFromLocalStorage,
 } from "@/lib/utils/designConstraintsStorage"
 import { renderLayersToCanvas } from "@/lib/canvas-export"
-import { ProgressiveImage } from "@/components/shared/ProgressiveImage"
-import { imageCacheManager } from "@/lib/utils/imageCacheManager"
-import {
-  CONFIGURATOR_PRELOAD_BATCH_SIZE,
-  getConfiguratorResponsivePreviewUrl,
-  getConfiguratorThumbnailUrl,
-} from "@/lib/utils/configuratorImageUrls"
 import { useUndoableState, useUndoRedoShortcuts } from "@/lib/hooks/useUndoableState"
 import {
   generateUniqueName as uniqueNameFromBase,
@@ -39,66 +32,6 @@ import {
   stripFileExtension,
 } from "@/lib/utils/folderUploadUtils"
 import { useVideoEncodeGate } from "@/lib/utils/videoEncodeStatus"
-
-function prewarmStudyThumbnails(urls: Array<string | null | undefined>) {
-  const thumbs = [...new Set(
-    urls
-      .map((url) => ({ raw: url || "", thumb: getConfiguratorThumbnailUrl(url) }))
-      .filter((item) => item.thumb && item.thumb !== item.raw)
-      .map((item) => item.thumb)
-  )]
-  if (thumbs.length === 0) return
-  void imageCacheManager.prewarmUrls(thumbs, "low", CONFIGURATOR_PRELOAD_BATCH_SIZE)
-}
-
-function StudyThumb({ src, alt, className }: { src?: string | null; alt: string; className?: string }) {
-  if (!src) return null
-  return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={getConfiguratorThumbnailUrl(src)}
-      alt={alt}
-      loading="lazy"
-      decoding="async"
-      className={className}
-    />
-  )
-}
-
-function StudyPreviewImage({
-  src,
-  alt,
-  className,
-  wrapperClassName,
-  wrapperStyle,
-  imgRef,
-  onLoad,
-  fullscreen = false,
-}: {
-  src?: string | null
-  alt: string
-  className?: string
-  wrapperClassName?: string
-  wrapperStyle?: CSSProperties
-  imgRef?: Ref<HTMLImageElement>
-  onLoad?: () => void
-  fullscreen?: boolean
-}) {
-  if (!src) return null
-  return (
-    <ProgressiveImage
-      thumbUrl={getConfiguratorThumbnailUrl(src)}
-      fullUrl={getConfiguratorResponsivePreviewUrl(src, fullscreen)}
-      alt={alt}
-      loading="lazy"
-      wrapperClassName={wrapperClassName}
-      wrapperStyle={wrapperStyle}
-      imgClassName={className}
-      imgRef={imgRef}
-      onLoad={onLoad}
-    />
-  )
-}
 
 interface ElementItem {
   id: string
@@ -218,13 +151,13 @@ function ConstraintSelectionPreview({
         style={{ width: previewStyle.width, height: previewStyle.height }}
       >
         {backgroundSrc ? (
-          <StudyPreviewImage
-            imgRef={imgRef}
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            ref={imgRef}
             src={backgroundSrc}
             alt="Constraint preview background"
-            wrapperClassName="absolute inset-0"
-            wrapperStyle={{ zIndex: 0 }}
-            className="h-full w-full object-contain"
+            className="absolute inset-0 h-full w-full object-contain"
+            style={{ zIndex: 0 }}
             onLoad={computeFit}
           />
         ) : (
@@ -252,19 +185,19 @@ function ConstraintSelectionPreview({
             if (!src) return null
 
             return (
-              <StudyPreviewImage
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
                 key={key}
                 src={src}
                 alt={image.name || layer.name}
-                wrapperClassName="absolute overflow-hidden"
-                wrapperStyle={{
+                className="absolute overflow-hidden h-full w-full object-contain"
+                style={{
                   left: x,
                   top: y,
                   width,
                   height,
                   zIndex: backgroundSrc ? (layer.z ?? 0) + 1 : (layer.z ?? 0),
                 }}
-                className="h-full w-full object-contain"
               />
             )
           })}
@@ -498,20 +431,6 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
   // Track which categories are collapsed
   const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set())
   const [folderImportNotice, setFolderImportNotice] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (isVideoMode) return
-    const urls: string[] = []
-    const lists = mode === "hybrid" ? [hybridGridCategories, hybridTextCategories] : [categories]
-    for (const list of lists) {
-      for (const category of list) {
-        for (const element of category.elements || []) {
-          urls.push(element.secureUrl || element.previewUrl || "")
-        }
-      }
-    }
-    prewarmStudyThumbnails(urls)
-  }, [categories, hybridGridCategories, hybridTextCategories, isVideoMode, mode])
 
   const toggleCategoryCollapse = (categoryId: string) => {
     setCollapsedCategories(prev => {
@@ -1472,7 +1391,8 @@ export function Step5StudyStructure({ onNext, onBack, mode = "grid", onDataChang
                                           <video src={element.previewUrl || element.secureUrl} muted playsInline preload="metadata" className="max-w-full max-h-full object-contain" />
                                         )
                                       ) : (
-                                        <StudyThumb src={element.secureUrl || element.previewUrl} alt={element.name} className="max-w-full max-h-full object-contain" />
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img src={element.secureUrl || element.previewUrl} alt={element.name} className="max-w-full max-h-full object-contain" />
                                       )
                                     ) : (
                                       <div className="text-gray-400 text-xs">{isVideoMode ? "No video" : "No Image"}</div>
@@ -2917,7 +2837,7 @@ function LayerMode({
                     >
                       <div className={`h-9 w-9 flex-shrink-0 overflow-hidden rounded-md border ${toneClasses.thumb}`}>
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <StudyThumb src={item.src} alt={item.imageName} className="h-full w-full object-contain" />
+                        <img src={item.src} alt={item.imageName} className="h-full w-full object-contain" />
                       </div>
                       <DelayedNameOverlay name={item.imageName} className="min-w-0 flex-1">
                         <span className="block truncate text-xs font-medium text-gray-800">{item.imageName}</span>
@@ -3600,35 +3520,6 @@ function LayerMode({
     } catch { }
     return null
   })
-
-  useEffect(() => {
-    const urls: string[] = []
-    if (background?.secureUrl || background?.previewUrl) {
-      urls.push(background.secureUrl || background.previewUrl || "")
-    }
-    for (const layer of layers) {
-      for (const image of layer.images || []) {
-        urls.push(image.secureUrl || image.previewUrl || "")
-      }
-    }
-    prewarmStudyThumbnails(urls)
-
-    const previews: string[] = []
-    const pushPreview = (raw?: string | null) => {
-      if (!raw) return
-      const preview = getConfiguratorResponsivePreviewUrl(raw)
-      if (preview && preview !== raw) previews.push(preview)
-    }
-    pushPreview(background?.secureUrl || background?.previewUrl)
-    for (const layer of layers) {
-      if (layer.visible === false) continue
-      const selected = layer.images?.find((image) => image.id === effectiveSelectedImageIds[layer.id])
-      pushPreview(selected?.secureUrl || selected?.previewUrl)
-    }
-    if (previews.length > 0) {
-      void imageCacheManager.prewarmUrls(previews, "critical", 3)
-    }
-  }, [layers, background, effectiveSelectedImageIds])
 
   const measureLayerPreviewLayout = useCallback(() => {
     const el = previewContainerRef.current
@@ -5543,19 +5434,18 @@ function LayerMode({
             style={{ position: 'relative' }}
             onMouseDown={(e) => { if (e.currentTarget === e.target) setSelectedLayerId(null) }}
           >
-            {background && (background.secureUrl || background.previewUrl) && (
-              <StudyPreviewImage
-                imgRef={bgImgRef}
+            {background && (background.secureUrl || background.previewUrl) ? (
+              <img
+                ref={bgImgRef}
                 src={background.secureUrl || background.previewUrl}
                 alt="Background"
-                wrapperClassName="absolute inset-0"
-                wrapperStyle={{ zIndex: 0 }}
-                className="h-full w-full object-contain"
+                className="absolute inset-0 h-full w-full object-contain"
+                style={{ zIndex: 0 }}
                 onLoad={() => {
                   requestAnimationFrame(() => measureLayerPreviewLayout())
                 }}
               />
-            )}
+            ) : null}
 
             {/* Overlay fit box; children are constrained within */}
             <div
@@ -5701,11 +5591,11 @@ function LayerMode({
                     <div
                       className={`w-full h-full flex items-center justify-center bg-transparent ${isSelected && !isReadOnly ? 'cursor-move' : 'cursor-default'}`}
                     >
-                      <StudyPreviewImage
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
                         src={selectedImage.secureUrl || selectedImage.previewUrl}
                         alt={l.name}
-                        wrapperClassName="relative h-full w-full"
-                        className="h-full w-full object-contain pointer-events-none select-none"
+                        className="w-full h-full object-contain pointer-events-none select-none"
                       />
                     </div>
                   </Rnd>
@@ -5806,7 +5696,7 @@ function LayerMode({
                 <div className="flex items-center gap-2">
                   <div className="w-20 h-20 border rounded-md overflow-hidden bg-gray-50">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <StudyThumb src={background.secureUrl || background.previewUrl} alt="Background" className="w-full h-full object-contain" />
+                    <img src={background.secureUrl || background.previewUrl} alt="Background" className="w-full h-full object-contain" />
                   </div>
                   <div className="text-xs text-gray-600">Rendered behind all layers.</div>
                 </div>
@@ -5858,7 +5748,8 @@ function LayerMode({
                             {activeImage ? (
                               <>
                                 <span className="h-4 w-4 flex-shrink-0 overflow-hidden rounded-full border border-blue-100 bg-white">
-                                  <StudyThumb
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
                                     src={activeImage.secureUrl || activeImage.previewUrl}
                                     alt=""
                                     className="h-full w-full object-contain"
@@ -5937,7 +5828,8 @@ function LayerMode({
                                   onClick={() => selectImage(layer.id, img.id)}
                                   title={conflictMessage || 'Select element'}
                                 >
-                                  <StudyThumb src={img.secureUrl || img.previewUrl} alt="layer" className="w-full h-full object-contain rounded-md" />
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img src={img.secureUrl || img.previewUrl} alt="layer" className="w-full h-full object-contain rounded-md" />
                                   {isConflicting && (
                                     <div className="absolute inset-x-1 bottom-1 rounded bg-amber-600/90 px-1 py-0.5 text-center text-[9px] font-semibold text-white">
                                       Conflict
@@ -6127,7 +6019,7 @@ function LayerMode({
                             <div key={img.id} className="relative group flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
                               <div className="w-20 h-20 border rounded-md overflow-hidden">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <StudyThumb src={img.previewUrl} alt="preview" className="w-full h-full object-contain" />
+                                <img src={img.previewUrl} alt="preview" className="w-full h-full object-contain" />
                               </div>
                               <button
                                 onClick={(e) => { e.stopPropagation(); removeDraftImage(img.id) }}
@@ -8149,7 +8041,7 @@ function LayerMode({
                                     <div key={anchorItem.key} className="flex items-center gap-2 rounded-xl border border-blue-100 bg-blue-50 p-2">
                                       <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg bg-white">
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <StudyThumb src={anchorItem.src} alt={anchorItem.imageName} className="h-full w-full object-contain" />
+                                        <img src={anchorItem.src} alt={anchorItem.imageName} className="h-full w-full object-contain" />
                                       </div>
                                       <div className="min-w-0">
                                         <div className="text-[10px] font-semibold text-blue-700">{anchorItem.layerName}</div>
@@ -8164,7 +8056,7 @@ function LayerMode({
                                     <div key={blockedItem.key} className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 p-2">
                                       <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-lg bg-white">
                                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <StudyThumb src={blockedItem.src} alt={blockedItem.imageName} className="h-full w-full object-contain" />
+                                        <img src={blockedItem.src} alt={blockedItem.imageName} className="h-full w-full object-contain" />
                                       </div>
                                       <div className="min-w-0">
                                         <div className="text-[10px] font-semibold text-red-700">{blockedItem.layerName}</div>
@@ -8292,7 +8184,7 @@ function LayerMode({
                                       >
                                         <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-gray-50">
                                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                                          <StudyThumb src={option.src} alt={option.imageName} className="h-full w-full object-contain" />
+                                          <img src={option.src} alt={option.imageName} className="h-full w-full object-contain" />
                                           <span
                                             role="button"
                                             tabIndex={0}
@@ -8429,7 +8321,7 @@ function LayerMode({
                                       >
                                         <div className="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg bg-gray-50">
                                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                                          <StudyThumb src={option.src} alt={option.imageName} className="h-full w-full object-contain" />
+                                          <img src={option.src} alt={option.imageName} className="h-full w-full object-contain" />
                                           <span
                                             role="button"
                                             tabIndex={0}
@@ -8586,13 +8478,11 @@ function LayerMode({
             ×
           </button>
           <div className="flex max-h-full max-w-full flex-col items-center px-4 py-12" onClick={(event) => event.stopPropagation()}>
-            <StudyPreviewImage
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
               src={constraintImagePreview.src}
               alt={constraintImagePreview.alt}
-              fullscreen
-              wrapperClassName="relative max-h-[85vh] max-w-[90vw]"
-              wrapperStyle={{ width: "min(90vw, 1080px)", height: "min(85vh, 1080px)" }}
-              className="h-full w-full object-contain"
+              className="max-h-[85vh] max-w-[90vw] object-contain"
             />
             <div className="mt-4 text-center text-sm text-white/80">
               {constraintImagePreview.layerName} · {constraintImagePreview.imageName}
