@@ -85,6 +85,7 @@ const TYPE_LABEL_TO_API: Record<string, StudyType | "all"> = {
   Layer: "layer",
   Hybrid: "hybrid",
   Text: "text",
+  Video: "video",
 }
 
 const TYPE_API_TO_LABEL: Record<string, string> = {
@@ -93,6 +94,7 @@ const TYPE_API_TO_LABEL: Record<string, string> = {
   layer: "Layer",
   hybrid: "Hybrid",
   text: "Text",
+  video: "Video",
 }
 
 const TIME_LABEL_TO_API: Record<string, StudyTimeRange> = {
