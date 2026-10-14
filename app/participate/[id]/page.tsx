@@ -128,6 +128,11 @@ export default function ParticipateIntroPage() {
 
   const startHref = useMemo(() => `/participate/${params?.id}/personal-information`, [params?.id])
 
+  useEffect(() => {
+    if (!params?.id) return
+    router.prefetch(startHref)
+  }, [params?.id, router, startHref])
+
   const handleStartStudy = async () => {
     if (!params?.id || isStarting) return
     setIsStarting(true)
