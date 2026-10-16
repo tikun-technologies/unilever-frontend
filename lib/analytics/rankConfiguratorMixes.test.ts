@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { layerSelectionConflicts, rankConfiguratorMixes, type MixCategory } from "./rankConfiguratorMixes"
+import { describeLayerSelectionConflicts, layerSelectionConflicts, rankConfiguratorMixes, type MixCategory } from "./rankConfiguratorMixes"
 
 function category(key: string, values: number[], zIndex = 0): MixCategory {
   return {
@@ -176,11 +176,39 @@ describe("rankConfiguratorMixes", () => {
     expect(withoutRules[0].selection).toEqual({ L1: "good", L2: "blocked" })
     expect(withoutRules[0].score).toBe(120)
     expect(layerSelectionConflicts(categories, { L1: "good", L2: "blocked" }, designConstraints)).toBe(true)
+    expect(describeLayerSelectionConflicts(categories, { L1: "good", L2: "blocked" }, designConstraints)).toEqual([
+      {
+        leftCategory: "L1",
+        leftElement: "Good",
+        rightCategory: "L2",
+        rightElement: "Blocked",
+      },
+    ])
     expect(rankConfiguratorMixes({
       isLayer: true,
       categories,
       designConstraints,
       lockedSelection: { L1: "good", L2: "blocked" },
     })).toEqual([])
+  })
+
+  it("returns four distinct designs that keep the locked element", () => {
+    const categories = [
+      category("Splash", [30, 10], 1),
+      category("Variant", [20, 19, 5], 2),
+      category("Background", [12, 11], 3),
+    ]
+    const mixes = rankConfiguratorMixes({
+      isLayer: true,
+      categories,
+      lockedSelection: { Splash: "Splash-0" },
+      limit: 4,
+    })
+
+    expect(mixes).toHaveLength(4)
+    expect(mixes.every((mix) => mix.selection.Splash === "Splash-0")).toBe(true)
+    expect(new Set(mixes.map((mix) => JSON.stringify(mix.selection))).size).toBe(4)
+    expect(mixes.map((mix) => mix.rank)).toEqual([1, 2, 3, 4])
+    expect(mixes[0].score).toBeGreaterThanOrEqual(mixes[3].score)
   })
 })

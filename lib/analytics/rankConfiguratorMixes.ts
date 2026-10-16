@@ -311,15 +311,65 @@ function resolveLockedElements(
   return locked
 }
 
+export type LockedElementConflict = {
+  leftCategory: string
+  leftElement: string
+  rightCategory: string
+  rightElement: string
+}
+
+export function describeLayerSelectionConflicts(
+  categories: MixCategory[],
+  selection: Record<string, string>,
+  designConstraints: ApiDesignConstraint[] = []
+): LockedElementConflict[] {
+  const conflictPairs = buildConflictPairSet(designConstraints)
+  if (conflictPairs.size === 0) return []
+  const chosen: { category: string; element: MixElement }[] = []
+  categories.forEach((category) => {
+    const id = selection[category.key]
+    if (!id) return
+    const element = category.elements.find((item) => item.id === id)
+    if (element) chosen.push({ category: category.name, element })
+  })
+  const conflicts: LockedElementConflict[] = []
+  const seen = new Set<string>()
+  for (let left = 0; left < chosen.length; left += 1) {
+    for (let right = left + 1; right < chosen.length; right += 1) {
+      const pairConflicts = conflictsWithSelected(chosen[right].element, [chosen[left].element], conflictPairs)
+      if (!pairConflicts) continue
+      const key = [chosen[left].element.id, chosen[right].element.id].sort().join("|")
+      if (seen.has(key)) continue
+      seen.add(key)
+      conflicts.push({
+        leftCategory: chosen[left].category,
+        leftElement: chosen[left].element.name,
+        rightCategory: chosen[right].category,
+        rightElement: chosen[right].element.name,
+      })
+    }
+  }
+  return conflicts
+}
+
 export function layerSelectionConflicts(
   categories: MixCategory[],
   selection: Record<string, string>,
   designConstraints: ApiDesignConstraint[] = []
 ): boolean {
-  const locked = resolveLockedElements(categories, selection)
-  const conflictPairs = buildConflictPairSet(designConstraints)
-  if (conflictPairs.size === 0 || locked.length < 2) return false
-  return locked.some((element, index) => conflictsWithSelected(element, locked.slice(0, index), conflictPairs))
+  return describeLayerSelectionConflicts(categories, selection, designConstraints).length > 0
+}
+
+function uniqueRankedMixes(mixes: RankedMix[], limit: number): RankedMix[] {
+  const seen = new Set<string>()
+  const unique: RankedMix[] = []
+  mixes.forEach((mix) => {
+    const key = mixSignature(mix.selection)
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    unique.push(mix)
+  })
+  return unique.slice(0, limit).map((mix, index) => ({ ...mix, rank: index + 1 }))
 }
 
 function withoutLockedCategories(categories: MixCategory[], locked: MixElement[]): MixCategory[] {
@@ -395,7 +445,7 @@ export function rankConfiguratorMixes(input: {
   const categories = input.categories.filter((category) => category.elements.length > 0)
   if (categories.length === 0) return []
 
-  if (!input.isLayer) return rankNonLayerMixes(categories, limit)
+  if (!input.isLayer) return uniqueRankedMixes(rankNonLayerMixes(categories, limit), limit)
 
   const constraints = input.applyConstraints === false ? [] : (input.designConstraints || [])
   const locked = resolveLockedElements(categories, input.lockedSelection)
@@ -408,5 +458,5 @@ export function rankConfiguratorMixes(input: {
     ? freeCategories
     : withoutConflictingElements(freeCategories, locked, constraints)
   const ranked = searchable.length > 0 ? rankLayerMixes(searchable, constraints, limit) : []
-  return mergeLockedMixes(ranked, categories, locked)
+  return uniqueRankedMixes(mergeLockedMixes(ranked, categories, locked), limit)
 }

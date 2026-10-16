@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
-import { CheckCircle2, ChevronDown, Crown, Download, Eye, FileCode2, FolderPlus, Folders, GitCompare, ImageIcon, Loader2, RotateCcw, Save, Sparkles, Trash2, Type, X } from "lucide-react"
+import { CheckCircle2, ChevronDown, Crown, Download, Eye, FileCode2, FolderPlus, Folders, GitCompare, ImageIcon, Loader2, Lock, RotateCcw, Save, Sparkles, Trash2, Type, X } from "lucide-react"
 import { renderLayersToCanvas } from "@/lib/canvas-export"
 import {
   assignDesignCategory,
@@ -34,7 +34,7 @@ import {
   reportCombinationPrefix,
   TopMixesCollection,
 } from "./DesignConfiguratorCollections"
-import { layerSelectionConflicts, mixSignature, rankConfiguratorMixes } from "@/lib/analytics/rankConfiguratorMixes"
+import { describeLayerSelectionConflicts, layerSelectionConflicts, mixSignature, rankConfiguratorMixes } from "@/lib/analytics/rankConfiguratorMixes"
 import {
   compareLocalSavedDesigns,
   createLocalDesignId,
@@ -931,7 +931,7 @@ function SelectionPreview({
   studyType: string
   backgroundUrl: string | null
   aspectRatio: string
-  size?: "default" | "fullscreen"
+  size?: "default" | "fullscreen" | "compact" | "paired"
   isActive?: boolean
 }) {
   const isLayerStudy = studyType === "layer"
@@ -978,17 +978,28 @@ function SelectionPreview({
   }, [aspectRatio, backgroundUrl, isLayerStudy])
 
   const isLandscape = aspectRatio === "16 / 9"
+  const isCompact = size === "compact" || size === "paired"
   // Non-fullscreen preview lives in the sticky sidebar next to the scrolling element
   // list. Cap it relative to the viewport (not a fixed px) so the buttons + preview +
   // total-coefficient block always fits on screen and the action buttons stay pinned.
-  const layerMaxHeight = isFullscreen ? "85vh" : isLandscape ? "min(600px, 40vh)" : "min(320px, 34vh)"
+  const layerMaxHeight = isFullscreen
+    ? "85vh"
+    : size === "compact"
+      ? "96px"
+        : size === "paired"
+        ? "min(200px, 26vh)"
+        : isLandscape
+          ? "min(600px, 40vh)"
+          : "min(320px, 34vh)"
   const layerMaxWidth = isFullscreen
     ? isLandscape
       ? "90vw"
       : "min(90vw, 540px)"
-    : isLandscape
+    : isCompact
       ? "100%"
-      : "280px"
+      : isLandscape
+        ? "100%"
+        : "280px"
 
   if (selectedElements.length === 0 && (!isLayerStudy || !backgroundUrl)) {
     return (
@@ -2749,6 +2760,34 @@ export function AnalyticsDesignConfigurator({
     [applyConstraints, categories, designConstraints, isLayerStudy, lockedSelection]
   )
   const currentSelectionSignature = mixSignature(selectedByCategory)
+  const lockedLabels = useMemo(() => {
+    if (!lockedSelection) return []
+    return categories.flatMap((category) => {
+      const element = category.elements.find((item) => item.id === lockedSelection[category.key])
+      return element ? [`${category.name} — ${element.name}`] : []
+    })
+  }, [categories, lockedSelection])
+  const lockedConflicts = useMemo(
+    () => (isLayerStudy && lockedSelection
+      ? describeLayerSelectionConflicts(categories, lockedSelection, designConstraints)
+      : []),
+    [categories, designConstraints, isLayerStudy, lockedSelection]
+  )
+  const viableDesigns = useMemo(() => {
+    if (!isLayerStudy || lockedConflicts.length > 0) return []
+    return rankConfiguratorMixes({
+      categories,
+      isLayer: true,
+      designConstraints,
+      applyConstraints: true,
+      lockedSelection,
+      limit: 4,
+    })
+  }, [categories, designConstraints, isLayerStudy, lockedConflicts.length, lockedSelection])
+  const elementsForMix = (selection: Record<string, string>) =>
+    categories
+      .map((category) => category.elements.find((element) => element.id === selection[category.key]))
+      .filter((element): element is ConfiguratorElement => Boolean(element))
   const matchingSavedDesign = useMemo(
     () => savedDesigns.find((design) => mixSignature(design.configuration?.selected_by_category || {}) === currentSelectionSignature) || null,
     [currentSelectionSignature, savedDesigns]
@@ -3418,7 +3457,7 @@ export function AnalyticsDesignConfigurator({
             height is viewport-capped (see layerMaxHeight) so this top block always fits,
             which is what keeps the action buttons visible. A scrollbar here would also
             narrow the column and make the button header wrap. */}
-        <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:z-10 lg:w-5/12 lg:flex-shrink-0 lg:self-start lg:pr-2 lg:max-h-[calc(100vh-3rem)] lg:min-h-0">
+        <div className="flex flex-col gap-4 lg:sticky lg:top-6 lg:z-10 lg:w-5/12 lg:flex-shrink-0 lg:self-start lg:pr-2 lg:max-h-[calc(100vh-3rem)] lg:min-h-0">
           {/* Preview Card */}
           <div className="flex flex-shrink-0 flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
             <div className="flex flex-wrap items-center gap-1 border-b border-gray-100 bg-gray-50/50 px-2.5 py-2 sm:px-3">
@@ -3562,22 +3601,128 @@ export function AnalyticsDesignConfigurator({
               </p>
             )}
 
-            <div className="bg-transparent p-4 sm:p-6">
-              <div className="relative">
-                <div
-                  ref={previewCaptureRef}
-                  className={`mx-auto bg-transparent ${isLayerStudy ? "w-full" : "w-full max-w-[380px]"}`}
-                >
-                  <SelectionPreview
-                    selectedElements={selectedElements}
-                    studyType={normalizedStudyType}
-                    backgroundUrl={isLayerStudy ? (showLayerBackground ? backgroundUrl : null) : backgroundUrl}
-                    aspectRatio={layerAspectRatio}
-                    isActive={!isPreviewFullscreenOpen && !activeSelectionImage}
-                  />
+            {isLayerStudy && !isInputDesignMode ? (
+              <div className="flex flex-col gap-3 p-3 sm:p-4">
+                <div className="min-w-0">
+                  <div ref={previewCaptureRef} className="mx-auto w-full max-w-[280px] bg-transparent">
+                    <SelectionPreview
+                      selectedElements={selectedElements}
+                      studyType={normalizedStudyType}
+                      backgroundUrl={showLayerBackground ? backgroundUrl : null}
+                      aspectRatio={layerAspectRatio}
+                      size="paired"
+                      isActive={!isPreviewFullscreenOpen && !activeSelectionImage}
+                    />
+                  </div>
+                  <div className="mt-3 flex items-end justify-between gap-3 border-t border-gray-100 pt-3">
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Total Coefficient</p>
+                      <p className="truncate text-xs text-gray-400">{activeSegment?.label || "Overall"}</p>
+                    </div>
+                    <div className="tabular-nums text-2xl font-black text-gray-900">
+                      {formatValue(totalCoefficient, activeMetric)}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="min-w-0 border-t border-gray-100 pt-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-semibold text-gray-900">Top designs</h3>
+                      <p className="mt-0.5 text-xs leading-4 text-gray-500">
+                        {lockedConflicts.length > 0
+                          ? "Change one of these. A design cannot include both."
+                          : lockedLabels.length > 0
+                            ? "These keep what you selected."
+                            : "Select an element to lock it into every design."}
+                      </p>
+                    </div>
+                    {viableDesigns.length > 0 && (
+                      <span className="shrink-0 rounded-full bg-gray-100 px-2 py-1 text-[11px] font-semibold text-gray-600">
+                        {viableDesigns.length}
+                      </span>
+                    )}
+                  </div>
+                  {lockedLabels.length > 0 && lockedConflicts.length === 0 && (
+                    <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+                      {lockedLabels.map((label) => (
+                        <span key={label} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700">
+                          <Lock className="h-3 w-3 shrink-0" />
+                          <span className="max-w-[180px] truncate">{label}</span>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {lockedConflicts.length > 0 && (
+                    <ul className="mt-2 max-h-44 space-y-2 overflow-y-auto">
+                      {lockedConflicts.map((conflict) => (
+                        <li
+                          key={`${conflict.leftCategory}-${conflict.leftElement}-${conflict.rightCategory}-${conflict.rightElement}`}
+                          className="rounded-xl bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900"
+                        >
+                          <span className="font-semibold">{conflict.leftCategory} — {conflict.leftElement}</span>
+                          {" cannot be used with "}
+                          <span className="font-semibold">{conflict.rightCategory} — {conflict.rightElement}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {viableDesigns.length > 0 && (
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      {viableDesigns.map((mix) => {
+                        const active = mixSignature(mix.selection) === currentSelectionSignature
+                        return (
+                          <button
+                            key={`${mix.rank}-${mixSignature(mix.selection)}`}
+                            type="button"
+                            onClick={() => applyConfiguratorSelection(mix.selection)}
+                            aria-pressed={active}
+                            className={`cursor-pointer rounded-xl border p-1.5 text-left transition hover:border-blue-300 active:scale-[0.99] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 ${
+                              active ? "border-blue-500 bg-blue-50/70 shadow-sm" : "border-gray-200 bg-white"
+                            }`}
+                          >
+                            <div className="pointer-events-none">
+                              <SelectionPreview
+                                selectedElements={elementsForMix(mix.selection)}
+                                studyType={normalizedStudyType}
+                                backgroundUrl={showLayerBackground ? backgroundUrl : null}
+                                aspectRatio={layerAspectRatio}
+                                size="compact"
+                                isActive={false}
+                              />
+                            </div>
+                            <div className="mt-1.5 flex items-center justify-between gap-1 px-0.5">
+                              <span className="truncate text-[11px] font-semibold text-gray-800">{active ? "In preview" : `Design ${mix.rank}`}</span>
+                              <span className={`shrink-0 tabular-nums text-xs font-black ${mix.score >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                                {mix.score >= 0 ? "+" : ""}
+                                {formatValue(mix.score, activeMetric)}
+                              </span>
+                            </div>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="bg-transparent p-4 sm:p-6">
+                <div className="relative">
+                  <div
+                    ref={previewCaptureRef}
+                    className={`mx-auto bg-transparent ${isLayerStudy ? "w-full" : "w-full max-w-[380px]"}`}
+                  >
+                    <SelectionPreview
+                      selectedElements={selectedElements}
+                      studyType={normalizedStudyType}
+                      backgroundUrl={isLayerStudy ? (showLayerBackground ? backgroundUrl : null) : backgroundUrl}
+                      aspectRatio={layerAspectRatio}
+                      isActive={!isPreviewFullscreenOpen && !activeSelectionImage}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
 
             <PreviewFullscreenModal
               isOpen={isPreviewFullscreenOpen}
@@ -3592,6 +3737,7 @@ export function AnalyticsDesignConfigurator({
               />
             </PreviewFullscreenModal>
 
+            {!(isLayerStudy && !isInputDesignMode) && (
             <div className="flex items-center justify-between border-t border-gray-100 bg-white px-6 py-4">
               {isInputDesignMode ? (
                 <>
@@ -3620,9 +3766,10 @@ export function AnalyticsDesignConfigurator({
                 </>
               )}
             </div>
+            )}
           </div>
 
-          {!isInputDesignMode && (
+          {!isInputDesignMode && !isLayerStudy && (
             <TopMixesCollection
               isOpen={isTopMixesOpen}
               onToggle={() => setIsTopMixesOpen((current) => !current)}
