@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { rankConfiguratorMixes, type MixCategory } from "./rankConfiguratorMixes"
+import { layerSelectionConflicts, rankConfiguratorMixes, type MixCategory } from "./rankConfiguratorMixes"
 
 function category(key: string, values: number[], zIndex = 0): MixCategory {
   return {
@@ -89,5 +89,98 @@ describe("rankConfiguratorMixes", () => {
     expect(mixes[0].score).toBe(101)
     expect(mixes.some((mix) => mix.selection.L1 === "good" && mix.selection.L2 === "ok")).toBe(true)
     expect(mixes.some((mix) => mix.selection.L1 === "good" && mix.selection.L2 === "blocked")).toBe(false)
+  })
+
+  it("keeps the higher score when two images cannot be used together", () => {
+    const categories = [
+      {
+        key: "L1",
+        name: "L1",
+        zIndex: 0,
+        elements: [
+          { id: "a", name: "A", value: 50, layerId: "layer-1", imageId: "image-a" },
+        ],
+      },
+      {
+        key: "L2",
+        name: "L2",
+        zIndex: 1,
+        elements: [
+          { id: "b", name: "B", value: 2, layerId: "layer-2", imageId: "image-b" },
+        ],
+      },
+    ]
+    const designConstraints = [
+      {
+        name: "a-not-b",
+        anchors: [{ layer_id: "layer-1", image_id: "image-a" }],
+        blocked: [{ layer_id: "layer-2", image_id: "image-b" }],
+      },
+    ]
+
+    const withRules = rankConfiguratorMixes({ isLayer: true, categories, designConstraints, applyConstraints: true })
+    expect(withRules[0].selection).toEqual({ L1: "a" })
+    expect(withRules[0].score).toBe(50)
+    expect(withRules[0].labels).toEqual(["A"])
+
+    const withoutRules = rankConfiguratorMixes({ isLayer: true, categories, designConstraints, applyConstraints: false })
+    expect(withoutRules[0].selection).toEqual({ L1: "a", L2: "b" })
+    expect(withoutRules[0].score).toBe(52)
+  })
+
+  it("keeps selected layers fixed and fills the rest around them", () => {
+    const categories = [
+      {
+        key: "L1",
+        name: "L1",
+        zIndex: 0,
+        elements: [
+          { id: "good", name: "Good", value: 20, layerId: "layer-1", imageId: "image-good" },
+          { id: "weak", name: "Weak", value: 1, layerId: "layer-1", imageId: "image-weak" },
+        ],
+      },
+      {
+        key: "L2",
+        name: "L2",
+        zIndex: 1,
+        elements: [
+          { id: "blocked", name: "Blocked", value: 100, layerId: "layer-2", imageId: "image-blocked" },
+          { id: "ok", name: "Ok", value: 15, layerId: "layer-2", imageId: "image-ok" },
+        ],
+      },
+    ]
+    const designConstraints = [
+      {
+        name: "block",
+        anchors: [{ layer_id: "layer-1", image_id: "image-good" }],
+        blocked: [{ layer_id: "layer-2", image_id: "image-blocked" }],
+      },
+    ]
+
+    const withRules = rankConfiguratorMixes({
+      isLayer: true,
+      categories,
+      designConstraints,
+      lockedSelection: { L1: "good" },
+    })
+    expect(withRules[0].selection).toEqual({ L1: "good", L2: "ok" })
+    expect(withRules[0].score).toBe(35)
+
+    const withoutRules = rankConfiguratorMixes({
+      isLayer: true,
+      categories,
+      designConstraints,
+      applyConstraints: false,
+      lockedSelection: { L1: "good" },
+    })
+    expect(withoutRules[0].selection).toEqual({ L1: "good", L2: "blocked" })
+    expect(withoutRules[0].score).toBe(120)
+    expect(layerSelectionConflicts(categories, { L1: "good", L2: "blocked" }, designConstraints)).toBe(true)
+    expect(rankConfiguratorMixes({
+      isLayer: true,
+      categories,
+      designConstraints,
+      lockedSelection: { L1: "good", L2: "blocked" },
+    })).toEqual([])
   })
 })

@@ -34,7 +34,7 @@ import {
   reportCombinationPrefix,
   TopMixesCollection,
 } from "./DesignConfiguratorCollections"
-import { mixSignature, rankConfiguratorMixes } from "@/lib/analytics/rankConfiguratorMixes"
+import { layerSelectionConflicts, mixSignature, rankConfiguratorMixes } from "@/lib/analytics/rankConfiguratorMixes"
 import {
   compareLocalSavedDesigns,
   createLocalDesignId,
@@ -2230,6 +2230,8 @@ export function AnalyticsDesignConfigurator({
   const backgroundUrl = useMemo(() => getBackgroundUrl(analysisData || {}), [analysisData])
   const layerAspectRatio = useMemo(() => getLayerAspectRatio(analysisData || {}), [analysisData])
   const [selectedByCategory, setSelectedByCategory] = useState<Record<string, string>>({})
+  const [pinnedCategoryKeys, setPinnedCategoryKeys] = useState<Record<string, true>>({})
+  const [applyConstraints, setApplyConstraints] = useState(true)
   const [assistantLoadNotice, setAssistantLoadNotice] = useState<string | null>(null)
   const [queuedAssistantDesign, setQueuedAssistantDesign] =
     useState<AssistantPendingDesignSelection | null>(null)
@@ -2675,6 +2677,18 @@ export function AnalyticsDesignConfigurator({
       next[category.key] = element.id
       return next
     })
+    if (!isLayerStudy) return
+    setPinnedCategoryKeys((current) => {
+      const alreadySelected = selectedByCategory[category.key] === element.id
+      if (alreadySelected) {
+        if (!current[category.key]) return current
+        const next = { ...current }
+        delete next[category.key]
+        return next
+      }
+      if (current[category.key]) return current
+      return { ...current, [category.key]: true }
+    })
   }
 
   const toggleCategoryOpen = (categoryKey: string) => {
@@ -2703,14 +2717,36 @@ export function AnalyticsDesignConfigurator({
     }))
   }
 
+  const hasDesignConstraints = isLayerStudy && designConstraints.some(
+    (constraint) => (constraint.anchors?.length || 0) > 0 && (constraint.blocked?.length || 0) > 0
+  )
+  const lockedSelection = useMemo(() => {
+    if (!isLayerStudy) return undefined
+    const locked: Record<string, string> = {}
+    categories.forEach((category) => {
+      if (!pinnedCategoryKeys[category.key]) return
+      const selectedId = selectedByCategory[category.key]
+      if (selectedId && category.elements.some((element) => element.id === selectedId)) {
+        locked[category.key] = selectedId
+      }
+    })
+    return Object.keys(locked).length > 0 ? locked : undefined
+  }, [categories, isLayerStudy, pinnedCategoryKeys, selectedByCategory])
+  const selectionBreaksConstraints = Boolean(
+    isLayerStudy &&
+    applyConstraints &&
+    layerSelectionConflicts(categories, selectedByCategory, designConstraints)
+  )
   const rankedMixes = useMemo(
     () => rankConfiguratorMixes({
       categories,
       isLayer: isLayerStudy,
       designConstraints,
+      applyConstraints: isLayerStudy ? applyConstraints : true,
+      lockedSelection,
       limit: 5,
     }),
-    [categories, designConstraints, isLayerStudy]
+    [applyConstraints, categories, designConstraints, isLayerStudy, lockedSelection]
   )
   const currentSelectionSignature = mixSignature(selectedByCategory)
   const matchingSavedDesign = useMemo(
@@ -2729,6 +2765,15 @@ export function AnalyticsDesignConfigurator({
 
   const applyConfiguratorSelection = (selection: Record<string, string>) => {
     setSelectedByCategory(selection)
+    setPinnedCategoryKeys((current) => {
+      const next: Record<string, true> = {}
+      Object.keys(current).forEach((key) => {
+        if (selection[key]) next[key] = true
+      })
+      const currentKeys = Object.keys(current)
+      if (currentKeys.length === Object.keys(next).length && currentKeys.every((key) => next[key])) return current
+      return next
+    })
     // Opening every chosen category mounts its whole element grid. For video
     // studies that grid is dozens of clips, and doing it in the same click as
     // Best Mix is what hangs a phone. The preview already shows the mix.
@@ -2744,9 +2789,17 @@ export function AnalyticsDesignConfigurator({
   }
 
   const handleBestMix = () => {
+    if (lockedSelection && selectionBreaksConstraints) {
+      alert("The layers you already selected cannot be used together. Change one of them, or turn constraints off.")
+      return
+    }
     const bestSelection = rankedMixes[0]?.selection
     if (!bestSelection || Object.keys(bestSelection).length === 0) {
-      alert("No valid Best Mix exists with the current design constraints. Please relax constraints or review layer images.")
+      alert(
+        applyConstraints
+          ? "No valid Best Mix exists with the current design constraints. Turn constraints off, or change the layers you selected."
+          : "No Best Mix is available for these layers."
+      )
       return
     }
     applyConfiguratorSelection(bestSelection)
@@ -3368,7 +3421,7 @@ export function AnalyticsDesignConfigurator({
         <div className="flex flex-col gap-6 lg:sticky lg:top-6 lg:z-10 lg:w-5/12 lg:flex-shrink-0 lg:self-start lg:pr-2 lg:max-h-[calc(100vh-3rem)] lg:min-h-0">
           {/* Preview Card */}
           <div className="flex flex-shrink-0 flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
-            <div className="flex items-center gap-1 border-b border-gray-100 bg-gray-50/50 px-2.5 py-2 sm:px-3">
+            <div className="flex flex-wrap items-center gap-1 border-b border-gray-100 bg-gray-50/50 px-2.5 py-2 sm:px-3">
               {isLayerStudy && (
                 <>
                   <button
@@ -3399,12 +3452,18 @@ export function AnalyticsDesignConfigurator({
                   <span className="mx-0.5 h-5 w-px shrink-0 bg-gray-200" aria-hidden="true" />
                 </>
               )}
-              <div className="ml-auto flex items-center gap-0.5">
+              <div className="ml-auto flex flex-wrap items-center justify-end gap-0.5">
                 {!isInputDesignMode && (
                   <button
                     type="button"
                     onClick={handleBestMix}
-                    title="Best Mix"
+                    title={
+                      lockedSelection
+                        ? "Keep the layers you selected and fill in the best mix for the rest"
+                        : applyConstraints
+                          ? "Best mix with constraints"
+                          : "Best mix without constraints"
+                    }
                     className="inline-flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs font-semibold text-blue-600 transition hover:bg-blue-50 active:scale-95"
                   >
                     <Sparkles className="h-4 w-4" />
@@ -3451,7 +3510,10 @@ export function AnalyticsDesignConfigurator({
                 )}
                 <button
                   type="button"
-                  onClick={() => setSelectedByCategory({})}
+                  onClick={() => {
+                    setSelectedByCategory({})
+                    setPinnedCategoryKeys({})
+                  }}
                   title="Clear"
                   aria-label="Clear selection"
                   className="inline-flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 active:scale-95"
@@ -3460,6 +3522,45 @@ export function AnalyticsDesignConfigurator({
                 </button>
               </div>
             </div>
+
+            {hasDesignConstraints && !isInputDesignMode && (
+              <div className="flex items-center justify-between gap-3 border-b border-gray-100 px-3 py-2.5 sm:px-4">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-gray-900">Constraints</p>
+                  <p className="truncate text-[11px] leading-4 text-gray-500">
+                    {lockedSelection
+                      ? applyConstraints
+                        ? "Layers you picked stay. The rest follows the rules."
+                        : "Layers you picked stay. The rest ignores the rules."
+                      : applyConstraints
+                        ? "Best Mix follows the design rules."
+                        : "Best Mix ignores the design rules."}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setApplyConstraints((current) => !current)}
+                  aria-pressed={applyConstraints}
+                  title={applyConstraints ? "Turn constraints off" : "Turn constraints on"}
+                  className={`inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-full border px-3 text-xs font-semibold transition active:scale-95 ${
+                    applyConstraints
+                      ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                      : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${applyConstraints ? "bg-blue-600" : "bg-gray-300"}`} />
+                  {applyConstraints ? "On" : "Off"}
+                </button>
+              </div>
+            )}
+
+            {selectionBreaksConstraints && (
+              <p className="border-b border-amber-100 bg-amber-50 px-4 py-2 text-xs font-medium leading-5 text-amber-800">
+                {lockedSelection
+                  ? "These selected layers cannot be used together. Change one, or turn constraints off."
+                  : "This mix breaks a design constraint. Best Mix will replace it while constraints are on."}
+              </p>
+            )}
 
             <div className="bg-transparent p-4 sm:p-6">
               <div className="relative">
@@ -3643,14 +3744,20 @@ export function AnalyticsDesignConfigurator({
                         )}
                         <button
                           type="button"
-                          onClick={() =>
+                          onClick={() => {
                             setSelectedByCategory((current) => {
                               const next = { ...current }
                               delete next[element.categoryKey]
                               return next
                             })
-                          }
-                          className="text-gray-400 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                            setPinnedCategoryKeys((current) => {
+                              if (!current[element.categoryKey]) return current
+                              const next = { ...current }
+                              delete next[element.categoryKey]
+                              return next
+                            })
+                          }}
+                          className="cursor-pointer text-gray-400 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
                           aria-label={`Remove ${element.name}`}
                         >
                           <X className="h-4 w-4" />
