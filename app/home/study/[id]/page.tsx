@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { DashboardHeader } from "../../components/dashboard-header"
 import { AuthGuard } from "@/components/auth/AuthGuard"
@@ -236,6 +236,8 @@ export default function StudyManagementPage() {
   const [study, setStudy] = useState<StudyDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [updating, setUpdating] = useState(false)
+  const [statusConfirm, setStatusConfirm] = useState<"draft" | "completed" | null>(null)
+  const statusConfirmLock = useRef(false)
   const [error, setError] = useState<string | null>(null)
   const [analytics, setAnalytics] = useState<StudyAnalytics | null>(null)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
@@ -345,6 +347,32 @@ export default function StudyManagementPage() {
   //   }
   // }
 
+  const requestStatusUpdate = (next: "draft" | "completed") => {
+    if (!study || updating) return
+    if (next === "completed" && study.status === "completed") return
+    if (next === "draft" && study.status !== "active") return
+    setStatusConfirm(next)
+  }
+
+  const confirmStatusUpdate = () => {
+    if (!statusConfirm || updating || statusConfirmLock.current) return
+    statusConfirmLock.current = true
+    const next = statusConfirm
+    setStatusConfirm(null)
+    void handleStatusUpdate(next).finally(() => {
+      statusConfirmLock.current = false
+    })
+  }
+
+  useEffect(() => {
+    if (!statusConfirm) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !updating) setStatusConfirm(null)
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [statusConfirm, updating])
+
   const handleStatusUpdate = async (newStatus: "active" | "paused" | "completed" | "draft") => {
     if (!study) return
 
@@ -356,7 +384,14 @@ export default function StudyManagementPage() {
 
       // Use PUT endpoint as requested for status changes (activate/pause)
       try {
-        const updatedStudy = await putUpdateStudy(studyId, { status: newStatus }, 8)
+        const updatedStudy = await putUpdateStudy(
+          studyId,
+          {
+            status: newStatus,
+            ...(study.study_type ? { study_type: study.study_type } : {}),
+          },
+          8,
+        )
         setStudy(updatedStudy)
       } catch (err: unknown) {
         // Fallback: some servers disallow PUT when active; try PATCH status update
@@ -423,9 +458,9 @@ export default function StudyManagementPage() {
     if (isActive) {
       return (
         <button
-          onClick={() => handleStatusUpdate("draft")}
+          onClick={() => requestStatusUpdate("draft")}
           disabled={updating}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-md text-white rounded-md hover:opacity-90 disabled:opacity-50 shrink-0"
+          className="cursor-pointer flex items-center gap-1.5 px-3 py-1.5 text-md text-white rounded-md hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
           style={{ backgroundColor: '#FF6B35' }}
         >
           <Pause className="w-3.5 h-3.5" />
@@ -664,9 +699,9 @@ export default function StudyManagementPage() {
                 {canChangeStatus && getActionButton()}
                 {canChangeStatus && (
                   <button
-                    onClick={() => handleStatusUpdate("completed")}
+                    onClick={() => requestStatusUpdate("completed")}
                     disabled={updating || study.status === "completed"}
-                    className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-md bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 shrink-0"
+                    className="flex cursor-pointer items-center gap-1.5 px-3 py-1.5 text-md bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                   >
                     <CheckCircle className="w-3.5 h-3.5 shrink-0" />
                     Complete Study
@@ -1156,6 +1191,52 @@ export default function StudyManagementPage() {
           </div> */}
         </div>
       </div>
+
+      {statusConfirm && (
+        <div
+          className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/50"
+          onClick={() => {
+            if (!updating) setStatusConfirm(null)
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="status-confirm-title"
+            className="bg-white rounded-2xl shadow-xl max-w-md w-full p-6 sm:p-7"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 id="status-confirm-title" className="text-lg font-semibold text-gray-900">
+              {statusConfirm === "draft" ? "Pause this study?" : "Complete this study?"}
+            </h2>
+            <p className="mt-2 text-sm text-gray-600">
+              {statusConfirm === "draft"
+                ? "Respondents will see the study as paused until you activate it again."
+                : "The study will close, and respondents will no longer be able to take it."}
+            </p>
+            <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setStatusConfirm(null)}
+                disabled={updating}
+                className="cursor-pointer px-4 py-2.5 rounded-xl text-sm font-semibold text-gray-700 bg-white border border-gray-200 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmStatusUpdate}
+                disabled={updating}
+                className={`cursor-pointer px-4 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50 disabled:cursor-not-allowed ${
+                  statusConfirm === "draft" ? "bg-[#FF6B35] hover:opacity-90" : "bg-green-600 hover:bg-green-700"
+                }`}
+              >
+                {updating ? "Updating..." : "Yes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ShareStudyModal
         isOpen={isCollaboratorModalOpen}

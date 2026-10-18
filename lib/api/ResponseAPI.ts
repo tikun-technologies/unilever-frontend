@@ -868,6 +868,8 @@ export interface StudyAnalysisSettings {
 	top: RatingScoringGroup
 	bottom: RatingScoringGroup
 	regression: AnalysisRegressionSettings
+	/** Drop people who gave the same score on every rated task. Off unless saved. */
+	exclude_constant_raters?: boolean
 }
 
 export interface StudyAnalysisSettingsResponse {

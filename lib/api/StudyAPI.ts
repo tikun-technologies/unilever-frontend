@@ -2603,6 +2603,10 @@ export async function putUpdateStudy(studyId: string, payload: UpdateStudyPutPay
   // e.g., `study_layers` should only be sent for `layer` studies. Read local step2 to decide.
   let safePayload: any = payload || {}
 
+  // A status change sends no study type. Guessing "grid" from the create-study wizard
+  // must not clear a layer study's background. Only an explicit non-layer type does that.
+  const typeWasExplicit = safePayload.study_type != null && String(safePayload.study_type).trim() !== ""
+
   // IMPORTANT: If study_type is explicitly in the payload, we use it to determine validation rules
   // Otherwise fall back to localStorage
   let effectiveType = safePayload.study_type
@@ -2621,13 +2625,14 @@ export async function putUpdateStudy(studyId: string, payload: UpdateStudyPutPay
 
   // Defensive: Strip layer-specific fields for non-layer studies (grid, text)
   // This prevents backend 400 errors if state is dirty (e.g. switching types).
-  // Always send background_image_url: null for non-layer so a leftover layer BG is cleared in DB.
   if (normalizedType !== 'layer') {
     if (safePayload.hasOwnProperty('study_layers')) {
       delete safePayload.study_layers
       console.log(`[API] Removed study_layers from PUT payload for ${normalizedType} study`)
     }
-    safePayload.background_image_url = null
+    if (typeWasExplicit && !Object.prototype.hasOwnProperty.call(safePayload, 'background_image_url')) {
+      safePayload.background_image_url = null
+    }
   }
 
 

@@ -17,6 +17,7 @@ function cloneSettings(settings: StudyAnalysisSettings): StudyAnalysisSettings {
 		top: { hundred: [...settings.top.hundred], zero: [...settings.top.zero] },
 		bottom: { hundred: [...settings.bottom.hundred], zero: [...settings.bottom.zero] },
 		regression: { include_intercept: settings.regression.include_intercept },
+		exclude_constant_raters: Boolean(settings.exclude_constant_raters),
 	}
 }
 
@@ -32,6 +33,7 @@ function settingsEqual(a: StudyAnalysisSettings, b: StudyAnalysisSettings): bool
 				zero: [...s.bottom.zero].sort((x, y) => x - y),
 			},
 			regression: { include_intercept: s.regression.include_intercept },
+			exclude_constant_raters: Boolean(s.exclude_constant_raters),
 		})
 	return key(a) === key(b)
 }
@@ -233,7 +235,7 @@ export function AnalyticsSettingsModal({
 					animate={{ opacity: 1, y: 0, scale: 1 }}
 					exit={{ opacity: 0, y: 16, scale: 0.98 }}
 					transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
-					className="relative flex flex-col w-full max-w-4xl max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] rounded-3xl bg-white shadow-2xl border border-gray-200"
+					className="relative flex flex-col w-full max-w-4xl max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] overflow-hidden rounded-3xl bg-white shadow-2xl border border-gray-200"
 				>
 					<div className="shrink-0 flex items-start justify-between gap-4 px-5 sm:px-6 py-4 sm:py-5 border-b border-gray-100 bg-gradient-to-r from-[#2674BA]/10 to-white rounded-t-3xl">
 						<div>
@@ -255,7 +257,7 @@ export function AnalyticsSettingsModal({
 						</button>
 					</div>
 
-					<div className="flex-1 min-h-0 px-5 sm:px-6 py-4 sm:py-5 overflow-y-auto sm:overflow-visible">
+					<div className="flex-1 min-h-0 px-5 sm:px-6 py-4 sm:py-5 overflow-y-auto overscroll-contain">
 						{loading || !draft ? (
 							<div className="flex items-center justify-center gap-3 py-12 text-gray-500">
 								<Loader2 className="w-5 h-5 animate-spin" style={{ color: BRAND_BLUE }} />
@@ -318,12 +320,45 @@ export function AnalyticsSettingsModal({
 													: "text-gray-500 hover:text-gray-700"
 											}`}
 										>
-											Without intercept
-										</button>
-									</div>
+										Without intercept
+									</button>
 								</div>
+							</div>
 
-								{error && (
+							<div className={`rounded-2xl border border-gray-200 bg-white p-4 sm:p-5 shadow-sm ${readOnly ? "pointer-events-none opacity-80" : ""}`}>
+								<div className="flex items-start justify-between gap-4">
+									<div className="min-w-0">
+										<h3 className="text-base font-bold text-gray-900 mb-1">Same score on every task</h3>
+										<p className="text-sm text-gray-500">
+											Leave out people who gave every task the same score. Also applies to the CSV and PowerPoint.
+										</p>
+									</div>
+									<button
+										type="button"
+										role="switch"
+										aria-checked={Boolean(draft.exclude_constant_raters)}
+										aria-label="Leave out people who rated every task the same"
+										onClick={() =>
+											setDraft((prev) =>
+												prev
+													? { ...prev, exclude_constant_raters: !prev.exclude_constant_raters }
+													: prev
+											)
+										}
+										className={`cursor-pointer relative mt-0.5 h-7 w-12 shrink-0 rounded-full transition-colors ${
+											draft.exclude_constant_raters ? "bg-[#2674BA]" : "bg-gray-200"
+										}`}
+									>
+										<span
+											className={`absolute top-0.5 left-0.5 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+												draft.exclude_constant_raters ? "translate-x-5" : "translate-x-0"
+											}`}
+										/>
+									</button>
+								</div>
+							</div>
+
+							{error && (
 									<p className="text-sm text-red-600" role="alert">
 										{error}
 									</p>

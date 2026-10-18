@@ -17,6 +17,7 @@ interface AnalyticsKPICardsProps {
 export function AnalyticsKPICards({ analysisData, rawDataOverride, studyType }: AnalyticsKPICardsProps) {
   const stats = getKPIStats(analysisData || {}, rawDataOverride)
   const isLayerStudy = (studyType || "").toLowerCase() === "layer"
+  const excludedConstantRaters = Number(analysisData?.dashboard_summary?.excludedConstantRaters || 0)
 
   const cards = [
     {
@@ -82,6 +83,11 @@ export function AnalyticsKPICards({ analysisData, rawDataOverride, studyType }: 
                   />
                 )}
               </p>
+              {card.title === "Total Respondents" && excludedConstantRaters > 0 && (
+                <p className="mt-1 text-xs text-gray-500">
+                  {excludedConstantRaters} left out for the same score on every task
+                </p>
+              )}
             </div>
             <div
               className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
