@@ -1305,7 +1305,7 @@ function SaveDesignModal({
         <div className="mb-5 flex items-start justify-between gap-4">
           <div>
             <h3 className="text-lg font-bold text-gray-900">Save design</h3>
-            <p className="mt-1 text-sm text-gray-500">Give this selection a unique name for this study.</p>
+            <p className="mt-1 text-sm text-gray-500">Give this selection a name for this study.</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close save dialog">
             <X className="h-5 w-5" />
