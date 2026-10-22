@@ -35,6 +35,7 @@ import {
   TopMixesCollection,
 } from "./DesignConfiguratorCollections"
 import { describeLayerSelectionConflicts, layerSelectionConflicts, mixSignature, rankConfiguratorMixes } from "@/lib/analytics/rankConfiguratorMixes"
+import { comparisonChoiceId, listComparisonBases, selectedComparisonId, stampReportComparison } from "@/lib/analytics/reportComparison"
 import {
   compareLocalSavedDesigns,
   createLocalDesignId,
@@ -2643,6 +2644,11 @@ export function AnalyticsDesignConfigurator({
     ]
   )
 
+  const comparisonBases = useMemo(
+    () => listComparisonBases(analysisData, activeMetric),
+    [analysisData, activeMetric]
+  )
+
   const defaultSavedDesignName = useMemo(() => {
     const usedNames = new Set(savedDesigns.map((design) => design.name.trim().toLowerCase()))
     let index = savedDesigns.length + 1
@@ -3060,7 +3066,7 @@ export function AnalyticsDesignConfigurator({
     setIsAddCategoryOpen(true)
   }
 
-  const handleAssignCategory = async (input: { categoryId?: string; categoryName?: string }) => {
+  const handleAssignCategory = async (input: { categoryId?: string; categoryName?: string; comparisonKeys?: string[] }) => {
     if (addCategoryMode === "current" && !hasPreviewContent) {
       setCategoryError("Select at least one element before adding it to a category.")
       return
@@ -3073,6 +3079,15 @@ export function AnalyticsDesignConfigurator({
       setCategoryError("Enter a combination name.")
       return
     }
+    const chosenComparisonId = selectedComparisonId(input.comparisonKeys || [])
+    const reportConfiguration = stampReportComparison(
+      currentSavedDesignConfiguration,
+      analysisData,
+      comparisonBases,
+      input.comparisonKeys || [],
+    )
+    const canReuseMatch = Boolean(matchingSavedDesign)
+      && comparisonChoiceId(matchingSavedDesign?.configuration?.comparison) === chosenComparisonId
     setIsAssigningCategory(true)
     setCategoryError(null)
     try {
@@ -3082,7 +3097,7 @@ export function AnalyticsDesignConfigurator({
           designs = savedDesigns.filter((design) => addCategoryTargetIds.includes(design.id))
         } else if (categorySavedDesign) {
           designs = [categorySavedDesign]
-        } else if (matchingSavedDesign) {
+        } else if (canReuseMatch && matchingSavedDesign) {
           let design = matchingSavedDesign
           if (design.name !== trimmedCombinationName) {
             design = renameLocalSavedDesign(studyId, design.id, trimmedCombinationName, initialSavedDesignsRef.current)
@@ -3111,7 +3126,7 @@ export function AnalyticsDesignConfigurator({
             segment_label: activeSegment?.label ?? null,
             selection_count: selectedElements.length,
             total_coefficient: totalCoefficient,
-            configuration: currentSavedDesignConfiguration,
+            configuration: reportConfiguration,
             created_at: now,
             updated_at: now,
           }
@@ -3134,8 +3149,8 @@ export function AnalyticsDesignConfigurator({
       } else {
         let reusedDesignId = addCategoryMode === "existing"
           ? null
-          : categorySavedDesign?.id || matchingSavedDesign?.id || null
-        if (addCategoryMode === "current" && matchingSavedDesign && !categorySavedDesign && matchingSavedDesign.name !== trimmedCombinationName) {
+          : categorySavedDesign?.id || (canReuseMatch ? matchingSavedDesign?.id : null) || null
+        if (addCategoryMode === "current" && canReuseMatch && matchingSavedDesign && !categorySavedDesign && matchingSavedDesign.name !== trimmedCombinationName) {
           const updated = await renameSavedDesign(studyId, matchingSavedDesign.id, trimmedCombinationName)
           applySavedDesignName(matchingSavedDesign.id, updated.name)
           reusedDesignId = updated.id
@@ -3152,7 +3167,7 @@ export function AnalyticsDesignConfigurator({
             ? {
                 name: trimmedCombinationName,
                 design_type: savedDesignType,
-                configuration: currentSavedDesignConfiguration,
+                configuration: reportConfiguration,
               }
             : undefined,
         })
@@ -4243,13 +4258,14 @@ export function AnalyticsDesignConfigurator({
         description={
           designCategories.length === 0
             ? "Create a category for this study, then this combination is saved into it."
-            : "Choose a category for this study, or create a new one."
+            : "Choose a category, and tick the options that should become the chart legend."
         }
         designName={categoryDesignName}
         onDesignNameChange={setCategoryDesignName}
         namePrefix={isInputDesignMode ? null : reportCombinationPrefix(activeMetric)}
         showDesignName={addCategoryMode === "current" && !categorySavedDesign}
         savedDesignLabel={addCategoryMode === "current" ? categorySavedDesign?.name ?? null : null}
+        comparisonBases={comparisonBases}
         categories={designCategories}
         disabledCategoryIds={disabledCategoryIds}
         isSaving={isAssigningCategory}

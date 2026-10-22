@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react"
 import type { DesignCategoryPayload } from "@/lib/api/StudyAPI"
+import type { ComparisonBase } from "@/lib/analytics/reportComparison"
 
 export function reportCombinationPrefix(metric: string): string | null {
   const key = metric.trim().toLowerCase()
@@ -40,6 +41,230 @@ export function reportCombinationSuffix(prefix: string, name: string): string {
   if (match) return match[1] ?? ""
   if (raw.trim().toLowerCase() === prefix.toLowerCase()) return ""
   return raw
+}
+
+const CHART_COLORS = ["#155E75", "#D4632A", "#0F766E", "#C45C26", "#1D4E89", "#B45309"]
+const SAMPLE_HEIGHTS = [0.78, 0.46, 0.9, 0.58, 0.7, 0.4, 0.84, 0.52]
+
+function chosenLegendSegments(bases: ComparisonBase[], selectedKeys: string[]) {
+  const selected = new Set(selectedKeys)
+  return bases.flatMap((base) => base.segments.filter((segment) => selected.has(segment.key)))
+}
+
+function ChartPreview({
+  name,
+  series,
+}: {
+  name: string
+  series: Array<{ key: string; label: string; base_size: number }>
+}) {
+  const plotted = series.length >= 1 ? series : []
+  const items = plotted.length
+    ? plotted.map((segment, index) => ({
+        ...segment,
+        color: CHART_COLORS[index % CHART_COLORS.length],
+        height: SAMPLE_HEIGHTS[index % SAMPLE_HEIGHTS.length],
+      }))
+    : [{ key: "overall", label: "Overall", base_size: 0, color: CHART_COLORS[0], height: 0.62 }]
+
+  const plotLeft = 28
+  const plotRight = 8
+  const plotTop = 10
+  const plotBottom = 26
+  const width = 320
+  const height = 188
+  const innerW = width - plotLeft - plotRight
+  const innerH = height - plotTop - plotBottom
+  const gap = items.length > 6 ? 5 : 8
+  const barW = Math.min(34, Math.max(10, (innerW * 0.78 - gap * (items.length - 1)) / items.length))
+  const groupW = items.length * barW + (items.length - 1) * gap
+  const originX = plotLeft + (innerW - groupW) / 2
+  const axisLabel = (name || "Combination").trim() || "Combination"
+
+  return (
+    <section className="flex min-h-[240px] flex-1 flex-col rounded-2xl border border-[#E7D5DE] bg-[#FFF6F8] p-4" aria-label="Chart preview">
+      <div className="flex items-baseline justify-between gap-3">
+        <h4 className="text-sm font-semibold text-[#1E2D44]">Chart preview</h4>
+        <span className="text-xs font-medium text-[#617086]">Sample bars</span>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="mt-1 min-h-0 w-full flex-1" role="img" aria-label="Preview of the report column chart">
+        {[0, 1, 2, 3, 4].map((step) => {
+          const y = plotTop + (innerH / 4) * step
+          return <line key={step} x1={plotLeft} x2={width - plotRight} y1={y} y2={y} stroke="#E2E2E2" strokeWidth="1" />
+        })}
+        <line x1={plotLeft} x2={plotLeft} y1={plotTop} y2={plotTop + innerH} stroke="#B9C1CA" />
+        <line x1={plotLeft} x2={width - plotRight} y1={plotTop + innerH} y2={plotTop + innerH} stroke="#B9C1CA" />
+        <text
+          transform={`translate(11 ${plotTop + innerH / 2}) rotate(-90)`}
+          textAnchor="middle"
+          fill="#1E2D44"
+          fontSize="9"
+          fontWeight="700"
+        >
+          Lift above baseline
+        </text>
+        {items.map((item, index) => {
+          const barHeight = Math.max(8, innerH * item.height)
+          const x = originX + index * (barW + gap)
+          const y = plotTop + innerH - barHeight
+          return <rect key={item.key} x={x} y={y} width={barW} height={barHeight} rx="3" fill={item.color} />
+        })}
+        <text x={plotLeft + innerW / 2} y={height - 6} textAnchor="middle" fill="#617086" fontSize="11" fontWeight="600">
+          {axisLabel.length > 28 ? `${axisLabel.slice(0, 27)}…` : axisLabel}
+        </text>
+      </svg>
+      <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1.5">
+        {items.map((item) => (
+          <span key={item.key} className="inline-flex max-w-full items-center gap-1.5 text-xs font-semibold text-[#1E2D44]">
+            <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: item.color }} />
+            <span className="truncate">{item.label}{item.base_size ? ` (n=${item.base_size})` : ""}</span>
+          </span>
+        ))}
+      </div>
+      <p className={`mt-2 text-center text-xs leading-5 ${series.length === 1 ? "font-medium text-amber-700" : "text-[#617086]"}`}>
+        {series.length >= 2
+          ? "Each selected option is one bar and one legend entry."
+          : series.length === 1
+            ? "Add one more option to split this into a legend."
+            : "Overall is a single bar. Tick two or more options to add a legend."}
+      </p>
+    </section>
+  )
+}
+
+function LegendPicker({
+  bases,
+  selectedKeys,
+  onChange,
+}: {
+  bases: ComparisonBase[]
+  selectedKeys: string[]
+  onChange: (keys: string[]) => void
+}) {
+  const selected = new Set(selectedKeys)
+  const chosen = chosenLegendSegments(bases, selectedKeys)
+
+  const toggle = (key: string) => {
+    onChange(selected.has(key) ? selectedKeys.filter((item) => item !== key) : [...selectedKeys, key])
+  }
+
+  const toggleGroup = (base: ComparisonBase) => {
+    const keys = base.segments.map((segment) => segment.key)
+    const allOn = keys.length > 0 && keys.every((key) => selected.has(key))
+    if (allOn) {
+      onChange(selectedKeys.filter((key) => !keys.includes(key)))
+      return
+    }
+    onChange([...selectedKeys.filter((key) => !keys.includes(key)), ...keys])
+  }
+
+  return (
+    <section className="flex h-full min-h-0 flex-col overflow-hidden rounded-2xl border border-gray-200 bg-gray-50 p-4" aria-label="Legend">
+      <div className="flex shrink-0 items-start justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold text-gray-900">Legend</h4>
+          <p className="mt-1 text-sm leading-5 text-gray-600">
+            Tick every option that should appear in the chart legend. A legend needs at least two.
+          </p>
+        </div>
+        {selectedKeys.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onChange([])}
+            className="h-10 shrink-0 cursor-pointer rounded-lg px-3 text-sm font-semibold text-gray-600 hover:bg-white"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+
+      <button
+        type="button"
+        aria-pressed={selectedKeys.length === 0}
+        onClick={() => onChange([])}
+        className={`mt-4 flex h-11 w-full shrink-0 cursor-pointer items-center gap-3 rounded-xl border px-3 text-left ${
+          selectedKeys.length === 0 ? "border-blue-600 bg-white" : "border-transparent bg-white/70 hover:bg-white"
+        }`}
+      >
+          <span className={`flex h-5 w-5 items-center justify-center rounded-md border ${selectedKeys.length === 0 ? "border-blue-600 bg-blue-600 text-white" : "border-gray-300 bg-white"}`}>
+            {selectedKeys.length === 0 && <Check className="h-3 w-3" />}
+          </span>
+          <span className="text-sm font-semibold text-gray-900">Overall only</span>
+          <span className="text-sm text-gray-500">No legend</span>
+        </button>
+
+      <div className="mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+        {bases.map((base) => {
+          const keys = base.segments.map((segment) => segment.key)
+          const picked = keys.filter((key) => selected.has(key)).length
+          const allOn = keys.length > 0 && picked === keys.length
+          return (
+            <div key={base.id} className={`rounded-xl border bg-white p-3 ${base.available ? "border-gray-200" : "border-gray-100 opacity-70"}`}>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  disabled={!base.available}
+                  aria-pressed={allOn}
+                  onClick={() => toggleGroup(base)}
+                  className="flex h-10 min-w-0 flex-1 cursor-pointer items-center gap-3 text-left disabled:cursor-not-allowed"
+                >
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${allOn ? "border-blue-600 bg-blue-600 text-white" : picked ? "border-blue-600 bg-blue-50 text-blue-600" : "border-gray-300"}`}>
+                    {allOn && <Check className="h-3 w-3" />}
+                    {!allOn && picked > 0 && <span className="h-2 w-2 rounded-sm bg-blue-600" />}
+                  </span>
+                  <span className="truncate text-sm font-semibold text-gray-900">{base.title}</span>
+                </button>
+                {base.available && (
+                  <span className="shrink-0 text-xs font-medium text-gray-500">{picked} of {keys.length}</span>
+                )}
+              </div>
+              {base.lockedReason ? (
+                <p className="mt-2 pl-8 text-sm leading-5 text-gray-500">{base.lockedReason}</p>
+              ) : (
+                <div className="mt-3 flex flex-wrap gap-2 pl-8">
+                  {base.segments.map((segment) => {
+                    const on = selected.has(segment.key)
+                    return (
+                      <button
+                        key={segment.key}
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() => toggle(segment.key)}
+                        className={`inline-flex h-11 cursor-pointer items-center gap-2 rounded-full border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+                          on ? "border-blue-600 bg-blue-600 text-white" : "border-gray-200 bg-white text-gray-700 hover:border-blue-300"
+                        }`}
+                      >
+                        {segment.label}
+                        {segment.base_size > 0 && (
+                          <span className={on ? "font-medium text-blue-100" : "font-medium text-gray-400"}>n={segment.base_size}</span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      <p className={`mt-3 shrink-0 text-sm leading-5 ${chosen.length === 1 ? "font-medium text-amber-700" : "text-gray-600"}`}>
+        {chosen.length >= 2
+          ? `${chosen.length} legend series`
+          : chosen.length === 1
+            ? "Select one more option."
+            : "Legend: Overall"}
+      </p>
+    </section>
+  )
+}
+
+function comparisonLegend(item: DesignCategoryPayload["items"][number]): string | null {
+  const comparison = item.configuration?.comparison
+  if (!comparison || comparison.source === "overall") return null
+  const labels = (comparison.segments || []).map((segment) => segment.label).filter(Boolean)
+  if (labels.length >= 2) return labels.join(" / ")
+  return comparison.question || null
 }
 
 export function composeReportCombinationName(prefix: string, value: string): string {
@@ -200,6 +425,7 @@ export function AddToCategoryDialog({
   namePrefix,
   showDesignName,
   savedDesignLabel,
+  comparisonBases = [],
   categories,
   disabledCategoryIds,
   isSaving,
@@ -215,16 +441,20 @@ export function AddToCategoryDialog({
   namePrefix?: string | null
   showDesignName: boolean
   savedDesignLabel?: string | null
+  comparisonBases?: ComparisonBase[]
   categories: DesignCategoryPayload[]
   disabledCategoryIds: string[]
   isSaving: boolean
   error: string | null
   onClose: () => void
-  onSubmit: (input: { categoryId?: string; categoryName?: string }) => void
+  onSubmit: (input: { categoryId?: string; categoryName?: string; comparisonKeys?: string[] }) => void
 }) {
   const [mode, setMode] = useState<"existing" | "new">(categories.length === 0 ? "new" : "existing")
   const [selectedId, setSelectedId] = useState<string>("")
   const [categoryName, setCategoryName] = useState("")
+  const [selectedKeys, setSelectedKeys] = useState<string[]>([])
+  const showComparison = showDesignName && comparisonBases.some((base) => base.source !== "overall")
+  const legendBases = comparisonBases.filter((base) => base.source !== "overall")
 
   useEffect(() => {
     if (!isOpen) return
@@ -232,6 +462,7 @@ export function AddToCategoryDialog({
     const first = categories.find((category) => !disabledCategoryIds.includes(category.id))
     setSelectedId(first?.id || "")
     setCategoryName("")
+    setSelectedKeys([])
     // Reset only when the dialog opens. Category data is read at that moment.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen])
@@ -253,9 +484,10 @@ export function AddToCategoryDialog({
   if (!isOpen) return null
 
   const creating = mode === "new" || categories.length === 0
-  const canSubmit = creating
+  const legendReady = !showComparison || selectedKeys.length !== 1
+  const canSubmit = legendReady && (creating
     ? categoryName.trim().length > 0 && (!showDesignName || designName.trim().length > 0)
-    : Boolean(selectedId) && !disabledCategoryIds.includes(selectedId) && (!showDesignName || designName.trim().length > 0)
+    : Boolean(selectedId) && !disabledCategoryIds.includes(selectedId) && (!showDesignName || designName.trim().length > 0))
 
   return (
     <BodyPortal>
@@ -265,7 +497,7 @@ export function AddToCategoryDialog({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative z-10 flex max-h-[92vh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl"
+        className={`relative z-10 flex w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl ${showComparison ? "h-[min(860px,92vh)] max-w-4xl" : "max-h-[92vh] max-w-lg"}`}
       >
         <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
           <div className="min-w-0">
@@ -282,7 +514,9 @@ export function AddToCategoryDialog({
           </button>
         </div>
 
-        <div className="flex-1 space-y-5 overflow-y-auto px-5 py-4">
+        <div className={`min-h-0 flex-1 px-5 py-5 sm:px-6 ${showComparison ? "grid grid-cols-1 items-stretch gap-5 overflow-y-auto md:grid-cols-2 md:overflow-hidden" : "space-y-5 overflow-y-auto"}`}>
+          <div className={`flex min-h-0 flex-col gap-4 ${showComparison ? "overflow-hidden" : ""}`}>
+          <div className="shrink-0 space-y-4">
           {savedDesignLabel && (
             <div className="rounded-2xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
               Already saved as <span className="font-bold">{savedDesignLabel}</span>
@@ -367,8 +601,26 @@ export function AddToCategoryDialog({
               />
             )}
           </div>
+          </div>
 
-          {error && <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600">{error}</p>}
+          {error && <p className="shrink-0 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-600">{error}</p>}
+          {showComparison && (
+            <ChartPreview
+              name={designName}
+              series={chosenLegendSegments(legendBases, selectedKeys)}
+            />
+          )}
+          </div>
+
+          {showComparison && (
+            <div className="min-h-[280px] md:h-full md:min-h-0">
+              <LegendPicker
+                bases={legendBases}
+                selectedKeys={selectedKeys}
+                onChange={setSelectedKeys}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-3 border-t border-gray-100 px-5 py-4">
@@ -382,7 +634,10 @@ export function AddToCategoryDialog({
           <button
             type="button"
             disabled={!canSubmit || isSaving}
-            onClick={() => onSubmit(creating ? { categoryName: categoryName.trim() } : { categoryId: selectedId })}
+            onClick={() => onSubmit({
+              ...(creating ? { categoryName: categoryName.trim() } : { categoryId: selectedId }),
+              comparisonKeys: showComparison ? selectedKeys : [],
+            })}
             className="inline-flex h-11 cursor-pointer items-center gap-2 rounded-xl bg-blue-600 px-4 text-sm font-bold text-white transition hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSaving && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -713,7 +968,7 @@ export function DesignCategoryDrawer({
                                       <span className="mt-0.5 block truncate text-xs text-gray-500">
                                         {item.design_type === "input"
                                           ? `${item.selection_count} selected`
-                                          : `${item.metric} · ${item.segment_label || "Overall"}`}
+                                          : [item.metric, item.segment_label || "Overall", comparisonLegend(item)].filter(Boolean).join(" · ")}
                                       </span>
                                     </button>
                                     {item.design_type !== "input" && scoreLabel && (

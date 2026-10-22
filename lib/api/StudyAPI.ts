@@ -144,11 +144,38 @@ export interface SavedDesignSegmentPayload {
   value_key?: string
 }
 
+export interface SavedDesignComparisonSegment {
+  key: string
+  label: string
+  base_size: number
+}
+
+export interface SavedDesignComparisonGroup {
+  source: "gender" | "age" | "classification"
+  question?: string | null
+  title: string
+  segments: SavedDesignComparisonSegment[]
+}
+
+export interface SavedDesignComparison {
+  source: "overall" | "gender" | "age" | "classification" | "multiple"
+  question?: string | null
+  metric?: string | null
+  segments: SavedDesignComparisonSegment[]
+  groups?: SavedDesignComparisonGroup[]
+  audience?: {
+    genders?: string[]
+    age_groups?: string[]
+    classification_filters?: Record<string, string[]>
+  } | null
+}
+
 export interface SavedDesignConfigurationPayload {
   metric: DesignMetric
   study_type: StudyType
   design_type?: SavedDesignType
   segment?: SavedDesignSegmentPayload
+  comparison?: SavedDesignComparison | null
   selected_by_category: Record<string, string>
   selected_elements: Array<Record<string, any>>
   input_insights?: Record<string, Array<{ segment_id: string; label: string; value: number }>>
