@@ -13,6 +13,7 @@ export default function AuthCallbackPage() {
   const [hasProcessed, setHasProcessed] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  
   const markOAuthOnboardingPending = useCallback((userId?: string | null, email?: string | null) => {
     try {
       localStorage.setItem("mindsurve_onboarding_pending", "true")
