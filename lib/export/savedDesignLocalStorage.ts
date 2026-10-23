@@ -148,10 +148,6 @@ export function createLocalSavedDesign(
 ): SavedDesignPayload {
   const store = seedLocalSavedDesigns(studyId, initial)
   const type = design.design_type
-  const normalized = design.name.trim().toLowerCase()
-  if (store[type].some((item) => item.name.trim().toLowerCase() === normalized)) {
-    throw new Error("A saved design with this name already exists.")
-  }
   const next = { ...store, [type]: [design, ...store[type]] }
   writeLocalSavedDesigns(studyId, next)
   return design
@@ -169,10 +165,6 @@ export function renameLocalSavedDesign(
   const types: SavedDesignType[] = ["configurator", "input"]
   const foundType = types.find((type) => store[type].some((design) => design.id === designId))
   if (!foundType) throw new Error("Saved design not found.")
-  const normalized = trimmed.toLowerCase()
-  if (store[foundType].some((design) => design.id !== designId && design.name.trim().toLowerCase() === normalized)) {
-    throw new Error("A saved design with this name already exists.")
-  }
   const updated = store[foundType].map((design) => (
     design.id === designId ? { ...design, name: trimmed, updated_at: new Date().toISOString() } : design
   ))

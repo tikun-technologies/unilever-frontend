@@ -725,10 +725,6 @@ export function getDesignConfiguratorStandaloneRuntime(): string {
       aspect_ratio: getLayerAspectRatio(state.analysisData),
       total_coefficient: selectedElements.reduce((sum, e) => sum + e.value, 0),
     };
-    const normalized = name.toLowerCase();
-    if (getCurrentSavedDesigns().some((d) => d.name.trim().toLowerCase() === normalized)) {
-      state.saveError = "A saved design with this name already exists."; render(); return;
-    }
     const now = new Date().toISOString();
     const design = {
       id: uuid(), study_id: studyId, name,
