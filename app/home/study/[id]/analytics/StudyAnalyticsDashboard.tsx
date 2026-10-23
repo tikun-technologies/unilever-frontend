@@ -1407,6 +1407,7 @@ export function StudyAnalyticsDashboard({
                                     studyType={studyType}
                                     designConstraints={study?.design_constraints || []}
                                     studyLayers={study?.study_layers || []}
+                                    classificationQuestions={classificationQuestions}
                                     pendingAssistantDesign={pendingAssistantDesign}
                                     onPendingAssistantDesignConsumed={() => setPendingAssistantDesign(null)}
                                     onExportHtml={() => void buildHtmlExport()}

@@ -230,6 +230,9 @@ function rankConstrainedLayerMixes(
 
   if (layerCategories.length === 0) return []
 
+  // Upper bound only. A layer that is fully blocked contributes 0, so a negative
+  // best element cannot be the ceiling. The search itself still takes that element
+  // whenever it is legal.
   const suffixBest = new Array(layerCategories.length + 1).fill(0)
   for (let index = layerCategories.length - 1; index >= 0; index -= 1) {
     suffixBest[index] = suffixBest[index + 1] + Math.max(0, layerCategories[index].elements[0]?.value ?? 0)
@@ -272,8 +275,10 @@ function rankConstrainedLayerMixes(
     if (explored > SEARCH_BUDGET) return
 
     const { category, elements } = layerCategories[index]
+    let placed = false
     for (const element of elements) {
       if (conflictsWithSelected(element, selectedElements, conflictPairs)) continue
+      placed = true
       selectedByCategory[category.key] = element.id
       selectedElements.push(element)
       search(index + 1, selectedElements, selectedByCategory, score + element.value)
@@ -281,7 +286,11 @@ function rankConstrainedLayerMixes(
       delete selectedByCategory[category.key]
       if (explored > SEARCH_BUDGET) return
     }
-    search(index + 1, selectedElements, selectedByCategory, score)
+    // Keep the best legal score on this layer, including when it is negative.
+    // Leave the layer empty only when every element conflicts.
+    if (!placed) {
+      search(index + 1, selectedElements, selectedByCategory, score)
+    }
   }
 
   search(0, [], {}, 0)

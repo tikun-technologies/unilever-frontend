@@ -5,7 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
-import { CheckCircle2, ChevronDown, Crown, Download, Eye, FileCode2, FolderPlus, Folders, GitCompare, ImageIcon, Loader2, Lock, RotateCcw, Save, Sparkles, Trash2, Type, X } from "lucide-react"
+import { Check, CheckCircle2, ChevronDown, ChevronsDownUp, ChevronsUpDown, Crown, Download, Eye, FileCode2, FolderPlus, Folders, GitCompare, ImageIcon, Loader2, Lock, RotateCcw, Save, Search, Sparkles, Trash2, Type, Unlock, Users, X } from "lucide-react"
 import { renderLayersToCanvas } from "@/lib/canvas-export"
 import {
   assignDesignCategory,
@@ -93,17 +93,34 @@ type ConfiguratorCategory = {
   elements: ConfiguratorElement[]
 }
 
+type SegmentGroupCategory =
+  | "overall"
+  | "gender"
+  | "age"
+  | "mindset_3"
+  | "mindset_2"
+  | "prelim"
+  | "post"
+
 type SegmentOption = {
   id: string
   label: string
+  shortLabel?: string
   sectionKey: string
   valueKey?: string
+  baseSize?: number
+  groupCategory?: SegmentGroupCategory
+  groupTitle?: string
+  questionText?: string
 }
 
 type InputInsightRow = {
   segment_id: string
   label: string
   value: number
+  baseSize?: number
+  groupCategory?: SegmentGroupCategory
+  questionText?: string
 }
 
 const METRIC_OPTIONS: { value: Metric; label: string; description: string }[] = [
@@ -413,25 +430,95 @@ function formatSegmentLabel(valueKey: string): string {
 
 function addSegmentOption(options: SegmentOption[], option: Omit<SegmentOption, "id">) {
   const id = getSegmentId(option.sectionKey, option.valueKey)
-  if (options.some((existing) => existing.id === id || existing.label === option.label)) return
+  if (options.some((existing) => existing.id === id)) return
   options.push({ ...option, id })
 }
 
-function getAvailableSegmentOptions(analysisData: any, metric: Metric): SegmentOption[] {
+function isPostClassificationQuestion(question: any): boolean {
+  if (!question || typeof question !== "object") return false
+  return Boolean(
+    question.optional_classification_question ??
+      question.is_post_question ??
+      question.post_classification_question ??
+      question.config?.optional_classification_question
+  )
+}
+
+function buildQuestionPostLookup(analysisData: any, classificationQuestions?: any[]): Map<string, boolean> {
+  const lookup = new Map<string, boolean>()
+  const sources = [
+    ...(Array.isArray(classificationQuestions) ? classificationQuestions : []),
+    ...(Array.isArray(analysisData?.classification_questions) ? analysisData.classification_questions : []),
+    ...(Array.isArray(analysisData?.meta?.classification_questions) ? analysisData.meta.classification_questions : []),
+    ...(Array.isArray(analysisData?.["Information Block"]?.["Classification Questions"])
+      ? analysisData["Information Block"]["Classification Questions"]
+      : []),
+  ]
+
+  for (const item of sources) {
+    const qText = normalizeText(item?.question_text ?? item?.text)
+    if (!qText) continue
+    if (!lookup.has(qText.toLowerCase()) || isPostClassificationQuestion(item)) {
+      lookup.set(qText.toLowerCase(), isPostClassificationQuestion(item))
+    }
+  }
+
+  if (Array.isArray(analysisData?.post_classification_questions)) {
+    for (const item of analysisData.post_classification_questions) {
+      const qText = normalizeText(item?.question_text ?? item?.text)
+      if (qText) lookup.set(qText.toLowerCase(), true)
+    }
+  }
+
+  return lookup
+}
+
+function getAvailableSegmentOptions(
+  analysisData: any,
+  metric: Metric,
+  classificationQuestions?: any[]
+): SegmentOption[] {
   const prefix = METRIC_PREFIX[metric]
   const options: SegmentOption[] = []
 
+  const overallSection = analysisData?.[`${prefix} Overall`]
+  const combinedSection = analysisData?.[`${prefix} Combined`]
+  const mindsetSection = analysisData?.[`${prefix} Mindsets`]
+  const overallBaseSize = toNumber(
+    overallSection?.base_size ??
+      combinedSection?.base_size ??
+      mindsetSection?.base_size ??
+      mindsetSection?.groups?.Total?.base_size ??
+      analysisData?.filter_meta?.panelists_after_filter ??
+      analysisData?.dashboard_summary?.uniquePanelists ??
+      analysisData?.dashboard_summary?.totalRespondents,
+    0
+  )
+
   addSegmentOption(options, {
     label: "Overall",
+    shortLabel: "Overall",
     sectionKey: `${prefix} Overall`,
+    baseSize: overallBaseSize,
+    groupCategory: "overall",
+    groupTitle: "Overview",
   })
 
   const genderSection = analysisData?.[`${prefix} Gender`]
-  for (const key of Object.keys(genderSection?.segments || {})) {
+  const genderKeys = Object.keys(genderSection?.segments || {})
+  for (const key of genderKeys) {
+    const baseSize = toNumber(genderSection?.segments?.[key]?.base_size, 0)
+    if (baseSize <= 0 && genderKeys.some((k) => toNumber(genderSection?.segments?.[k]?.base_size, 0) > 0)) {
+      continue
+    }
     addSegmentOption(options, {
       label: key,
+      shortLabel: key,
       sectionKey: `${prefix} Gender`,
       valueKey: key,
+      baseSize,
+      groupCategory: "gender",
+      groupTitle: "Gender",
     })
   }
 
@@ -443,24 +530,83 @@ function getAvailableSegmentOptions(analysisData: any, metric: Metric): SegmentO
     return aNum - bNum
   })
   if (ageSection) {
+    const hasPositiveAge = ageKeys.some((k) => toNumber(ageSection?.segments?.[k]?.base_size, 0) > 0)
     for (const key of ageKeys) {
+      const baseSize = toNumber(ageSection?.segments?.[key]?.base_size, 0)
+      if (hasPositiveAge && baseSize <= 0) continue
       addSegmentOption(options, {
         label: key,
+        shortLabel: key,
         sectionKey: `${prefix} Age`,
         valueKey: key,
+        baseSize,
+        groupCategory: "age",
+        groupTitle: "Age Groups",
       })
     }
   }
 
-  const mindsetSection = analysisData?.[`${prefix} Mindsets`]
-  const mindsetGroup = mindsetSection?.groups?.Mindset_3 || mindsetSection?.groups?.Mindset_2 || {}
-  const mindsetKeys = Object.keys(mindsetGroup).sort()
-  for (const key of mindsetKeys) {
+  const mindset3Group = mindsetSection?.groups?.Mindset_3 || {}
+  const mindset3Keys = Object.keys(mindset3Group).sort()
+  for (const key of mindset3Keys) {
+    const baseSize = toNumber(mindset3Group?.[key]?.base_size, 0)
+    if (baseSize <= 0 && mindset3Keys.some((k) => toNumber(mindset3Group?.[k]?.base_size, 0) > 0)) continue
+    const formatted = formatSegmentLabel(key)
     addSegmentOption(options, {
-      label: formatSegmentLabel(key),
+      label: formatted,
+      shortLabel: formatted,
       sectionKey: `${prefix} Mindsets`,
       valueKey: key,
+      baseSize,
+      groupCategory: "mindset_3",
+      groupTitle: "3 Market Segments",
     })
+  }
+
+  const mindset2Group = mindsetSection?.groups?.Mindset_2 || {}
+  const mindset2Keys = Object.keys(mindset2Group).sort()
+  for (const key of mindset2Keys) {
+    const baseSize = toNumber(mindset2Group?.[key]?.base_size, 0)
+    if (baseSize <= 0 && mindset2Keys.some((k) => toNumber(mindset2Group?.[k]?.base_size, 0) > 0)) continue
+    const mMatch = key.match(/^Mindset_(\d+)_of_2$/)
+    const formatted = mMatch ? `Mindset ${mMatch[1]} (of 2)` : formatSegmentLabel(key)
+    addSegmentOption(options, {
+      label: formatted,
+      shortLabel: formatted,
+      sectionKey: `${prefix} Mindsets`,
+      valueKey: key,
+      baseSize,
+      groupCategory: "mindset_2",
+      groupTitle: "2 Market Segments",
+    })
+  }
+
+  const postLookup = buildQuestionPostLookup(analysisData, classificationQuestions)
+  const classificationSection = analysisData?.[`${prefix} Classification Questions`]
+  const questions = Array.isArray(classificationSection?.questions) ? classificationSection.questions : []
+
+  for (const q of questions) {
+    const questionText = normalizeText(q?.question_text)
+    if (!questionText) continue
+    const isPost = isPostClassificationQuestion(q) || Boolean(postLookup.get(questionText.toLowerCase()))
+    const qSegments = q?.segments || {}
+    const answerKeys = Object.keys(qSegments)
+    const hasPositiveAnswer = answerKeys.some((ans) => toNumber(qSegments?.[ans]?.base_size, 0) > 0)
+
+    for (const answer of answerKeys) {
+      const baseSize = toNumber(qSegments?.[answer]?.base_size, 0)
+      if (hasPositiveAnswer && baseSize <= 0) continue
+      addSegmentOption(options, {
+        label: answer,
+        shortLabel: `${questionText}: ${answer}`,
+        sectionKey: `${prefix} Classification Questions`,
+        valueKey: `${questionText}::${answer}`,
+        baseSize,
+        groupCategory: isPost ? "post" : "prelim",
+        groupTitle: isPost ? "Post Study Questions" : "Prelim Questions",
+        questionText,
+      })
+    }
   }
 
   return options
@@ -596,6 +742,15 @@ function pickTransform(element: any): ConfiguratorElement["transform"] | undefin
   }
 }
 
+function resolveSegmentElementValue(element: any, valueKey?: string): number {
+  if (!valueKey) return toNumber(element?.value, 0)
+  const raw = element?.values?.[valueKey]
+  if (raw && typeof raw === "object" && "value" in raw) {
+    return toNumber(raw.value, 0)
+  }
+  return toNumber(raw, 0)
+}
+
 function getScoreMap(analysisData: any, metric: Metric, segment: SegmentOption): Map<string, { value: number; code?: string }> {
   const section = analysisData?.[segment?.sectionKey || METRIC_KEYS[metric]]
   const scoreMap = new Map<string, { value: number; code?: string }>()
@@ -606,7 +761,7 @@ function getScoreMap(analysisData: any, metric: Metric, segment: SegmentOption):
       const name = normalizeText(element?.name)
       if (!categoryName || !name) continue
       scoreMap.set(getElementKey(categoryName, name), {
-        value: segment?.valueKey ? toNumber(element?.values?.[segment.valueKey], 0) : toNumber(element?.value, 0),
+        value: resolveSegmentElementValue(element, segment?.valueKey),
         code: normalizeText(element?.code) || undefined,
       })
     }
@@ -655,7 +810,7 @@ function getCategoriesForMetric(analysisData: any, metric: Metric, segment: Segm
           categoryKey,
           layerId,
           imageId: getImageId(element),
-          value: segment?.valueKey ? toNumber(element?.values?.[segment.valueKey], 0) : toNumber(element?.value, 0),
+          value: resolveSegmentElementValue(element, segment?.valueKey),
           imageUrl: pickElementImage(element),
           content: normalizeText(element?.content) || null,
           elementType: normalizeText(element?.element_type ?? element?.elementType),
@@ -752,10 +907,11 @@ function enrichLayerCategoriesWithIds(
 
 function buildInputDesignInsights(
   analysisData: any,
-  selectedByCategory: Record<string, string>
+  selectedByCategory: Record<string, string>,
+  classificationQuestions?: any[]
 ): Record<Metric, InputInsightRow[]> {
   return METRIC_OPTIONS.reduce<Record<Metric, InputInsightRow[]>>((next, metric) => {
-    const segments = getAvailableSegmentOptions(analysisData || {}, metric.value)
+    const segments = getAvailableSegmentOptions(analysisData || {}, metric.value, classificationQuestions)
     next[metric.value] = segments.map((segment) => {
       const categories = getCategoriesForMetric(analysisData || {}, metric.value, segment)
       const value = categories.reduce((sum, category) => {
@@ -765,8 +921,11 @@ function buildInputDesignInsights(
       }, 0)
       return {
         segment_id: segment.id,
-        label: segment.label,
+        label: segment.questionText ? `${segment.questionText} — ${segment.label}` : segment.label,
         value,
+        baseSize: segment.baseSize,
+        groupCategory: segment.groupCategory,
+        questionText: segment.questionText,
       }
     })
     return next
@@ -779,6 +938,75 @@ function formatValue(value: number, metric: Metric): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1)
 }
 
+function readRegressionBaseline(analysisData: any, metric: Metric): { value: number | null; fitted: boolean } {
+  const section = analysisData?.[`${METRIC_PREFIX[metric]} Intercepts`]
+  if (!section || typeof section !== "object") return { value: null, fitted: false }
+  const fitted = section.regression_mode !== "without_intercept"
+  const raw = section.intercept
+  const value = fitted && typeof raw === "number" && Number.isFinite(raw) ? raw : null
+  return { value, fitted }
+}
+
+function CoefficientAndBaseline({
+  analysisData,
+  metric,
+  total,
+  segmentLabel,
+  baseSize,
+  valueClassName,
+  subtitleClassName,
+}: {
+  analysisData: any
+  metric: Metric
+  total: number
+  segmentLabel: string
+  baseSize?: number
+  valueClassName: string
+  subtitleClassName: string
+}) {
+  const baseline = readRegressionBaseline(analysisData, metric)
+  const baselineCaption = !baseline.fitted
+    ? "Not fitted"
+    : baseline.value === null
+      ? "Unavailable"
+      : `${metric} intercept`
+
+  return (
+    <div className="w-full min-w-0 space-y-2">
+      <div className="flex items-end justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Total Coefficient</p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+            <p className={`truncate font-medium text-gray-500 ${subtitleClassName}`}>{segmentLabel}</p>
+            {typeof baseSize === "number" && (
+              <span className="inline-flex shrink-0 items-center rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-bold tabular-nums text-gray-600">
+                n={baseSize}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className={`tabular-nums font-black text-gray-900 ${valueClassName}`}>
+          {formatValue(total, metric)}
+        </div>
+      </div>
+      <div className="flex items-end justify-between gap-3 border-t border-dashed border-gray-100 pt-2">
+        <div className="min-w-0">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Baseline</p>
+          <p
+            className={`mt-0.5 truncate font-medium text-gray-500 ${subtitleClassName}`}
+            title="Pooled intercept for this regression on the filtered cohort."
+          >
+            {baselineCaption}
+          </p>
+        </div>
+        <div className={`tabular-nums font-black text-gray-900 ${valueClassName}`}>
+          {baseline.value === null ? "—" : formatValue(baseline.value, metric)}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function BodyPortal({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false)
 
@@ -788,6 +1016,391 @@ function BodyPortal({ children }: { children: React.ReactNode }) {
 
   if (!mounted || typeof document === "undefined") return null
   return createPortal(children, document.body)
+}
+
+function ConfiguratorSegmentDropdown({
+  options,
+  activeSegment,
+  onSelect,
+}: {
+  options: SegmentOption[]
+  activeSegment: SegmentOption | undefined
+  onSelect: (segmentId: string) => void
+}) {
+  const [isOpen, setIsOpen] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("")
+  const [activeTab, setActiveTab] = useState<"all" | "demographics" | "questions">("all")
+  const containerRef = useRef<HTMLDivElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setIsOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setIsOpen(false)
+    }
+
+    document.addEventListener("mousedown", handlePointerDown)
+    document.addEventListener("keydown", handleKeyDown)
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown)
+      document.removeEventListener("keydown", handleKeyDown)
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    if (isOpen) {
+      window.setTimeout(() => {
+        searchInputRef.current?.focus()
+      }, 30)
+    } else {
+      setSearchQuery("")
+    }
+  }, [isOpen])
+
+  const hasQuestions = useMemo(
+    () => options.some((opt) => opt.groupCategory === "prelim" || opt.groupCategory === "post"),
+    [options]
+  )
+
+  const filteredOptions = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase()
+    return options.filter((opt) => {
+      if (activeTab === "demographics") {
+        if (opt.groupCategory === "prelim" || opt.groupCategory === "post") return false
+      } else if (activeTab === "questions") {
+        if (opt.groupCategory !== "prelim" && opt.groupCategory !== "post" && opt.groupCategory !== "overall") return false
+      }
+      if (!query) return true
+      return (
+        opt.label.toLowerCase().includes(query) ||
+        (opt.questionText && opt.questionText.toLowerCase().includes(query)) ||
+        (opt.groupTitle && opt.groupTitle.toLowerCase().includes(query))
+      )
+    })
+  }, [options, searchQuery, activeTab])
+
+  const groupedSections = useMemo(() => {
+    const overall = filteredOptions.filter((o) => o.groupCategory === "overall")
+    const genders = filteredOptions.filter((o) => o.groupCategory === "gender")
+    const ages = filteredOptions.filter((o) => o.groupCategory === "age")
+    const mindsets3 = filteredOptions.filter((o) => o.groupCategory === "mindset_3")
+    const mindsets2 = filteredOptions.filter((o) => o.groupCategory === "mindset_2")
+
+    const prelimByQuestion = new Map<string, SegmentOption[]>()
+    for (const opt of filteredOptions.filter((o) => o.groupCategory === "prelim")) {
+      const q = opt.questionText || "Prelim Question"
+      const list = prelimByQuestion.get(q) || []
+      list.push(opt)
+      prelimByQuestion.set(q, list)
+    }
+
+    const postByQuestion = new Map<string, SegmentOption[]>()
+    for (const opt of filteredOptions.filter((o) => o.groupCategory === "post")) {
+      const q = opt.questionText || "Post Study Question"
+      const list = postByQuestion.get(q) || []
+      list.push(opt)
+      postByQuestion.set(q, list)
+    }
+
+    return {
+      overall,
+      genders,
+      ages,
+      mindsets3,
+      mindsets2,
+      prelimQuestions: Array.from(prelimByQuestion.entries()),
+      postQuestions: Array.from(postByQuestion.entries()),
+    }
+  }, [filteredOptions])
+
+  const renderOptionRow = (option: SegmentOption) => {
+    const isSelected = activeSegment?.id === option.id
+    return (
+      <button
+        key={option.id}
+        type="button"
+        onClick={() => {
+          onSelect(option.id)
+          setIsOpen(false)
+        }}
+        className={`group flex w-full cursor-pointer items-center justify-between gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs transition sm:text-sm ${
+          isSelected
+            ? "bg-blue-50/90 text-blue-700 font-semibold ring-1 ring-blue-200/80 shadow-xs"
+            : "text-gray-700 hover:bg-gray-50 hover:text-gray-900"
+        }`}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span
+            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full border transition ${
+              isSelected
+                ? "border-blue-600 bg-blue-600 text-white"
+                : "border-gray-300 bg-white group-hover:border-blue-400"
+            }`}
+          >
+            {isSelected && <Check className="h-2.5 w-2.5 stroke-[3]" />}
+          </span>
+          <span className="truncate">{option.label}</span>
+        </div>
+        {typeof option.baseSize === "number" && (
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums transition ${
+              isSelected
+                ? "bg-blue-600 text-white"
+                : "bg-gray-100 text-gray-600 group-hover:bg-gray-200/80"
+            }`}
+          >
+            n={option.baseSize}
+          </span>
+        )}
+      </button>
+    )
+  }
+
+  return (
+    <div ref={containerRef} className="relative w-full sm:w-auto">
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        className={`flex h-10 w-full cursor-pointer items-center justify-between gap-2.5 rounded-xl border bg-white px-3.5 py-1.5 text-left text-sm font-semibold transition sm:min-w-[240px] sm:max-w-[380px] ${
+          isOpen
+            ? "border-blue-500 ring-2 ring-blue-500/15 text-gray-900 shadow-xs"
+            : "border-gray-200/90 text-gray-800 shadow-2xs hover:border-gray-300 hover:bg-gray-50/50"
+        }`}
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+            <Users className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            {activeSegment?.questionText ? (
+              <span className="block truncate text-xs font-semibold text-gray-900">
+                <span className="font-medium text-gray-500">{activeSegment.questionText}: </span>
+                {activeSegment.label}
+              </span>
+            ) : (
+              <span className="block truncate text-sm font-semibold text-gray-900">
+                {activeSegment?.label || "Overall"}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {typeof activeSegment?.baseSize === "number" && (
+            <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-bold tabular-nums text-blue-700 ring-1 ring-blue-200/60">
+              n={activeSegment.baseSize}
+            </span>
+          )}
+          <ChevronDown
+            className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${
+              isOpen ? "rotate-180 text-blue-600" : ""
+            }`}
+          />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div
+          role="listbox"
+          aria-label="Select respondent segment"
+          className="absolute left-0 top-[calc(100%+0.5rem)] z-[180] flex max-h-[min(74vh,520px)] w-[min(92vw,420px)] flex-col overflow-hidden rounded-2xl border border-gray-200/90 bg-white shadow-2xl ring-1 ring-black/5 sm:w-[400px]"
+        >
+          {/* Search & filter header */}
+          <div className="border-b border-gray-100 bg-gray-50/70 p-3 space-y-2.5">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search segments, questions, or answers..."
+                className="h-9 w-full rounded-xl border border-gray-200 bg-white pl-8 pr-8 text-xs font-medium text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/15"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+                  aria-label="Clear search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            {hasQuestions && (
+              <div className="grid grid-cols-3 gap-1 rounded-xl bg-gray-200/70 p-0.5 text-[11px] font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("all")}
+                  className={`rounded-lg py-1 transition ${
+                    activeTab === "all"
+                      ? "bg-white text-gray-900 shadow-2xs"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  All Segments
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("demographics")}
+                  className={`rounded-lg py-1 transition ${
+                    activeTab === "demographics"
+                      ? "bg-white text-gray-900 shadow-2xs"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  Demographics
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("questions")}
+                  className={`rounded-lg py-1 transition ${
+                    activeTab === "questions"
+                      ? "bg-white text-gray-900 shadow-2xs"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  Prelim & Post
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Scrollable segment groups */}
+          <div className="flex-1 space-y-4 overflow-y-auto overscroll-contain p-3">
+            {filteredOptions.length === 0 ? (
+              <div className="py-8 text-center text-xs font-medium text-gray-500">
+                No segments match &ldquo;{searchQuery}&rdquo;
+              </div>
+            ) : (
+              <>
+                {groupedSections.overall.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="px-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                      Total Respondent Base (After Filters)
+                    </div>
+                    {groupedSections.overall.map(renderOptionRow)}
+                  </div>
+                )}
+
+                {groupedSections.genders.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="px-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                      Gender
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
+                      {groupedSections.genders.map(renderOptionRow)}
+                    </div>
+                  </div>
+                )}
+
+                {groupedSections.ages.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="px-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                      Age Group
+                    </div>
+                    <div className="grid grid-cols-2 gap-1">
+                      {groupedSections.ages.map(renderOptionRow)}
+                    </div>
+                  </div>
+                )}
+
+                {(groupedSections.mindsets3.length > 0 || groupedSections.mindsets2.length > 0) && (
+                  <div className="space-y-2">
+                    {groupedSections.mindsets3.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="px-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                          Mindsets (3 Market Segments)
+                        </div>
+                        <div className="space-y-1">
+                          {groupedSections.mindsets3.map(renderOptionRow)}
+                        </div>
+                      </div>
+                    )}
+                    {groupedSections.mindsets2.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="px-2 text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                          Mindsets (2 Market Segments)
+                        </div>
+                        <div className="grid grid-cols-2 gap-1">
+                          {groupedSections.mindsets2.map(renderOptionRow)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {groupedSections.prelimQuestions.length > 0 && (
+                  <div className="space-y-2.5 border-t border-gray-100 pt-3">
+                    <div className="flex items-center justify-between px-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-blue-600">
+                        Prelim Questions
+                      </span>
+                      <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-600">
+                        {groupedSections.prelimQuestions.length}
+                      </span>
+                    </div>
+                    <div className="space-y-2.5">
+                      {groupedSections.prelimQuestions.map(([questionText, qOptions]) => (
+                        <div
+                          key={`prelim-${questionText}`}
+                          className="rounded-xl border border-gray-100 bg-gray-50/60 p-2"
+                        >
+                          <p className="mb-1.5 px-1.5 text-xs font-bold leading-snug text-gray-800">
+                            {questionText}
+                          </p>
+                          <div className="space-y-1">
+                            {qOptions.map(renderOptionRow)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {groupedSections.postQuestions.length > 0 && (
+                  <div className="space-y-2.5 border-t border-gray-100 pt-3">
+                    <div className="flex items-center justify-between px-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-purple-600">
+                        Post Study Questions
+                      </span>
+                      <span className="rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-bold text-purple-600">
+                        {groupedSections.postQuestions.length}
+                      </span>
+                    </div>
+                    <div className="space-y-2.5">
+                      {groupedSections.postQuestions.map(([questionText, qOptions]) => (
+                        <div
+                          key={`post-${questionText}`}
+                          className="rounded-xl border border-purple-100/80 bg-purple-50/30 p-2"
+                        >
+                          <p className="mb-1.5 px-1.5 text-xs font-bold leading-snug text-gray-800">
+                            {questionText}
+                          </p>
+                          <div className="space-y-1">
+                            {qOptions.map(renderOptionRow)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function PreviewFullscreenModal({
@@ -1240,12 +1853,19 @@ function getSavedDesignElements(
   const elements = design.configuration?.selected_elements || []
   return elements.map((element: any, index: number) => {
     const id = String(element.id || element.element_id || `${design.id}-${index}`)
-    const media = mediaLookup?.[id]
+    const name = String(element.name || element.element_name || `Element ${index + 1}`)
+    const category = String(element.category || "Selection")
+    const categoryKey = String(element.categoryKey || element.category_key || element.category || `selection-${index}`)
+    const media =
+      mediaLookup?.[id] ||
+      mediaLookup?.[getElementKey(categoryKey, name)] ||
+      mediaLookup?.[getElementKey(category, name)] ||
+      mediaLookup?.[`name::${name.trim().toLowerCase()}`]
     return {
       id,
-      name: String(element.name || element.element_name || `Element ${index + 1}`),
-      category: String(element.category || "Selection"),
-      categoryKey: String(element.categoryKey || element.category_key || element.category || `selection-${index}`),
+      name,
+      category,
+      categoryKey,
       layerId: normalizeText(element.layerId ?? element.layer_id ?? media?.layerId) || undefined,
       imageId: normalizeText(element.imageId ?? element.image_id ?? media?.imageId) || undefined,
       value: toNumber(element.value, 0),
@@ -1940,6 +2560,7 @@ function SavedDesignCompareOverlay({
               {designElements.map(({ design, elements, total, metric }) => {
                 const isWinner = winnerId === design.id
                 const listOpen = openElementLists[design.id] ?? true
+                const baseline = readRegressionBaseline(analysisData, metric)
                 return (
                   <div
                     key={design.id}
@@ -1951,11 +2572,19 @@ function SavedDesignCompareOverlay({
                       <SavedInputDesignInsights design={design} analysisData={analysisData} />
                     ) : (
                       <div className="rounded-2xl bg-slate-50 p-4">
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Total Coefficient</span>
-                          <span className="text-xl font-black tabular-nums text-slate-900">
-                            {formatValue(total, metric)}
-                          </span>
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Total Coefficient</span>
+                            <span className="text-xl font-black tabular-nums text-slate-900">
+                              {formatValue(total, metric)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between border-t border-slate-200 pt-2">
+                            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Baseline</span>
+                            <span className="text-xl font-black tabular-nums text-slate-900" title="Pooled intercept for this regression on the filtered cohort.">
+                              {baseline.value === null ? "—" : formatValue(baseline.value, metric)}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     )}
@@ -2075,7 +2704,11 @@ function SavedDesignCompareOverlay({
           <SelectionPreview
             selectedElements={previewElements}
             studyType={previewDesign.study_type}
-            backgroundUrl={previewIsLayer ? (previewDesign.configuration?.show_layer_background ? previewDesign.configuration?.background_url || null : null) : previewDesign.configuration?.background_url || null}
+            backgroundUrl={
+              previewIsLayer
+                ? (previewDesign.configuration?.show_layer_background ? (previewDesign.configuration?.background_url || getBackgroundUrl(analysisData)) : null)
+                : (previewDesign.configuration?.background_url || getBackgroundUrl(analysisData))
+            }
             aspectRatio={previewDesign.configuration?.aspect_ratio || "9 / 16"}
             size="fullscreen"
           />
@@ -2175,8 +2808,10 @@ interface AnalyticsDesignConfiguratorProps {
   studyType?: string
   designConstraints?: ApiDesignConstraint[]
   studyLayers?: any[]
+  classificationQuestions?: any[]
   persistence?: "api" | "local"
   initialSavedDesigns?: LocalSavedDesignsStore
+  initialDesignCategories?: DesignCategoryPayload[]
   pendingAssistantDesign?: AssistantPendingDesignSelection | null
   onPendingAssistantDesignConsumed?: () => void
   onExportHtml?: () => void
@@ -2202,8 +2837,10 @@ export function AnalyticsDesignConfigurator({
   studyType = "grid",
   designConstraints = [],
   studyLayers = [],
+  classificationQuestions,
   persistence = "api",
   initialSavedDesigns,
+  initialDesignCategories,
   pendingAssistantDesign = null,
   onPendingAssistantDesignConsumed,
   onExportHtml,
@@ -2216,6 +2853,9 @@ export function AnalyticsDesignConfigurator({
   const initialSavedDesignsRef = useRef<LocalSavedDesignsStore>(
     initialSavedDesigns || { configurator: [], input: [] }
   )
+  const initialDesignCategoriesRef = useRef<DesignCategoryPayload[]>(
+    initialDesignCategories || []
+  )
   const normalizedStudyType = (studyType || "grid").toLowerCase()
   const isLayerStudy = normalizedStudyType === "layer"
   const [isInputDesignMode, setIsInputDesignMode] = useState(false)
@@ -2224,8 +2864,8 @@ export function AnalyticsDesignConfigurator({
   const savedDesignType: SavedDesignType = isInputDesignMode ? "input" : "configurator"
   const [activeMetric, setActiveMetric] = useState<Metric>("Top Down")
   const segmentOptions = useMemo(
-    () => getAvailableSegmentOptions(analysisData || {}, activeMetric),
-    [analysisData, activeMetric]
+    () => getAvailableSegmentOptions(analysisData || {}, activeMetric, classificationQuestions),
+    [analysisData, activeMetric, classificationQuestions]
   )
   const [activeSegmentId, setActiveSegmentId] = useState<string>("")
   const activeSegment = useMemo(
@@ -2282,6 +2922,8 @@ export function AnalyticsDesignConfigurator({
   const [focusCategoryId, setFocusCategoryId] = useState<string | null>(null)
   const [openedDesign, setOpenedDesign] = useState<{ id: string; signature: string } | null>(null)
   const [isTopMixesOpen, setIsTopMixesOpen] = useState(false)
+  const [elementSearchQuery, setElementSearchQuery] = useState("")
+  const [elementFilterMode, setElementFilterMode] = useState<"all" | "positive" | "selected">("all")
   const [activeSelectionImage, setActiveSelectionImage] = useState<{ url: string; name: string; isVideo?: boolean } | null>(null)
   const [highlightedSelectionId, setHighlightedSelectionId] = useState<string | null>(null)
   const previewCaptureRef = useRef<HTMLDivElement>(null)
@@ -2296,7 +2938,7 @@ export function AnalyticsDesignConfigurator({
         const name = normalizeText(element?.name || element?.alt_text) || `Element ${elementIndex + 1}`
         const elementType = normalizeText(element?.element_type ?? element?.elementType)
         const id = getElementKey(categoryKey, name)
-        lookup[id] = {
+        const entry = {
           layerId,
           imageId: getImageId(element),
           imageUrl: elementType.toLowerCase() === "text" ? null : pickElementImage(element),
@@ -2304,6 +2946,15 @@ export function AnalyticsDesignConfigurator({
           elementType,
           zIndex: toNumber(element?.z_index ?? element?.z ?? zIndex, zIndex),
           transform: pickTransform(element),
+        }
+        lookup[id] = entry
+        const byCatName = getElementKey(categoryName, name)
+        if (!lookup[byCatName] || (!lookup[byCatName].imageUrl && entry.imageUrl)) {
+          lookup[byCatName] = entry
+        }
+        const byNameLower = `name::${name.toLowerCase()}`
+        if (!lookup[byNameLower] || (!lookup[byNameLower].imageUrl && entry.imageUrl)) {
+          lookup[byNameLower] = entry
         }
       })
     }
@@ -2345,7 +2996,7 @@ export function AnalyticsDesignConfigurator({
   useEffect(() => {
     if (!studyId) return
     if (isLocalPersistence) {
-      setDesignCategories(listLocalDesignCategories(studyId))
+      setDesignCategories(listLocalDesignCategories(studyId, initialDesignCategoriesRef.current))
       return
     }
     let cancelled = false
@@ -2587,8 +3238,8 @@ export function AnalyticsDesignConfigurator({
     selectedElements.length > 0 || (isLayerStudy && showLayerBackground && Boolean(backgroundUrl))
 
   const inputDesignInsights = useMemo(
-    () => buildInputDesignInsights(analysisData || {}, selectedByCategory),
-    [analysisData, selectedByCategory]
+    () => buildInputDesignInsights(analysisData || {}, selectedByCategory, classificationQuestions),
+    [analysisData, selectedByCategory, classificationQuestions]
   )
 
   const currentSavedDesignConfiguration: SavedDesignConfigurationPayload = useMemo(
@@ -2601,7 +3252,7 @@ export function AnalyticsDesignConfigurator({
       segment: activeSegment
         ? {
             id: activeSegment.id,
-            label: activeSegment.label,
+            label: activeSegment.shortLabel || activeSegment.label,
             section_key: activeSegment.sectionKey,
             value_key: activeSegment.valueKey,
           }
@@ -2733,6 +3384,74 @@ export function AnalyticsDesignConfigurator({
       [categoryKey]: !(current[categoryKey] ?? false),
     }))
   }
+
+  const allCategoriesExpanded = useMemo(
+    () => categories.length > 0 && categories.every((cat) => openCategoryNames[cat.key]),
+    [categories, openCategoryNames]
+  )
+
+  const handleToggleAllCategories = () => {
+    const nextState = !allCategoriesExpanded
+    setOpenCategoryNames(
+      categories.reduce<Record<string, boolean>>((acc, cat) => {
+        acc[cat.key] = nextState
+        return acc
+      }, {})
+    )
+  }
+
+  const togglePinCategory = (categoryKey: string) => {
+    if (!selectedByCategory[categoryKey]) return
+    setPinnedCategoryKeys((current) => {
+      const next = { ...current }
+      if (next[categoryKey]) {
+        delete next[categoryKey]
+      } else {
+        next[categoryKey] = true
+      }
+      return next
+    })
+  }
+
+  const filteredCategoriesView = useMemo(() => {
+    const query = elementSearchQuery.trim().toLowerCase()
+    return categories
+      .map((category) => {
+        const selectedId = selectedByCategory[category.key]
+        const selectedElement = category.elements.find((el) => el.id === selectedId) || null
+        const categoryMatchesQuery = !query || category.name.toLowerCase().includes(query)
+        const baseElements = isInputDesignMode
+          ? [...category.elements]
+          : [...category.elements].sort((a, b) => b.value - a.value)
+
+        const visibleElements = baseElements.filter((el) => {
+          if (elementFilterMode === "positive" && !isInputDesignMode && el.value <= 0) {
+            return false
+          }
+          if (elementFilterMode === "selected" && el.id !== selectedId) {
+            return false
+          }
+          if (query && !categoryMatchesQuery) {
+            const nameMatch = el.name.toLowerCase().includes(query)
+            const contentMatch = Boolean(el.content && el.content.toLowerCase().includes(query))
+            if (!nameMatch && !contentMatch) return false
+          }
+          return true
+        })
+
+        return {
+          category,
+          selectedId,
+          selectedElement,
+          visibleElements,
+        }
+      })
+      .filter((item) => {
+        if (elementFilterMode === "selected" && !item.selectedId) return false
+        if ((query || elementFilterMode !== "all") && item.visibleElements.length === 0) return false
+        return true
+      })
+  }, [categories, selectedByCategory, elementSearchQuery, elementFilterMode, isInputDesignMode])
 
   const hasDesignConstraints = isLayerStudy && designConstraints.some(
     (constraint) => (constraint.anchors?.length || 0) > 0 && (constraint.blocked?.length || 0) > 0
@@ -2947,7 +3666,7 @@ export function AnalyticsDesignConfigurator({
             ? normalizedStudyType
             : "grid") as StudyType,
           metric: activeMetric,
-          segment_label: activeSegment?.label ?? null,
+          segment_label: activeSegment?.shortLabel || activeSegment?.label || null,
           selection_count: selectedElements.length,
           total_coefficient: totalCoefficient,
           configuration: currentSavedDesignConfiguration,
@@ -3123,7 +3842,7 @@ export function AnalyticsDesignConfigurator({
             design_type: savedDesignType,
             study_type: currentSavedDesignConfiguration.study_type,
             metric: activeMetric,
-            segment_label: activeSegment?.label ?? null,
+            segment_label: activeSegment?.shortLabel || activeSegment?.label || null,
             selection_count: selectedElements.length,
             total_coefficient: totalCoefficient,
             configuration: reportConfiguration,
@@ -3143,8 +3862,9 @@ export function AnalyticsDesignConfigurator({
           categoryId: input.categoryId,
           categoryName: input.categoryName,
           designs,
+          initial: initialDesignCategoriesRef.current,
         })
-        setDesignCategories(listLocalDesignCategories(studyId))
+        setDesignCategories(listLocalDesignCategories(studyId, initialDesignCategoriesRef.current))
         setFocusCategoryId(category.id)
       } else {
         let reusedDesignId = addCategoryMode === "existing"
@@ -3288,18 +4008,23 @@ export function AnalyticsDesignConfigurator({
     try {
       let design = savedDesigns.find((item) => item.id === savedDesignId)
       if (!design && isLocalPersistence) {
-        design = findLocalSavedDesign({
-          configurator: listLocalSavedDesigns(studyId, "configurator", initialSavedDesignsRef.current),
-          input: listLocalSavedDesigns(studyId, "input", initialSavedDesignsRef.current),
-        }, savedDesignId)
+        design = findLocalSavedDesign(
+          {
+            configurator: listLocalSavedDesigns(studyId, "configurator", initialSavedDesignsRef.current),
+            input: listLocalSavedDesigns(studyId, "input", initialSavedDesignsRef.current),
+          },
+          savedDesignId,
+          designCategories
+        )
       }
       if (!design) design = await getSavedDesign(studyId, savedDesignId)
       const selection = design.configuration?.selected_by_category || {}
       const metric = METRIC_OPTIONS.some((option) => option.value === design.metric) ? design.metric : activeMetric
-      const segmentOptionsForMetric = getAvailableSegmentOptions(analysisData || {}, metric)
+      const segmentOptionsForMetric = getAvailableSegmentOptions(analysisData || {}, metric, classificationQuestions)
       const segment = design.configuration?.segment
       const segmentMatch = segmentOptionsForMetric.find((option) => option.id === segment?.id)
         || segmentOptionsForMetric.find((option) => option.label === (segment?.label || design.segment_label))
+        || segmentOptionsForMetric.find((option) => option.shortLabel === (segment?.label || design.segment_label))
       setIsInputDesignMode(design.design_type === "input")
       setActiveMetric(metric)
       if (segmentMatch) setActiveSegmentId(segmentMatch.id)
@@ -3419,16 +4144,16 @@ export function AnalyticsDesignConfigurator({
         </div>
 
         {!isInputDesignMode && (
-          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-            <div className="grid w-full grid-cols-3 rounded-lg bg-gray-100 p-0.5 sm:flex sm:w-auto">
+          <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center">
+            <div className="grid w-full grid-cols-3 rounded-xl bg-gray-100/90 p-1 ring-1 ring-gray-200/70 sm:flex sm:w-auto">
               {METRIC_OPTIONS.map((metric) => (
                 <button
                   key={metric.value}
                   type="button"
                   onClick={() => setActiveMetric(metric.value)}
-                  className={`rounded-md px-1.5 py-1.5 text-center text-xs font-medium transition sm:px-3 sm:text-sm ${
+                  className={`rounded-lg px-2 py-1.5 text-center text-xs font-semibold transition sm:px-3.5 sm:text-sm ${
                     activeMetric === metric.value
-                      ? "bg-white text-gray-900 shadow-sm"
+                      ? "bg-white text-gray-900 shadow-xs ring-1 ring-black/5"
                       : "text-gray-500 hover:text-gray-800"
                   }`}
                 >
@@ -3437,20 +4162,11 @@ export function AnalyticsDesignConfigurator({
               ))}
             </div>
 
-            <div className="relative w-full sm:w-auto">
-              <select
-                value={activeSegment?.id || ""}
-                onChange={(event) => setActiveSegmentId(event.target.value)}
-                className="h-9 w-full appearance-none rounded-lg border border-gray-200 bg-white py-1 pl-3 pr-8 text-sm font-medium text-gray-700 outline-none transition hover:border-gray-300 focus:border-gray-400 sm:w-auto"
-              >
-                {segmentOptions.map((segment) => (
-                  <option key={segment.id} value={segment.id}>
-                    {segment.label}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
-            </div>
+            <ConfiguratorSegmentDropdown
+              options={segmentOptions}
+              activeSegment={activeSegment}
+              onSelect={setActiveSegmentId}
+            />
           </div>
         )}
 
@@ -3629,14 +4345,16 @@ export function AnalyticsDesignConfigurator({
                       isActive={!isPreviewFullscreenOpen && !activeSelectionImage}
                     />
                   </div>
-                  <div className="mt-3 flex items-end justify-between gap-3 border-t border-gray-100 pt-3">
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-500">Total Coefficient</p>
-                      <p className="truncate text-xs text-gray-400">{activeSegment?.label || "Overall"}</p>
-                    </div>
-                    <div className="tabular-nums text-2xl font-black text-gray-900">
-                      {formatValue(totalCoefficient, activeMetric)}
-                    </div>
+                  <div className="mt-3 border-t border-gray-100 pt-3">
+                    <CoefficientAndBaseline
+                      analysisData={analysisData}
+                      metric={activeMetric}
+                      total={totalCoefficient}
+                      segmentLabel={activeSegment?.shortLabel || activeSegment?.label || "Overall"}
+                      baseSize={activeSegment?.baseSize}
+                      valueClassName="text-2xl"
+                      subtitleClassName="text-xs"
+                    />
                   </div>
                 </div>
 
@@ -3771,13 +4489,15 @@ export function AnalyticsDesignConfigurator({
                 </>
               ) : (
                 <>
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-wider text-gray-500">Total Coefficient</p>
-                    <p className="mt-0.5 text-sm font-medium text-gray-400">{activeSegment?.label || "Overall"}</p>
-                  </div>
-                  <div className="tabular-nums text-3xl font-black text-gray-900">
-                    {formatValue(totalCoefficient, activeMetric)}
-                  </div>
+                  <CoefficientAndBaseline
+                    analysisData={analysisData}
+                    metric={activeMetric}
+                    total={totalCoefficient}
+                    segmentLabel={activeSegment?.shortLabel || activeSegment?.label || "Overall"}
+                    baseSize={activeSegment?.baseSize}
+                    valueClassName="text-3xl"
+                    subtitleClassName="text-sm"
+                  />
                 </>
               )}
             </div>
@@ -3828,9 +4548,16 @@ export function AnalyticsDesignConfigurator({
               </div>
               <div className="max-h-72 space-y-2 overflow-y-auto p-5">
                 {(inputDesignInsights[activeInputInsightMetric] || []).map((row) => (
-                  <div key={row.segment_id} className="flex items-center justify-between rounded-2xl bg-gray-50 px-4 py-3">
-                    <span className="min-w-0 truncate text-sm font-semibold text-gray-700">{row.label}</span>
-                    <span className={`ml-3 tabular-nums text-sm font-black ${row.value >= 0 ? "text-emerald-600" : "text-red-600"}`}>
+                  <div key={row.segment_id} className="flex items-center justify-between gap-2 rounded-2xl bg-gray-50 px-4 py-3">
+                    <div className="flex min-w-0 flex-1 items-center gap-2">
+                      <span className="min-w-0 truncate text-sm font-semibold text-gray-700">{row.label}</span>
+                      {typeof row.baseSize === "number" && (
+                        <span className="shrink-0 rounded-full bg-gray-200/80 px-2 py-0.5 text-[11px] font-bold tabular-nums text-gray-600">
+                          n={row.baseSize}
+                        </span>
+                      )}
+                    </div>
+                    <span className={`ml-2 shrink-0 tabular-nums text-sm font-black ${row.value >= 0 ? "text-emerald-600" : "text-red-600"}`}>
                       {row.value >= 0 ? "+" : ""}
                       {formatValue(row.value, activeInputInsightMetric)}
                     </span>
@@ -3938,47 +4665,232 @@ export function AnalyticsDesignConfigurator({
             element list reaches its top or bottom edge, continued scrolling carries over
             and moves the whole page, so the user never gets "stuck" inside the list. */}
         <div className="hidden space-y-4 pb-10 lg:sticky lg:top-6 lg:block lg:w-7/12 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:overscroll-auto lg:pr-2 [-webkit-overflow-scrolling:touch]">
+          {/* Quick Controls Bar: Search, Filter Pills & Expand/Collapse All */}
+          <div className="flex flex-col gap-2.5 rounded-2xl border border-gray-200/90 bg-white p-3 shadow-xs sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative min-w-0 flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={elementSearchQuery}
+                onChange={(event) => setElementSearchQuery(event.target.value)}
+                placeholder={`Search ${isLayerStudy ? "layers" : "categories"} or elements...`}
+                className="h-9 w-full rounded-xl border border-gray-200 bg-gray-50/70 pl-9 pr-8 text-xs font-medium text-gray-900 outline-none transition placeholder:text-gray-400 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-500/15 sm:text-sm"
+              />
+              {elementSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setElementSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-gray-400 hover:bg-gray-200/70 hover:text-gray-700"
+                  aria-label="Clear element search"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              <div className="inline-flex items-center rounded-xl bg-gray-100 p-0.5 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => setElementFilterMode("all")}
+                  className={`rounded-lg px-2.5 py-1 transition ${
+                    elementFilterMode === "all"
+                      ? "bg-white text-gray-900 shadow-2xs"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  All
+                </button>
+                {!isInputDesignMode && (
+                  <button
+                    type="button"
+                    onClick={() => setElementFilterMode("positive")}
+                    className={`rounded-lg px-2.5 py-1 transition ${
+                      elementFilterMode === "positive"
+                        ? "bg-emerald-600 text-white shadow-2xs"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    Positive (+)
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setElementFilterMode("selected")}
+                  className={`rounded-lg px-2.5 py-1 transition ${
+                    elementFilterMode === "selected"
+                      ? "bg-blue-600 text-white shadow-2xs"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  Selected ({selectedCount})
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleToggleAllCategories}
+                title={allCategoriesExpanded ? "Collapse all" : "Expand all"}
+                className="inline-flex h-8 items-center gap-1.5 rounded-xl border border-gray-200 bg-white px-2.5 text-xs font-semibold text-gray-700 transition hover:bg-gray-50 active:scale-95"
+              >
+                {allCategoriesExpanded ? (
+                  <>
+                    <ChevronsDownUp className="h-3.5 w-3.5 text-gray-500" />
+                    <span>Collapse All</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronsUpDown className="h-3.5 w-3.5 text-gray-500" />
+                    <span>Expand All</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
           {!isLayerStudy && selectedCount >= MAX_NON_LAYER_SELECTIONS && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-medium text-amber-800">
               Maximum 4 elements can be selected. Remove one to add another category.
             </div>
           )}
 
-          {categories.map((category) => {
-            const selectedId = selectedByCategory[category.key]
-            const isOpen = openCategoryNames[category.key] ?? false
-            return (
-              <div key={category.key} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
-                <button
-                  type="button"
-                  onClick={() => toggleCategoryOpen(category.key)}
-                  className="flex w-full cursor-pointer items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-gray-50 sm:px-6"
-                  aria-expanded={isOpen}
-                >
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-bold text-gray-900">
-                        {isLayerStudy ? "Layer" : "Category"}: {category.name}
-                      </h3>
-                      {selectedId && (
-                        <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> Selected
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-1 text-sm text-gray-500">
-                      {category.elements.length} option{category.elements.length === 1 ? "" : "s"}{" "}
-                      {isLayerStudy ? `· z-index ${category.zIndex}` : ""}
-                    </p>
-                  </div>
-                  <ChevronDown className={`h-5 w-5 flex-shrink-0 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                </button>
+          {filteredCategoriesView.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-gray-200 bg-white p-8 text-center">
+              <p className="text-sm font-semibold text-gray-700">No matching elements found</p>
+              <p className="mt-1 text-xs text-gray-500">
+                Try clearing your search or switching the filter back to All.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setElementSearchQuery("")
+                  setElementFilterMode("all")
+                }}
+                className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-100"
+              >
+                Reset filters
+              </button>
+            </div>
+          ) : (
+            filteredCategoriesView.map(({ category, selectedId, selectedElement, visibleElements }) => {
+              const isOpen =
+                (openCategoryNames[category.key] ?? false) ||
+                Boolean(elementSearchQuery.trim()) ||
+                elementFilterMode !== "all"
+              const isPinned = Boolean(pinnedCategoryKeys[category.key] && selectedId)
+              const selectedIsText =
+                selectedElement && (!selectedElement.imageUrl || selectedElement.elementType?.toLowerCase() === "text")
 
-                {isOpen && (
-                  <div className="border-t border-gray-100 p-5 sm:p-6">
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                      {(isInputDesignMode ? [...category.elements] : [...category.elements].sort((a, b) => b.value - a.value))
-                        .map((element) => {
+              return (
+                <div
+                  key={category.key}
+                  className={`overflow-hidden rounded-3xl border bg-white shadow-sm transition-colors ${
+                    selectedElement ? "border-blue-200/90" : "border-gray-200"
+                  }`}
+                >
+                  <div className="flex w-full items-center justify-between gap-3 px-5 py-3.5 transition-colors hover:bg-gray-50/80 sm:px-6">
+                    <button
+                      type="button"
+                      onClick={() => toggleCategoryOpen(category.key)}
+                      className="flex min-w-0 flex-1 cursor-pointer items-center justify-between gap-3 text-left"
+                      aria-expanded={isOpen}
+                    >
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-bold text-gray-900 sm:text-lg">
+                            {isLayerStudy ? "Layer" : "Category"}: {category.name}
+                          </h3>
+                          {!selectedElement && selectedId && (
+                            <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                              <CheckCircle2 className="h-3.5 w-3.5" /> Selected
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-xs text-gray-500 sm:text-sm">
+                          {visibleElements.length === category.elements.length
+                            ? `${category.elements.length} option${category.elements.length === 1 ? "" : "s"}`
+                            : `${visibleElements.length} of ${category.elements.length} options`}{" "}
+                          {isLayerStudy ? `· z-index ${category.zIndex}` : ""}
+                        </p>
+                      </div>
+
+                      {selectedElement && (
+                        <div className="flex max-w-[55%] shrink-0 items-center gap-2.5 rounded-2xl border border-blue-200/80 bg-blue-50/50 py-1.5 pl-2 pr-3 shadow-2xs">
+                          <span className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white p-0.5 ring-1 ring-gray-200/70">
+                            {selectedIsText ? (
+                              <Type className="h-4 w-4 text-blue-500" />
+                            ) : (
+                              <AnalyticsMediaTile
+                                url={getConfiguratorThumbnailUrl(selectedElement.imageUrl)}
+                                name={selectedElement.name}
+                                isVideo={isVideoElement(selectedElement)}
+                                className="h-full w-full object-contain"
+                              />
+                            )}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-xs font-bold text-gray-900">
+                              {selectedElement.name}
+                            </p>
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600">
+                              Active selection
+                            </p>
+                          </div>
+                          {!isInputDesignMode && (
+                            <span
+                              className={`shrink-0 rounded-lg px-2 py-0.5 text-xs font-black tabular-nums ${
+                                selectedElement.value >= 0
+                                  ? "bg-emerald-100/90 text-emerald-800"
+                                  : "bg-red-100/90 text-red-800"
+                              }`}
+                            >
+                              {selectedElement.value >= 0 ? "+" : ""}
+                              {formatValue(selectedElement.value, activeMetric)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </button>
+
+                    <div className="flex shrink-0 items-center gap-1">
+                      {isLayerStudy && selectedElement && !isInputDesignMode && (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            togglePinCategory(category.key)
+                          }}
+                          title={
+                            isPinned
+                              ? "Pinned for Best Mix (click to unpin)"
+                              : "Pin this selection so Best Mix keeps it locked"
+                          }
+                          aria-label={isPinned ? `Unpin ${category.name}` : `Pin ${category.name}`}
+                          aria-pressed={isPinned}
+                          className={`flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border transition active:scale-95 ${
+                            isPinned
+                              ? "border-blue-300 bg-blue-600 text-white shadow-2xs"
+                              : "border-gray-200 bg-white text-gray-400 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600"
+                          }`}
+                        >
+                          {isPinned ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggleCategoryOpen(category.key)}
+                        aria-label={isOpen ? `Collapse ${category.name}` : `Expand ${category.name}`}
+                        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full text-gray-400 transition hover:bg-gray-100 hover:text-gray-700"
+                      >
+                        <ChevronDown className={`h-5 w-5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                      </button>
+                    </div>
+                  </div>
+
+                  {isOpen && (
+                    <div className="border-t border-gray-100 p-5 sm:p-6">
+                      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                        {visibleElements.map((element) => {
                           const isSelected = selectedId === element.id
                           const disabled =
                             !isLayerStudy &&
@@ -4024,9 +4936,6 @@ export function AnalyticsDesignConfigurator({
                                   {element.name}
                                 </p>
                                 <div className="mt-auto flex items-center justify-between">
-                                  {/* <span className="text-xs text-gray-500">
-                                    {isLayerStudy ? `Stack ${element.zIndex}` : isText ? "Text" : "Image"}
-                                  </span> */}
                                   {!isInputDesignMode && (
                                     <span
                                       className={`rounded-md px-2 py-0.5 text-sm font-bold tabular-nums ${
@@ -4056,12 +4965,13 @@ export function AnalyticsDesignConfigurator({
                             </div>
                           )
                         })}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )
-          })}
+                  )}
+                </div>
+              )
+            })
+          )}
         </div>
       </div>
 
@@ -4080,7 +4990,7 @@ export function AnalyticsDesignConfigurator({
               aria-label="Select design elements"
               className="absolute right-0 top-0 flex h-full w-[min(92vw,420px)] flex-col overflow-hidden rounded-l-3xl bg-white shadow-2xl"
             >
-              <div className="border-b border-gray-100 bg-white px-5 py-4">
+              <div className="border-b border-gray-100 bg-white px-5 py-4 space-y-3">
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <h3 className="text-lg font-black text-gray-900">Select Elements</h3>
@@ -4097,6 +5007,69 @@ export function AnalyticsDesignConfigurator({
                     <X className="h-5 w-5" />
                   </button>
                 </div>
+
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={elementSearchQuery}
+                    onChange={(event) => setElementSearchQuery(event.target.value)}
+                    placeholder={`Search ${isLayerStudy ? "layers" : "categories"} or elements...`}
+                    className="h-9 w-full rounded-xl border border-gray-200 bg-gray-50 pl-8 pr-8 text-xs font-medium text-gray-900 outline-none focus:border-blue-500 focus:bg-white"
+                  />
+                  {elementSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setElementSearchQuery("")}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-gray-400 hover:text-gray-700"
+                      aria-label="Clear search"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center justify-between gap-2">
+                  <div className="inline-flex items-center rounded-xl bg-gray-100 p-0.5 text-[11px] font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setElementFilterMode("all")}
+                      className={`rounded-lg px-2 py-1 transition ${
+                        elementFilterMode === "all" ? "bg-white text-gray-900 shadow-2xs" : "text-gray-600"
+                      }`}
+                    >
+                      All
+                    </button>
+                    {!isInputDesignMode && (
+                      <button
+                        type="button"
+                        onClick={() => setElementFilterMode("positive")}
+                        className={`rounded-lg px-2 py-1 transition ${
+                          elementFilterMode === "positive" ? "bg-emerald-600 text-white shadow-2xs" : "text-gray-600"
+                        }`}
+                      >
+                        Positive (+)
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setElementFilterMode("selected")}
+                      className={`rounded-lg px-2 py-1 transition ${
+                        elementFilterMode === "selected" ? "bg-blue-600 text-white shadow-2xs" : "text-gray-600"
+                      }`}
+                    >
+                      Selected ({selectedCount})
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleToggleAllCategories}
+                    className="inline-flex h-7 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2 text-[11px] font-semibold text-gray-700"
+                  >
+                    {allCategoriesExpanded ? "Collapse" : "Expand"}
+                  </button>
+                </div>
               </div>
 
               <div className="flex-1 space-y-4 overflow-y-auto overscroll-contain bg-gray-50 px-4 py-4 [-webkit-overflow-scrolling:touch]">
@@ -4106,41 +5079,113 @@ export function AnalyticsDesignConfigurator({
                   </div>
                 )}
 
-                {categories.map((category) => {
-                  const selectedId = selectedByCategory[category.key]
-                  const isOpen = openCategoryNames[category.key] ?? false
+                {filteredCategoriesView.map(({ category, selectedId, selectedElement, visibleElements }) => {
+                  const isOpen =
+                    (openCategoryNames[category.key] ?? false) ||
+                    Boolean(elementSearchQuery.trim()) ||
+                    elementFilterMode !== "all"
+                  const isPinned = Boolean(pinnedCategoryKeys[category.key] && selectedId)
+                  const selectedIsText =
+                    selectedElement && (!selectedElement.imageUrl || selectedElement.elementType?.toLowerCase() === "text")
                   return (
-                    <div key={`mobile-${category.key}`} className="overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
-                      <button
-                        type="button"
-                        onClick={() => toggleCategoryOpen(category.key)}
-                        className="flex w-full cursor-pointer items-center justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-gray-50"
-                        aria-expanded={isOpen}
-                      >
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <h3 className="text-base font-bold text-gray-900">
-                              {isLayerStudy ? "Layer" : "Category"}: {category.name}
-                            </h3>
-                            {selectedId && (
-                              <span className="flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Selected
-                              </span>
-                            )}
+                    <div
+                      key={`mobile-${category.key}`}
+                      className={`overflow-hidden rounded-3xl border bg-white shadow-sm ${
+                        selectedElement ? "border-blue-200/90" : "border-gray-200"
+                      }`}
+                    >
+                      <div className="flex w-full items-center justify-between gap-2 px-4 py-3.5">
+                        <button
+                          type="button"
+                          onClick={() => toggleCategoryOpen(category.key)}
+                          className="flex min-w-0 flex-1 cursor-pointer flex-col gap-2 text-left"
+                          aria-expanded={isOpen}
+                        >
+                          <div className="min-w-0">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="text-base font-bold text-gray-900">
+                                {isLayerStudy ? "Layer" : "Category"}: {category.name}
+                              </h3>
+                              {!selectedElement && selectedId && (
+                                <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-700">
+                                  <CheckCircle2 className="h-3 w-3" /> Selected
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-0.5 text-xs text-gray-500">
+                              {visibleElements.length === category.elements.length
+                                ? `${category.elements.length} option${category.elements.length === 1 ? "" : "s"}`
+                                : `${visibleElements.length} of ${category.elements.length} options`}{" "}
+                              {isLayerStudy ? `· z-index ${category.zIndex}` : ""}
+                            </p>
                           </div>
-                          <p className="mt-1 text-sm text-gray-500">
-                            {category.elements.length} option{category.elements.length === 1 ? "" : "s"}{" "}
-                            {isLayerStudy ? `· z-index ${category.zIndex}` : ""}
-                          </p>
+
+                          {selectedElement && (
+                            <div className="flex items-center gap-2 rounded-xl border border-blue-200/80 bg-blue-50/50 px-2.5 py-1.5">
+                              <span className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-md bg-white p-0.5 ring-1 ring-gray-200">
+                                {selectedIsText ? (
+                                  <Type className="h-3.5 w-3.5 text-blue-500" />
+                                ) : (
+                                  <AnalyticsMediaTile
+                                    url={getConfiguratorThumbnailUrl(selectedElement.imageUrl)}
+                                    name={selectedElement.name}
+                                    isVideo={isVideoElement(selectedElement)}
+                                    className="h-full w-full object-contain"
+                                  />
+                                )}
+                              </span>
+                              <span className="min-w-0 flex-1 truncate text-xs font-bold text-gray-900">
+                                {selectedElement.name}
+                              </span>
+                              {!isInputDesignMode && (
+                                <span
+                                  className={`shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-black tabular-nums ${
+                                    selectedElement.value >= 0
+                                      ? "bg-emerald-100 text-emerald-800"
+                                      : "bg-red-100 text-red-800"
+                                  }`}
+                                >
+                                  {selectedElement.value >= 0 ? "+" : ""}
+                                  {formatValue(selectedElement.value, activeMetric)}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </button>
+
+                        <div className="flex shrink-0 items-center gap-1">
+                          {isLayerStudy && selectedElement && !isInputDesignMode && (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                togglePinCategory(category.key)
+                              }}
+                              aria-label={isPinned ? `Unpin ${category.name}` : `Pin ${category.name}`}
+                              aria-pressed={isPinned}
+                              className={`flex h-8 w-8 items-center justify-center rounded-full border ${
+                                isPinned
+                                  ? "border-blue-300 bg-blue-600 text-white"
+                                  : "border-gray-200 bg-white text-gray-400"
+                              }`}
+                            >
+                              {isPinned ? <Lock className="h-3.5 w-3.5" /> : <Unlock className="h-3.5 w-3.5" />}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => toggleCategoryOpen(category.key)}
+                            className="flex h-8 w-8 items-center justify-center rounded-full text-gray-400"
+                          >
+                            <ChevronDown className={`h-5 w-5 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                          </button>
                         </div>
-                        <ChevronDown className={`h-5 w-5 flex-shrink-0 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                      </button>
+                      </div>
 
                       {isOpen && (
                         <div className="border-t border-gray-100 p-4">
                           <div className="grid grid-cols-2 gap-3">
-                            {(isInputDesignMode ? [...category.elements] : [...category.elements].sort((a, b) => b.value - a.value))
-                              .map((element) => {
+                            {visibleElements.map((element) => {
                                 const isSelected = selectedId === element.id
                                 const disabled =
                                   !isLayerStudy &&

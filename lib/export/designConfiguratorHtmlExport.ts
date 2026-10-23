@@ -51,6 +51,7 @@ function toExportConfiguratorPayload(payload: DesignConfiguratorExportPayload): 
     designConstraints: payload.designConstraints || [],
     studyLayers: payload.studyLayers || [],
     savedDesigns: payload.savedDesigns,
+    designCategories: payload.designCategories || [],
     appliedFilters: payload.appliedFilters ?? null,
   }
 }
@@ -103,6 +104,7 @@ export async function exportDesignConfiguratorHtml(input: {
     analysisData: payload.analysisData,
     studyLayers: payload.studyLayers,
     savedDesigns: payload.savedDesigns,
+    designCategories: payload.designCategories,
   })
   const { map } = await buildImageDataUrlMap(imageUrls, input.onEmbedProgress)
   const exportPayload: DesignConfiguratorExportPayload = {
@@ -110,6 +112,7 @@ export async function exportDesignConfiguratorHtml(input: {
     analysisData: await embedImagesInValue(payload.analysisData, map),
     studyLayers: await embedImagesInValue(payload.studyLayers || [], map),
     savedDesigns: await embedImagesInValue(payload.savedDesigns, map),
+    designCategories: await embedImagesInValue(payload.designCategories || [], map),
   }
 
   input.onStageChange?.("generating")

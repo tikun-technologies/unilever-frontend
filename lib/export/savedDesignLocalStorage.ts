@@ -18,6 +18,8 @@ function slimSelectedElement(element: Record<string, unknown>) {
     name: element.name,
     category: element.category,
     category_key: element.category_key ?? element.categoryKey,
+    layer_id: element.layer_id ?? element.layerId,
+    image_id: element.image_id ?? element.imageId,
     value: element.value,
     segment_lifts: element.segment_lifts,
     image_url: storableImageUrl(element.image_url ?? element.imageUrl),
@@ -28,7 +30,7 @@ function slimSelectedElement(element: Record<string, unknown>) {
   }
 }
 
-function slimConfiguration(configuration: SavedDesignConfigurationPayload): SavedDesignConfigurationPayload {
+export function slimDesignConfiguration(configuration: SavedDesignConfigurationPayload): SavedDesignConfigurationPayload {
   return {
     metric: configuration.metric,
     study_type: configuration.study_type,
@@ -48,7 +50,7 @@ function slimConfiguration(configuration: SavedDesignConfigurationPayload): Save
 function slimDesign(design: SavedDesignPayload): SavedDesignPayload {
   return {
     ...design,
-    configuration: slimConfiguration(design.configuration),
+    configuration: slimDesignConfiguration(design.configuration),
   }
 }
 

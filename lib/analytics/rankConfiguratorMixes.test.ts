@@ -91,6 +91,81 @@ describe("rankConfiguratorMixes", () => {
     expect(mixes.some((mix) => mix.selection.L1 === "good" && mix.selection.L2 === "blocked")).toBe(false)
   })
 
+  it("keeps the best negative element when every option on a layer is negative", () => {
+    const mixes = rankConfiguratorMixes({
+      isLayer: true,
+      applyConstraints: true,
+      designConstraints: [
+        {
+          name: "unrelated",
+          anchors: [{ layer_id: "layer-1", image_id: "image-high" }],
+          blocked: [{ layer_id: "layer-2", image_id: "image-missing" }],
+        },
+      ],
+      categories: [
+        {
+          key: "L1",
+          name: "Color",
+          zIndex: 0,
+          elements: [
+            { id: "high", name: "High", value: 8, layerId: "layer-1", imageId: "image-high" },
+            { id: "low", name: "Low", value: 1, layerId: "layer-1", imageId: "image-low" },
+          ],
+        },
+        {
+          key: "L2",
+          name: "Finish",
+          zIndex: 1,
+          elements: [
+            { id: "neg-best", name: "Least negative", value: -2, layerId: "layer-2", imageId: "image-neg-best" },
+            { id: "neg-worse", name: "Worse", value: -9, layerId: "layer-2", imageId: "image-neg-worse" },
+          ],
+        },
+      ],
+    })
+
+    expect(mixes[0].selection).toEqual({ L1: "high", L2: "neg-best" })
+    expect(mixes[0].score).toBe(6)
+    expect(mixes.every((mix) => mix.selection.L2)).toBe(true)
+  })
+
+  it("uses the best legal negative when the positive option is blocked", () => {
+    const mixes = rankConfiguratorMixes({
+      isLayer: true,
+      designConstraints: [
+        {
+          name: "block-positive",
+          anchors: [{ layer_id: "layer-1", image_id: "image-anchor" }],
+          blocked: [{ layer_id: "layer-2", image_id: "image-positive" }],
+        },
+      ],
+      categories: [
+        {
+          key: "L1",
+          name: "Base",
+          zIndex: 0,
+          elements: [
+            { id: "anchor", name: "Anchor", value: 12, layerId: "layer-1", imageId: "image-anchor" },
+          ],
+        },
+        {
+          key: "L2",
+          name: "Accent",
+          zIndex: 1,
+          elements: [
+            { id: "positive", name: "Positive", value: 7, layerId: "layer-2", imageId: "image-positive" },
+            { id: "neg-best", name: "Least negative", value: -1, layerId: "layer-2", imageId: "image-neg-best" },
+            { id: "neg-worse", name: "Worse", value: -6, layerId: "layer-2", imageId: "image-neg-worse" },
+          ],
+        },
+      ],
+    })
+
+    expect(mixes[0].selection).toEqual({ L1: "anchor", L2: "neg-best" })
+    expect(mixes[0].score).toBe(11)
+    expect(mixes.some((mix) => mix.selection.L1 === "anchor" && mix.selection.L2 === "positive")).toBe(false)
+  })
+
   it("keeps the higher score when two images cannot be used together", () => {
     const categories = [
       {
