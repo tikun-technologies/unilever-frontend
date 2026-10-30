@@ -1147,6 +1147,7 @@ export default function TasksPage() {
           <VideoTaskExperience
             key={currentTaskIndex}
             urls={task.gridUrls || []}
+            upcomingUrls={tasks[currentTaskIndex + 1]?.gridUrls || []}
             mainQuestion={mainQuestion}
             taskNumber={currentTaskIndex + 1}
             totalTasks={totalTasks}

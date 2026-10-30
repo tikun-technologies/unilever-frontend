@@ -11,8 +11,10 @@ import {
   posterFor,
   prefersNativeHls,
   prewarmVideoUrls,
+  recycleVideoElement,
   releaseWarmInterest,
   setWarmPlaybackInterest,
+  takeVideoElement,
 } from "@/lib/utils/videoPrewarm"
 import { mediaSnapshot, videoClipLabel, videoDiag, videoDiagEnabled } from "@/lib/utils/videoDiag"
 
@@ -121,6 +123,13 @@ function ClipMedia({
   const [fit, setFit] = useState<VideoFit>("cover")
   // Autoplay was denied even muted (Low Power Mode, strict settings). Needs a tap.
   const [needsTap, setNeedsTap] = useState(false)
+  // A real frame has been shown. Until then the poster covers the player,
+  // because Safari drops its own poster and shows black once play() starts.
+  const [hasFrame, setHasFrame] = useState(false)
+  const [posterFailed, setPosterFailed] = useState(false)
+  const [slowStart, setSlowStart] = useState(false)
+  // A muted play started only to buffer a neighbour on Safari.
+  const primingRef = useRef(false)
   const [debugLines, setDebugLines] = useState<string[]>([])
   const poster = posterFor(src)
   const clipId = useMemo(() => videoClipLabel(src), [src])
@@ -149,16 +158,10 @@ function ClipMedia({
     let claimed = claimWarmVideo(src)
     if (claimed && (claimed.error || claimed.networkState === HTMLMediaElement.NETWORK_NO_SOURCE)) {
       logRef.current("claim-discarded", { code: claimed.error?.code ?? null, ...mediaSnapshot(claimed) })
-      try {
-        claimed.removeAttribute("src")
-        claimed.load()
-        claimed.remove()
-      } catch {
-        /* noop */
-      }
+      recycleVideoElement(claimed)
       claimed = null
     }
-    const node = claimed ?? document.createElement("video")
+    const node = claimed ?? takeVideoElement()
     setWarmPlaybackInterest(src, true)
     node.playsInline = true
     node.loop = true
@@ -175,8 +178,15 @@ function ClipMedia({
     mainRef.current = node
 
     let cancelled = false
+    primingRef.current = false
     setReady(node.readyState >= 1)
     setNeedsTap(false)
+    setHasFrame(!node.paused && node.readyState >= 2)
+    const onFrame = () => {
+      if (!cancelled && node.readyState >= 2 && (!node.paused || node.currentTime > 0)) setHasFrame(true)
+    }
+    node.addEventListener("playing", onFrame)
+    node.addEventListener("timeupdate", onFrame)
     const onMeta = () => {
       if (cancelled) return
       setFit(node.videoWidth > node.videoHeight ? "contain" : "cover")
@@ -288,6 +298,8 @@ function ClipMedia({
       traced.forEach(([name, fn]) => node.removeEventListener(name, fn))
       node.removeEventListener("loadedmetadata", onMeta)
       node.removeEventListener("error", onErr)
+      node.removeEventListener("playing", onFrame)
+      node.removeEventListener("timeupdate", onFrame)
       try {
         hlsRef.current?.destroy()
       } catch {
@@ -297,14 +309,7 @@ function ClipMedia({
       if (mainRef.current === node) mainRef.current = null
       if (activeVideoRef.current === node) activeVideoRef.current = null
       releaseWarmInterest(src)
-      try {
-        node.pause()
-        node.removeAttribute("src")
-        node.load()
-        node.remove()
-      } catch {
-        /* noop */
-      }
+      recycleVideoElement(node)
     }
   }, [mounted, src]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -314,18 +319,47 @@ function ClipMedia({
     node.className = `pointer-events-none h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`
   }, [fit, mounted])
 
-  // Playback for the active clip. Neighbours only buffer; nothing here ever
-  // calls play() on a clip that is not active, so a preload cannot pause the
-  // visible one.
+  // Playback for the active clip. Neighbours only buffer. On Safari a paused
+  // off-screen player loads nothing, so a neighbour is played muted until its
+  // first frame is decoded and then paused again. A muted clip never takes
+  // the audio from the one on screen.
   useEffect(() => {
     const node = mainRef.current
     if (!node || !mounted) return
     if (!shouldPlay) {
       if (activeVideoRef.current === node) activeVideoRef.current = null
-      if (!node.paused) node.pause()
-      return
+      if (!node.paused && !primingRef.current) node.pause()
+      if (!prefersNativeHls() || primingRef.current || node.readyState >= 3 || node.currentTime > 0) return
+      let stopped = false
+      primingRef.current = true
+      node.muted = true
+      const stopPriming = () => {
+        node.removeEventListener("playing", stopPriming)
+        if (stopped) return
+        stopped = true
+        node.pause()
+        primingRef.current = false
+      }
+      node.addEventListener("playing", stopPriming)
+      node.play().catch(() => {
+        node.removeEventListener("playing", stopPriming)
+        stopped = true
+        primingRef.current = false
+      })
+      return () => {
+        node.removeEventListener("playing", stopPriming)
+        if (stopped) return
+        stopped = true
+        primingRef.current = false
+        if (!node.paused) node.pause()
+      }
     }
     activeVideoRef.current = node
+    if (primingRef.current) {
+      // Still on the muted buffering play; restart with the participant's sound choice.
+      primingRef.current = false
+      node.pause()
+    }
 
     let cancelled = false
     let playPending = false
@@ -490,6 +524,14 @@ function ClipMedia({
 
   // Runs inside the tap, which is the only context a browser that denied
   // autoplay will accept.
+  useEffect(() => {
+    setSlowStart(false)
+    if (!shouldPlay || hasFrame) return
+    // Only show a spinner when the start is noticeably slow.
+    const timer = window.setTimeout(() => setSlowStart(true), 600)
+    return () => window.clearTimeout(timer)
+  }, [shouldPlay, hasFrame])
+
   const playFromTap = () => {
     const node = mainRef.current
     if (!node) return
@@ -523,7 +565,18 @@ function ClipMedia({
       style={{ transform: "translateZ(0)" }}
     >
       <div ref={hostRef} className="pointer-events-none h-full w-full" />
-      {!ready && shouldPlay && !poster && !needsTap && (
+      {poster && !posterFailed && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={poster}
+          alt=""
+          onError={() => setPosterFailed(true)}
+          className={`pointer-events-none absolute inset-0 z-10 h-full w-full transition-opacity duration-150 ${
+            fit === "contain" ? "object-contain" : "object-cover"
+          } ${hasFrame ? "opacity-0" : "opacity-100"}`}
+        />
+      )}
+      {shouldPlay && !hasFrame && !needsTap && (slowStart || ((!poster || posterFailed) && !ready)) && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-white" />
         </div>
@@ -565,13 +618,25 @@ function RatingScale({
   onSelect: (n: number) => void
   onHover?: (n: number) => void
 }) {
+  const labelRows = [
+    { value: ratingScaleValues[0] ?? 1, label: scaleLabels.left },
+    { value: 3, label: scaleLabels.middle },
+    { value: ratingScaleValues[ratingScaleValues.length - 1] ?? 5, label: scaleLabels.right },
+  ].filter((row) => row.label?.trim())
+
   return (
     <div className="w-full">
-      {!isSpecialCreator && (scaleLabels.left || scaleLabels.right) && (
-        <div className="mx-auto mb-3 flex w-full max-w-[360px] items-center justify-between px-2 text-xs font-medium text-gray-600 sm:text-sm">
-          <span className="truncate pr-2">{scaleLabels.left}</span>
-          <span className="truncate pl-2 text-right">{scaleLabels.right}</span>
-        </div>
+      {!isSpecialCreator && labelRows.length > 0 && (
+        <ul className="mx-auto mb-6 flex w-fit max-w-full flex-col items-start gap-2 px-2">
+          {labelRows.map((row) => (
+            <li key={row.value} className="flex items-center gap-2">
+              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full border-2 border-gray-300 text-xs font-semibold text-gray-700">
+                {row.value}
+              </span>
+              <span className="break-words text-sm font-medium leading-tight text-gray-800">{row.label}</span>
+            </li>
+          ))}
+        </ul>
       )}
       <div className="flex items-center justify-center">
         {isSpecialCreator ? (
@@ -636,6 +701,8 @@ export interface VideoTaskExperienceProps {
   onSelect: (n: number) => void
   onHover?: (n: number) => void
   ratingPrompt?: string
+  /** Clips of the following task, warmed while the participant is rating. */
+  upcomingUrls?: string[]
 }
 
 /**
@@ -656,6 +723,7 @@ export function VideoTaskExperience({
   onSelect,
   onHover,
   ratingPrompt = "How appealing was this set of videos?",
+  upcomingUrls,
 }: VideoTaskExperienceProps) {
   const clips = urls.filter(Boolean)
   const box = useVisualViewportBox()
@@ -668,8 +736,16 @@ export function VideoTaskExperience({
   // The viewport changed size while the reel was moving; re-measure at rest.
   const pendingMeasureRef = useRef(false)
   const slideHeightRef = useRef(0)
+  // Arrows, counter and sound button. Hidden directly from the scroll handler
+  // so they leave with the last clip instead of waiting for the snap to settle.
+  const chromeRef = useRef<HTMLDivElement>(null)
 
   const [activeIndex, setActiveIndex] = useState(0)
+  // The clip that plays. Follows the swipe as soon as the next clip is mostly
+  // on screen, so the old one goes quiet and the new one starts without
+  // waiting for the snap to settle. activeIndex still decides what is mounted.
+  const [playIndex, setPlayIndex] = useState(0)
+  const playRef = useRef(0)
   // Slides use a pixel height that only changes while the reel is at rest.
   // If the browser bar hides mid-swipe, the snap points stay where they were.
   const [slideHeight, setSlideHeight] = useState(0)
@@ -679,6 +755,8 @@ export function VideoTaskExperience({
   const [wantSound, setWantSound] = useState(readSoundPref)
   const [soundHint, setSoundHint] = useState(false)
   const [soundAttempt, setSoundAttempt] = useState(0)
+  const wantSoundRef = useRef(wantSound)
+  wantSoundRef.current = wantSound
 
   const questionText = mainQuestion || `Question ${Math.min(taskNumber, totalTasks)}`
   const isMobile = !box.width || box.width < 768
@@ -688,6 +766,33 @@ export function VideoTaskExperience({
     // The clip on screen and the next one are already mounted. Warm only the one after that.
     prewarmVideoUrls(clips.slice(activeIndex + 2, activeIndex + 3), true)
   }, [activeIndex, clipKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const upcomingKey = (upcomingUrls || []).join("\n")
+  useEffect(() => {
+    // The reel's players are released here, so the next task's first clips
+    // can buffer while the participant rates.
+    if (phase !== "rate" || !upcomingUrls?.length) return
+    prewarmVideoUrls(upcomingUrls.filter(Boolean).slice(0, 2), true)
+  }, [phase, upcomingKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (phase !== "watch") return
+    // Any tap is a gesture the browser accepts for sound, so use it to unmute
+    // a clip that had to start muted.
+    const onTap = () => {
+      const video = activeVideoRef.current
+      if (!video || !wantSoundRef.current || !video.muted) return
+      video.muted = false
+      video
+        .play()
+        .then(() => setSoundHint(false))
+        .catch(() => {
+          video.muted = true
+        })
+    }
+    window.addEventListener("click", onTap, true)
+    return () => window.removeEventListener("click", onTap, true)
+  }, [phase])
 
   const scrollToIndex = useCallback((index: number, behavior: ScrollBehavior = "smooth") => {
     const feed = feedRef.current
@@ -757,6 +862,10 @@ export function VideoTaskExperience({
       const height = slideHeightRef.current || feed.clientHeight || 1
       const index = Math.max(0, Math.min(clips.length, Math.round(feed.scrollTop / height)))
       scrollingRef.current = false
+      if (index !== playRef.current) {
+        playRef.current = index
+        setPlayIndex(index)
+      }
       if (index === clips.length) {
         setPhase("rate")
         return
@@ -775,8 +884,22 @@ export function VideoTaskExperience({
       timer = window.setTimeout(settle, SETTLE_MS)
     }
 
+    let chromeHidden = false
     const onScroll = () => {
       scrollingRef.current = true
+      const position = feed.scrollTop / (slideHeightRef.current || feed.clientHeight || 1)
+      const hide = position > clips.length - 0.75
+      const chrome = chromeRef.current
+      if (chrome && hide !== chromeHidden) {
+        chromeHidden = hide
+        chrome.style.opacity = hide ? "0" : ""
+        chrome.toggleAttribute("inert", hide)
+      }
+      const visible = Math.max(0, Math.min(clips.length, Math.round(position)))
+      if (visible !== playRef.current) {
+        playRef.current = visible
+        setPlayIndex(visible)
+      }
       if (touchingRef.current) {
         clear()
         return
@@ -862,7 +985,7 @@ export function VideoTaskExperience({
     flexDirection: "column",
   }
 
-  const counter = clips.length > 0 ? `Video ${Math.min(activeIndex + 1, clips.length)} of ${clips.length}` : ""
+  const counter = clips.length > 0 ? `Video ${Math.min(playIndex + 1, clips.length)} of ${clips.length}` : ""
   const canGoUp = activeIndex > 0
   const canGoDown = activeIndex < clips.length
 
@@ -927,9 +1050,9 @@ export function VideoTaskExperience({
         {clips.map((src, index) => {
           // Previous, current and next stay attached so a swipe in either
           // direction lands on a clip that already has its first frame.
-          // Neighbours are paused; only the current clip ever plays.
+          // Neighbours are paused; only the clip mostly on screen plays.
           const mounted = Math.abs(index - activeIndex) <= 1
-          const shouldPlay = index === activeIndex && !failed[index]
+          const shouldPlay = index === playIndex && !failed[index]
           return (
             <section
               key={`${src}-${index}`}
@@ -989,6 +1112,7 @@ export function VideoTaskExperience({
         </section>
       </div>
 
+      <div ref={chromeRef} className="pointer-events-none absolute inset-0 z-20 transition-opacity duration-150">
       {isMobile && <div
         className="pointer-events-none absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/75 via-black/35 to-transparent px-4 pb-16 sm:px-8"
         style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}
@@ -1009,7 +1133,7 @@ export function VideoTaskExperience({
       </div>}
 
       <div
-        className={`absolute top-1/2 z-20 flex -translate-y-1/2 flex-col gap-2 ${isMobile ? "right-3 sm:right-5" : ""}`}
+        className={`pointer-events-auto absolute top-1/2 z-20 flex -translate-y-1/2 flex-col gap-2 ${isMobile ? "right-3 sm:right-5" : ""}`}
         style={isMobile ? undefined : { left: "calc(50% + 28.125vh)", right: "auto" }}
       >
         <button
@@ -1033,12 +1157,12 @@ export function VideoTaskExperience({
       </div>
 
       {activeIndex < clips.length && <div
-        className={`absolute z-20 flex flex-col items-end gap-1 ${isMobile ? "bottom-4 right-3 sm:right-5" : "bottom-4 right-5"}`}
+        className={`pointer-events-auto absolute z-20 flex flex-col items-end gap-1 ${isMobile ? "bottom-4 right-3 sm:right-5" : "bottom-4 right-5"}`}
         style={{ bottom: "max(16px, env(safe-area-inset-bottom))" }}
       >
         {soundHint && (
           <span className="max-w-[170px] text-right text-[11px] leading-tight text-white/90 drop-shadow">
-            Tap for sound. The browser blocked audio until you do.
+            Tap anywhere for sound. The browser blocked audio until you do.
           </span>
         )}
         <button
@@ -1050,6 +1174,7 @@ export function VideoTaskExperience({
           {wantSound && !soundHint ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
         </button>
       </div>}
+      </div>
     </div>
   )
 }

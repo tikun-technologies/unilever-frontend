@@ -60,6 +60,84 @@ export function prefersNativeHls(): boolean {
 
 const supportsNativeHls = prefersNativeHls
 
+/**
+ * Apple's player keeps its autoplay restriction on each <video> separately. A
+ * player that was never part of a tap cannot start with sound, and in Low
+ * Power Mode cannot start at all. Every tap therefore unlocks the players we
+ * own, and released players are reused for later clips instead of new ones.
+ */
+const owned = new Set<HTMLVideoElement>()
+const unlocked = new WeakSet<HTMLVideoElement>()
+const spare: HTMLVideoElement[] = []
+const SPARE_LIMIT = 4
+let gestureHooked = false
+
+function unlockOnGesture() {
+  if (!supportsNativeHls()) return
+  while (spare.length < SPARE_LIMIT) {
+    const video = document.createElement("video")
+    video.playsInline = true
+    video.setAttribute("playsinline", "")
+    video.muted = true
+    owned.add(video)
+    spare.push(video)
+  }
+  owned.forEach((video) => {
+    if (unlocked.has(video)) return
+    unlocked.add(video)
+    try {
+      if (!video.getAttribute("src") && !video.currentSrc) {
+        video.load()
+      } else if (video.paused) {
+        const attempt = video.play()
+        video.pause()
+        void attempt?.catch(() => undefined)
+      } else {
+        void video.play().catch(() => undefined)
+      }
+    } catch {
+      /* best effort */
+    }
+  })
+}
+
+function hookGestureUnlock() {
+  if (gestureHooked || typeof window === "undefined") return
+  gestureHooked = true
+  // Only real taps and key presses. A touchend that ends a swipe is not a gesture.
+  window.addEventListener("click", unlockOnGesture, true)
+  window.addEventListener("keydown", unlockOnGesture, true)
+}
+
+/** A player for a reel clip, already unlocked by an earlier tap when possible. */
+export function takeVideoElement(): HTMLVideoElement {
+  hookGestureUnlock()
+  const video = spare.pop() ?? document.createElement("video")
+  owned.add(video)
+  return video
+}
+
+/** Empty the player and keep it for the next clip if a tap has unlocked it. */
+export function recycleVideoElement(video: HTMLVideoElement) {
+  try {
+    video.pause()
+    video.removeAttribute("src")
+    video.removeAttribute("poster")
+    video.load()
+    video.remove()
+  } catch {
+    /* already gone */
+  }
+  video.className = ""
+  video.style.cssText = ""
+  video.muted = true
+  if (unlocked.has(video) && spare.length < SPARE_LIMIT && !spare.includes(video)) {
+    spare.push(video)
+  } else {
+    owned.delete(video)
+  }
+}
+
 function mediaKey(url: string) {
   return lowQualityHlsUrl(url).split("?")[0]
 }
@@ -69,14 +147,7 @@ function heldCount() {
 }
 
 function discardVideo(video: HTMLVideoElement) {
-  try {
-    video.pause()
-    video.removeAttribute("src")
-    video.load()
-    video.remove()
-  } catch {
-    /* already gone */
-  }
+  recycleVideoElement(video)
 }
 
 function parkVideo(video: HTMLVideoElement) {
@@ -168,6 +239,8 @@ export function releaseWarmInterest(url: string) {
   if (!url) return
   onScreen.delete(mediaKey(url))
   onScreen.delete(url.split("?")[0])
+  // A released clip frees a slot for the next task's first clip.
+  schedulePump()
 }
 
 function fetchWithCap(url: string, signal: AbortSignal) {
@@ -222,7 +295,7 @@ async function warmNativeRetain(url: string): Promise<"kept" | "skip" | "full"> 
   if (onScreen.has(key)) return "skip"
   if (pool.some((slot) => slot.key === key) || loading?.key === key) return "skip"
   if (heldCount() >= poolLimit()) return "full"
-  const video = document.createElement("video")
+  const video = takeVideoElement()
   parkVideo(video)
   const slot: WarmSlot = { key, video }
   loading = slot
@@ -283,6 +356,7 @@ async function pump() {
 /** Queue the next clips. priority puts them ahead of the following task. */
 export function prewarmVideoUrls(urls: string[], priority = false) {
   if (typeof document === "undefined") return
+  hookGestureUnlock()
   const incoming = priority ? [...urls].reverse() : urls
   for (const url of incoming) {
     if (!url || !isHlsUrl(url)) continue

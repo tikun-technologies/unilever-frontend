@@ -267,11 +267,11 @@ export default function TasksPage() {
       const rsSrc = s3 && typeof s3 === "object" ? s3 : {}
       const rs = (rsSrc as any).rating ?? (rsSrc as any).rating_scale ?? rsSrc
       const left =
-        (rs?.minLabel ?? rs?.min_label ?? rs?.leftLabel ?? rs?.left_label ?? rs?.left ?? rs?.min ?? "") ?? ""
+        rs?.minLabel ?? rs?.min_label ?? rs?.leftLabel ?? rs?.left_label ?? rs?.left ?? rs?.min ?? ""
       const right =
-        (rs?.maxLabel ?? rs?.max_label ?? rs?.rightLabel ?? rs?.right_label ?? rs?.right ?? rs?.max ?? "") ?? ""
-      const middle = (rs?.middleLabel ?? rs?.middle_label ?? rs?.middle ?? rs?.midLabel ?? rs?.mid_label ?? "") ?? ""
-      setScaleLabels({ left: String(left ?? ""), right: String(right ?? ""), middle: String(middle ?? "") })
+        rs?.maxLabel ?? rs?.max_label ?? rs?.rightLabel ?? rs?.right_label ?? rs?.right ?? rs?.max ?? ""
+      const middle = rs?.middleLabel ?? rs?.middle_label ?? rs?.middle ?? rs?.midLabel ?? rs?.mid_label ?? ""
+      setScaleLabels({ left: String(left), right: String(right), middle: String(middle) })
 
       let respondentTasks: any[] = []
       if (Array.isArray(matrix)) {
@@ -830,6 +830,7 @@ export default function TasksPage() {
           <VideoTaskExperience
             key={currentTaskIndex}
             urls={task.gridUrls || []}
+            upcomingUrls={tasks[currentTaskIndex + 1]?.gridUrls || []}
             mainQuestion={mainQuestion}
             taskNumber={currentTaskIndex + 1}
             totalTasks={totalTasks}
