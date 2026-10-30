@@ -28,6 +28,12 @@ function stripQuery(url: string) {
   return url.split("?")[0]
 }
 
+function bufferLimits(onScreen: boolean) {
+  return onScreen
+    ? { maxBufferLength: 20, maxMaxBufferLength: 40 }
+    : { maxBufferLength: 4, maxMaxBufferLength: 6 }
+}
+
 const SOUND_KEY = "video_reel_sound"
 type VideoFit = "cover" | "contain"
 
@@ -130,6 +136,8 @@ function ClipMedia({
   const [slowStart, setSlowStart] = useState(false)
   // A muted play started only to buffer a neighbour on Safari.
   const primingRef = useRef(false)
+  const shouldPlayRef = useRef(shouldPlay)
+  shouldPlayRef.current = shouldPlay
   const [debugLines, setDebugLines] = useState<string[]>([])
   const poster = posterFor(src)
   const clipId = useMemo(() => videoClipLabel(src), [src])
@@ -249,8 +257,7 @@ function ClipMedia({
             // then let ABR climb. Buffer further ahead and keep a small back
             // buffer so an on-screen clip is ready the moment it is played.
             startLevel: 0,
-            maxBufferLength: 20,
-            maxMaxBufferLength: 40,
+            ...bufferLimits(shouldPlayRef.current),
             backBufferLength: 10,
             startFragPrefetch: true,
           })
@@ -318,6 +325,13 @@ function ClipMedia({
     if (!node || !mounted) return
     node.className = `pointer-events-none h-full w-full ${fit === "contain" ? "object-contain" : "object-cover"}`
   }, [fit, mounted])
+
+  // hls.js reads these live, so a neighbour keeps only its opening seconds
+  // and the clip on screen gets the bandwidth.
+  useEffect(() => {
+    const hls = hlsRef.current
+    if (hls) Object.assign(hls.config, bufferLimits(shouldPlay))
+  }, [shouldPlay])
 
   // Playback for the active clip. Neighbours only buffer. On Safari a paused
   // off-screen player loads nothing, so a neighbour is played muted until its
@@ -624,6 +638,27 @@ function RatingScale({
     { value: ratingScaleValues[ratingScaleValues.length - 1] ?? 5, label: scaleLabels.right },
   ].filter((row) => row.label?.trim())
 
+  // A tap that lands while the reel is still snapping onto the rating step
+  // stops the scroll and the browser never sends a click. Take the rating on
+  // finger-up as long as the finger did not move; click covers mouse and keys.
+  const pressRef = useRef<{ n: number; x: number; y: number } | null>(null)
+  const pressProps = (n: number) => ({
+    onPointerDown: (event: React.PointerEvent) => {
+      pressRef.current = { n, x: event.clientX, y: event.clientY }
+    },
+    onPointerUp: (event: React.PointerEvent) => {
+      const press = pressRef.current
+      pressRef.current = null
+      if (!press || press.n !== n) return
+      if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < 12) onSelect(n)
+    },
+    onPointerCancel: () => {
+      pressRef.current = null
+    },
+    onClick: () => onSelect(n),
+    onMouseEnter: () => onHover?.(n),
+  })
+
   return (
     <div className="w-full">
       {!isSpecialCreator && labelRows.length > 0 && (
@@ -645,11 +680,10 @@ function RatingScale({
               <button
                 key={n}
                 type="button"
-                onClick={() => onSelect(n)}
-                onMouseEnter={() => onHover?.(n)}
-                className={`flex h-12 w-12 items-center justify-center rounded-full border-2 transition-colors sm:h-14 sm:w-14 ${
+                {...pressProps(n)}
+                className={`flex h-12 w-12 items-center justify-center rounded-full border-2 transition duration-100 active:scale-95 sm:h-14 sm:w-14 ${
                   lastSelected === n
-                    ? "border-[rgba(38,116,186,1)] bg-[rgba(38,116,186,1)]"
+                    ? "scale-105 border-[rgba(38,116,186,1)] bg-[rgba(38,116,186,1)] ring-4 ring-[rgba(38,116,186,0.3)]"
                     : "border-gray-300 bg-white hover:border-[rgba(38,116,186,1)]"
                 }`}
               >
@@ -669,11 +703,10 @@ function RatingScale({
                 <button
                   key={n}
                   type="button"
-                  onClick={() => onSelect(n)}
-                  onMouseEnter={() => onHover?.(n)}
-                  className={`h-11 w-11 flex-shrink-0 rounded-full border-2 text-sm font-semibold transition-colors sm:h-12 sm:w-12 sm:text-base ${
+                  {...pressProps(n)}
+                  className={`h-11 w-11 flex-shrink-0 rounded-full border-2 text-sm font-semibold transition duration-100 active:scale-95 sm:h-12 sm:w-12 sm:text-base ${
                     selected
-                      ? "border-[rgba(38,116,186,1)] bg-[rgba(38,116,186,1)] text-white"
+                      ? "scale-105 border-[rgba(38,116,186,1)] bg-[rgba(38,116,186,1)] text-white ring-4 ring-[rgba(38,116,186,0.3)]"
                       : "border-gray-300 bg-white text-gray-700 hover:border-gray-400"
                   }`}
                 >
@@ -757,15 +790,28 @@ export function VideoTaskExperience({
   const [soundAttempt, setSoundAttempt] = useState(0)
   const wantSoundRef = useRef(wantSound)
   wantSoundRef.current = wantSound
+  // The rating lights up on the tap itself. The task moves on a moment later so
+  // the participant sees which value was taken, and a second tap is ignored.
+  const [picked, setPicked] = useState<number | null>(null)
+  const pickedRef = useRef<number | null>(null)
+  const pick = useCallback(
+    (n: number) => {
+      if (pickedRef.current !== null) return
+      pickedRef.current = n
+      setPicked(n)
+      window.setTimeout(() => onSelect(n), 160)
+    },
+    [onSelect],
+  )
 
   const questionText = mainQuestion || `Question ${Math.min(taskNumber, totalTasks)}`
   const isMobile = !box.width || box.width < 768
   const clipKey = clips.join("\n")
 
   useEffect(() => {
-    // The clip on screen and the next one are already mounted. Warm only the one after that.
-    prewarmVideoUrls(clips.slice(activeIndex + 2, activeIndex + 3), true)
-  }, [activeIndex, clipKey]) // eslint-disable-line react-hooks/exhaustive-deps
+    // The clip on screen and the next two are already mounted. Warm the one after that.
+    prewarmVideoUrls(clips.slice(playIndex + 3, playIndex + 4), true)
+  }, [playIndex, clipKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const upcomingKey = (upcomingUrls || []).join("\n")
   useEffect(() => {
@@ -1027,8 +1073,8 @@ export function VideoTaskExperience({
           ratingScaleValues={ratingScaleValues}
           isSpecialCreator={isSpecialCreator}
           scaleLabels={scaleLabels}
-          lastSelected={lastSelected}
-          onSelect={onSelect}
+          lastSelected={picked ?? lastSelected}
+          onSelect={pick}
           onHover={onHover}
         />
       </div>
@@ -1048,10 +1094,13 @@ export function VideoTaskExperience({
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y", transform: "translateZ(0)" }}
       >
         {clips.map((src, index) => {
-          // Previous, current and next stay attached so a swipe in either
-          // direction lands on a clip that already has its first frame.
+          // The previous clip and the next two stay attached so a swipe lands
+          // on a clip that already has its first frame. The window follows the
+          // swipe ahead of time, but clips are only detached once it settles,
+          // so quick repeated flicks never reach a clip that starts from zero.
           // Neighbours are paused; only the clip mostly on screen plays.
-          const mounted = Math.abs(index - activeIndex) <= 1
+          const mounted =
+            Math.abs(index - activeIndex) <= 1 || (index >= playIndex - 1 && index <= playIndex + 2)
           const shouldPlay = index === playIndex && !failed[index]
           return (
             <section
