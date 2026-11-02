@@ -141,6 +141,9 @@ interface AnalyticsSettingsModalProps {
 	onSaved?: (response: StudyAnalysisSettingsResponse) => void
 	onOpenAdvancedFilter?: () => void
 	readOnly?: boolean
+	/** When set, the modal edits this snapshot and never calls the server. */
+	offlineSnapshot?: StudyAnalysisSettingsResponse | null
+	onApplyOffline?: (settings: StudyAnalysisSettings) => void
 }
 
 export function AnalyticsSettingsModal({
@@ -150,6 +153,8 @@ export function AnalyticsSettingsModal({
 	onSaved,
 	onOpenAdvancedFilter,
 	readOnly = false,
+	offlineSnapshot = null,
+	onApplyOffline,
 }: AnalyticsSettingsModalProps) {
 	const [loading, setLoading] = useState(false)
 	const [saving, setSaving] = useState(false)
@@ -173,7 +178,7 @@ export function AnalyticsSettingsModal({
 		setLoading(true)
 		setError(null)
 		try {
-			const res = await getStudyAnalysisSettings(studyId)
+			const res = offlineSnapshot ?? (await getStudyAnalysisSettings(studyId))
 			setMaxRating(res.max_rating || 5)
 			const loaded = cloneSettings(res.settings)
 			setDefaults(res.defaults ? cloneSettings(res.defaults) : cloneSettings(res.settings))
@@ -184,7 +189,7 @@ export function AnalyticsSettingsModal({
 		} finally {
 			setLoading(false)
 		}
-	}, [studyId])
+	}, [studyId, offlineSnapshot])
 
 	useEffect(() => {
 		if (isOpen) {
@@ -198,6 +203,11 @@ export function AnalyticsSettingsModal({
 
 	const handleSave = async () => {
 		if (!draft || !hasChanges) return
+		if (offlineSnapshot && onApplyOffline) {
+			onApplyOffline(cloneSettings(draft))
+			onClose()
+			return
+		}
 		setSaving(true)
 		setError(null)
 		try {
@@ -246,6 +256,9 @@ export function AnalyticsSettingsModal({
 							<h2 className="text-xl sm:text-2xl font-bold text-gray-900">Configure rating analysis</h2>
 							<p className="text-sm text-gray-500 mt-1">
 								Choose which ratings count as 100 vs 0 for top-down and bottom-up, and whether regressions include an intercept.
+								{offlineSnapshot
+									? " This file recomputes on your computer and does not change the live study."
+									: ""}
 							</p>
 						</div>
 						<button
@@ -412,7 +425,7 @@ export function AnalyticsSettingsModal({
 								style={{ backgroundColor: BRAND_BLUE }}
 							>
 								{saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-								{saving ? "Saving analysis…" : "Save Analysis"}
+								{saving ? "Saving analysis…" : offlineSnapshot ? "Apply analysis" : "Save Analysis"}
 							</button>
 							)}
 						</div>

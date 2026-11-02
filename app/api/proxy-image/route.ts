@@ -84,6 +84,7 @@ async function processImage(
     const response = await fetch(decodedUrl, {
         method: 'GET',
         cache: 'force-cache',
+        signal: AbortSignal.timeout(15_000),
     });
 
     if (!response.ok) {
@@ -199,9 +200,10 @@ export async function GET(req: NextRequest) {
         if (!job) {
             job = processImage(decodedUrl, requestedWidth, quality, fmt);
             inFlight.set(key, job);
-            job.finally(() => {
+            const cleanup = () => {
                 if (inFlight.get(key) === job) inFlight.delete(key);
-            });
+            };
+            void job.then(cleanup, cleanup);
         }
 
         const result = await job;

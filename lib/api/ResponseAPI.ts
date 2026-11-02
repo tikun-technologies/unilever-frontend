@@ -5,6 +5,7 @@ import { API_BASE_URL } from './LoginApi'
 
 // Import fetchWithAuth from StudyAPI for authenticated requests
 import { fetchWithAuth } from './StudyAPI'
+import type { OfflineAnalysisSource } from '@/lib/export/offlineAnalysis'
 
 export interface StudyInfo {
 	id: string
@@ -547,6 +548,35 @@ export async function getStudyAnalysisJson(studyId: string): Promise<any> {
 		const errorData = await response.json().catch(() => ({}))
 		throw new Error(
 			`Failed to load analysis: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
+		)
+	}
+	return response.json()
+}
+
+/** Compact, unfiltered inputs for HTML export; does not rerun regression/clustering. */
+export async function getStudyOfflineAnalysisSource(studyId: string): Promise<OfflineAnalysisSource> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/offline-analysis-source?include_report=true`,
+		{ method: 'GET', signal: AbortSignal.timeout(120_000) }
+	)
+	if (!response.ok) await throwResponseError(response, 'Failed to load HTML export data')
+	return response.json()
+}
+
+/** Full analysis JSON including RawData, so an offline file can recompute filters and settings. */
+export async function getFullStudyAnalysisJson(studyId: string): Promise<any> {
+	const cleanId = studyId?.trim?.()
+	if (!cleanId) throw new Error('Study ID is required')
+	const response = await fetchWithAuth(
+		`${API_BASE_URL}/responses/study/${encodeURIComponent(cleanId)}/analysis-json?include_raw_data=true`,
+		{ method: 'GET', headers: { 'Content-Type': 'application/json' } }
+	)
+	if (!response.ok) {
+		const errorData = await response.json().catch(() => ({}))
+		throw new Error(
+			`Failed to load full analysis: ${response.status} ${typeof errorData?.detail === 'string' ? errorData.detail : JSON.stringify(errorData)}`
 		)
 	}
 	return response.json()

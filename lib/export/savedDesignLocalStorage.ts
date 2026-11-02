@@ -9,7 +9,10 @@ export type LocalSavedDesignsStore = {
 }
 
 function storableImageUrl(value: unknown): string | null {
-  return typeof value === "string" && /^https?:\/\//i.test(value) ? value : null
+  if (typeof value !== "string") return null
+  const text = value.trim()
+  if (/^(https?:\/\/|blob:|data:image\/|msimg:)/i.test(text)) return text
+  return null
 }
 
 function slimSelectedElement(element: Record<string, unknown>) {

@@ -146,6 +146,7 @@ export function StudyAnalyticsDashboard({
     const [pptMessageIndex, setPptMessageIndex] = useState(0)
     const [csvMessageIndex, setCsvMessageIndex] = useState(0)
     const [exportError, setExportError] = useState<string | null>(null)
+    const [exportWarning, setExportWarning] = useState<string | null>(null)
     const [analysisData, setAnalysisData] = useState<any>(null)
     const [fullAnalysisData, setFullAnalysisData] = useState<any>(null)
     const [analysisLoading, setAnalysisLoading] = useState(true)
@@ -426,7 +427,9 @@ export function StudyAnalyticsDashboard({
             setExportHtmlStage("preparing")
             setExportHtmlMessageIndex(0)
             setExportHtmlEmbedProgress(null)
-            await exportDesignConfiguratorHtml({
+            setExportError(null)
+            setExportWarning(null)
+            const result = await exportDesignConfiguratorHtml({
                 studyId,
                 studyTitle: exportTitle,
                 studyType: exportStudyType,
@@ -440,6 +443,9 @@ export function StudyAnalyticsDashboard({
                 },
                 onEmbedProgress: (done, total) => setExportHtmlEmbedProgress({ done, total }),
             })
+            if (result.missingImages > 0) {
+                setExportWarning(`HTML downloaded. ${result.missingImages} images could not be embedded and will need an internet connection to display. Try exporting again to include them offline.`)
+            }
         } catch (e) {
             console.error("Export HTML failed:", e)
             setExportError((e as Error)?.message || "Failed to export HTML. Please try again.")
@@ -1177,7 +1183,7 @@ export function StudyAnalyticsDashboard({
                                                         >
                                                             {exportingHtml
                                                                 ? htmlExportMessage
-                                                                : "Download the full analytics page as a standalone HTML file."}
+                                                                : "Download the full analytics page. Filters and analysis settings recompute inside the file."}
                                                         </span>
                                                     </span>
                                                 </button>
@@ -1190,6 +1196,15 @@ export function StudyAnalyticsDashboard({
                         </div>
                     </div>
                 </div>
+
+                {exportingHtml ? (
+                    <div className="border-b border-blue-100 bg-blue-50 px-4 py-3 text-sm font-semibold text-[#2674BA]">
+                        <div className="mx-auto flex max-w-7xl items-center gap-3">
+                            <div className="h-4 w-4 shrink-0 animate-spin rounded-full border-2 border-[#2674BA] border-t-transparent" />
+                            <span>{htmlExportMessage}</span>
+                        </div>
+                    </div>
+                ) : null}
 
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                     {analysisError && (
@@ -1206,15 +1221,15 @@ export function StudyAnalyticsDashboard({
                         </div>
                     )}
 
-                    {exportError && (
+                    {(exportError || exportWarning) && (
                         <div className="mb-6 flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800">
                             <div className="min-w-0">
-                                <p className="font-medium">Export could not be completed</p>
-                                <p className="text-sm mt-1 break-words">{exportError}</p>
+                                <p className="font-medium">{exportError ? "Export could not be completed" : "HTML downloaded with an image notice"}</p>
+                                <p className="text-sm mt-1 break-words">{exportError || exportWarning}</p>
                             </div>
                             <button
                                 type="button"
-                                onClick={() => setExportError(null)}
+                                onClick={() => { setExportError(null); setExportWarning(null) }}
                                 className="shrink-0 rounded-md p-1 text-amber-600 transition-colors hover:bg-amber-100 hover:text-amber-800"
                                 aria-label="Dismiss export error"
                             >

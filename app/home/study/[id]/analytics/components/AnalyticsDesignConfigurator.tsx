@@ -359,8 +359,12 @@ function normalizeText(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
 }
 
+function isEmbeddedImageUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value) || /^data:image\//i.test(value) || /^blob:/i.test(value)
+}
+
 function isImageUrl(value: unknown): value is string {
-  return typeof value === "string" && (/^https?:\/\//i.test(value) || /^data:image\//i.test(value))
+  return typeof value === "string" && isEmbeddedImageUrl(value)
 }
 
 function getBackgroundUrl(analysisData: any): string | null {
@@ -653,7 +657,7 @@ function pickElementImage(element: any): string | null {
   ]
   // Video studies store playable video URLs in the same `content` field as
   // images. Keep the URL intact; rendering below chooses <video> by elementType.
-  return candidates.find((candidate) => typeof candidate === "string" && (/^https?:\/\//i.test(candidate) || /^data:(image|video)\//i.test(candidate))) || null
+  return candidates.find((candidate) => typeof candidate === "string" && (isEmbeddedImageUrl(candidate) || /^data:video\//i.test(candidate) || /^blob:/i.test(candidate))) || null
 }
 
 function isVideoElement(element?: Pick<ConfiguratorElement, "elementType" | "imageUrl"> | null): boolean {
@@ -2819,6 +2823,7 @@ interface AnalyticsDesignConfiguratorProps {
   exportHtmlStage?: "preparing" | "embedding" | "generating" | "done"
   exportHtmlMessage?: string
   canSaveDesigns?: boolean
+  onDownloadCategoryLocal?: (category: DesignCategoryPayload) => Promise<void>
 }
 
 const CATEGORY_PPT_MESSAGES = [
@@ -2848,6 +2853,7 @@ export function AnalyticsDesignConfigurator({
   exportHtmlStage = "preparing",
   exportHtmlMessage,
   canSaveDesigns = true,
+  onDownloadCategoryLocal,
 }: AnalyticsDesignConfiguratorProps) {
   const isLocalPersistence = persistence === "local"
   const initialSavedDesignsRef = useRef<LocalSavedDesignsStore>(
@@ -3026,17 +3032,31 @@ export function AnalyticsDesignConfigurator({
 
   const handleDownloadCategory = async (categoryId: string) => {
     if (!studyId || downloadingCategoryId) return
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      setCategoryPptError("You appear to be offline. Reconnect and try the download again.")
-      return
-    }
-    if (isLocalPersistence) {
-      setCategoryPptError("This report can be downloaded after the category is saved to the study.")
-      return
-    }
     const category = designCategories.find((item) => item.id === categoryId)
     if (!category || (category.items?.length ?? 0) === 0) {
       setCategoryPptError("Add at least one combination to this category before downloading.")
+      return
+    }
+    if (isLocalPersistence) {
+      if (!onDownloadCategoryLocal) {
+        setCategoryPptError("This report can be downloaded after the category is saved to the study.")
+        return
+      }
+      setCategoryPptError(null)
+      setDownloadingCategoryId(categoryId)
+      setCategoryPptMessageIndex(0)
+      try {
+        await onDownloadCategoryLocal(category)
+      } catch (error) {
+        setCategoryPptError((error as Error)?.message || "Failed to download this report. Please try again.")
+      } finally {
+        setDownloadingCategoryId(null)
+        setCategoryPptMessageIndex(0)
+      }
+      return
+    }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setCategoryPptError("You appear to be offline. Reconnect and try the download again.")
       return
     }
     setCategoryPptError(null)
@@ -5342,8 +5362,8 @@ export function AnalyticsDesignConfigurator({
         downloadMessage={CATEGORY_PPT_MESSAGES[categoryPptMessageIndex % CATEGORY_PPT_MESSAGES.length]}
         downloadError={categoryPptError}
         onDismissDownloadError={() => setCategoryPptError(null)}
-        downloadsEnabled={!isLocalPersistence}
-        downloadHint={isLocalPersistence ? "Download is available once this category is saved on the study." : null}
+        downloadsEnabled={!isLocalPersistence || Boolean(onDownloadCategoryLocal)}
+        downloadHint={isLocalPersistence && !onDownloadCategoryLocal ? "Download is available once this category is saved on the study." : null}
         onRename={handleRenameCategory}
         onRenameItem={handleRenameSavedDesign}
         onDeleteCategory={(categoryId) => void handleDeleteCategory(categoryId)}

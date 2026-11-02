@@ -115,9 +115,9 @@ function ChartPreview({
       </svg>
       <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1.5">
         {items.map((item) => (
-          <span key={item.key} className="inline-flex max-w-full items-center gap-1.5 text-xs font-semibold text-[#1E2D44]">
-            <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: item.color }} />
-            <span className="truncate">{item.label}{item.base_size ? ` (n=${item.base_size})` : ""}</span>
+          <span key={item.key} className="inline-flex max-w-full items-start gap-1.5 text-left text-xs font-semibold text-[#1E2D44]">
+            <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-sm" style={{ backgroundColor: item.color }} />
+            <span className="min-w-0 whitespace-normal break-words">{item.label}{item.base_size ? ` (n=${item.base_size})` : ""}</span>
           </span>
         ))}
       </div>
@@ -200,22 +200,22 @@ function LegendPicker({
           const allOn = keys.length > 0 && picked === keys.length
           return (
             <div key={base.id} className={`rounded-xl border bg-white p-3 ${base.available ? "border-gray-200" : "border-gray-100 opacity-70"}`}>
-              <div className="flex items-center gap-3">
+              <div className="flex items-start gap-3">
                 <button
                   type="button"
                   disabled={!base.available}
                   aria-pressed={allOn}
                   onClick={() => toggleGroup(base)}
-                  className="flex h-10 min-w-0 flex-1 cursor-pointer items-center gap-3 text-left disabled:cursor-not-allowed"
+                  className="flex min-h-10 min-w-0 flex-1 cursor-pointer items-start gap-3 py-2 text-left disabled:cursor-not-allowed"
                 >
-                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${allOn ? "border-blue-600 bg-blue-600 text-white" : picked ? "border-blue-600 bg-blue-50 text-blue-600" : "border-gray-300"}`}>
+                  <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border ${allOn ? "border-blue-600 bg-blue-600 text-white" : picked ? "border-blue-600 bg-blue-50 text-blue-600" : "border-gray-300"}`}>
                     {allOn && <Check className="h-3 w-3" />}
                     {!allOn && picked > 0 && <span className="h-2 w-2 rounded-sm bg-blue-600" />}
                   </span>
-                  <span className="truncate text-sm font-semibold text-gray-900">{base.title}</span>
+                  <span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-semibold leading-5 text-gray-900">{base.title}</span>
                 </button>
                 {base.available && (
-                  <span className="shrink-0 text-xs font-medium text-gray-500">{picked} of {keys.length}</span>
+                  <span className="shrink-0 pt-2.5 text-xs font-medium text-gray-500">{picked} of {keys.length}</span>
                 )}
               </div>
               {base.lockedReason ? (
@@ -230,13 +230,13 @@ function LegendPicker({
                         type="button"
                         aria-pressed={on}
                         onClick={() => toggle(segment.key)}
-                        className={`inline-flex h-11 cursor-pointer items-center gap-2 rounded-full border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
+                        className={`inline-flex h-auto max-w-full min-h-11 cursor-pointer items-center gap-2 rounded-full border px-3 py-2 text-left text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 ${
                           on ? "border-blue-600 bg-blue-600 text-white" : "border-gray-200 bg-white text-gray-700 hover:border-blue-300"
                         }`}
                       >
-                        {segment.label}
+                        <span className="min-w-0 whitespace-normal break-words">{segment.label}</span>
                         {segment.base_size > 0 && (
-                          <span className={on ? "font-medium text-blue-100" : "font-medium text-gray-400"}>n={segment.base_size}</span>
+                          <span className={`shrink-0 whitespace-nowrap ${on ? "font-medium text-blue-100" : "font-medium text-gray-400"}`}>n={segment.base_size}</span>
                         )}
                       </button>
                     )

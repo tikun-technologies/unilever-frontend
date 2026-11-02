@@ -1,0 +1,10 @@
+{
+  "version": "0.29.0",
+  "files": {
+    "pillow-11.3.0-cp313-cp313-pyodide_2025_0_wasm32.whl": "d23583dc6e2a526acdeb9c426e3c617e6eca11ad3897dd23375e2244520fd9cd",
+    "lxml-6.0.2-cp313-cp313-pyodide_2025_0_wasm32.whl": "e1b1a3e9407f3b6ce5c28c368699315c2ca894ee6e2418336545351ab3887e4c",
+    "python_pptx-1.0.2-py3-none-any.whl": "160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba",
+    "xlsxwriter-3.2.9-py3-none-any.whl": "9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3",
+    "typing_extensions-4.15.0-py3-none-any.whl": "f0fa19c6845758ab08074a0cfa8b7aecb71c999ca73d62883bc25cc018c4e548"
+  }
+}
