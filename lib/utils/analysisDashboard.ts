@@ -5,11 +5,14 @@
  * Used for KPI cards, response time charts, top/bottom performers, pie charts, etc.
  */
 
-/** Live URLs and offline export data-URLs both count as viewable images. */
+/** Live URLs and offline export object/data URLs both count as viewable images. */
 export function isViewableImageUrl(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:image/"))
+    (value.startsWith("http://") ||
+      value.startsWith("https://") ||
+      value.startsWith("blob:") ||
+      value.startsWith("data:image/"))
   )
 }
 

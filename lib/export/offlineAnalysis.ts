@@ -253,39 +253,6 @@ export function runOfflineAnalysis(
   })
 }
 
-function firstAnswer(rows: AnalysisRow[], panelist: string | number, question: string): string | null {
-  for (const row of rows) {
-    if (panelistKey(row[PANEL_COL]) !== panelist) continue
-    const value = row[question]
-    if (isMissing(value)) continue
-    const answer = String(value).trim()
-    if (answer) return answer
-  }
-  return null
-}
-
-function panelistAge(rows: AnalysisRow[], panelist: string | number): string | null {
-  const usesGroup = rows.some((row) => "AgeGroup" in row)
-  const column = usesGroup ? "AgeGroup" : AGE_COL
-  for (const row of rows) {
-    if (panelistKey(row[PANEL_COL]) !== panelist) continue
-    const value = row[column]
-    if (isMissing(value)) continue
-    if (usesGroup) return String(value)
-    return normalizeAgeToBin(value)
-  }
-  return null
-}
-
-function panelistGender(rows: AnalysisRow[], panelist: string | number): string | null {
-  for (const row of rows) {
-    if (panelistKey(row[PANEL_COL]) !== panelist) continue
-    const gender = normalizeGender(row[GENDER_COL])
-    if (gender) return gender
-  }
-  return null
-}
-
 export function localClassificationCohort(input: {
   rows: AnalysisRow[]
   questions: ClassificationQuestionPayload[]
@@ -303,17 +270,41 @@ export function localClassificationCohort(input: {
   const clickedQuestion = lookup.get(input.questionText.trim().toLowerCase()) || input.questionText.trim()
   const clickedAnswer = input.answer.trim()
   const filtered = filterRows(input.rows, filters)
-  const panelists: Array<string | number> = []
-  const seen = new Set<string>()
+  const usesAgeGroup = filtered.some((row) => "AgeGroup" in row)
+  const questionNames = questions.map((question) => question.question_text)
+  if (!questionNames.includes(clickedQuestion)) questionNames.push(clickedQuestion)
+  type IndexedPanelist = {
+    panelist: string | number
+    answers: Map<string, string>
+    gender: string | null
+    age: string | null
+  }
+  const indexed = new Map<string, IndexedPanelist>()
   for (const row of filtered) {
     const panelist = panelistKey(row[PANEL_COL])
     if (panelist == null) continue
     const key = String(panelist)
-    if (seen.has(key)) continue
-    if (firstAnswer(filtered, panelist, clickedQuestion) !== clickedAnswer) continue
-    seen.add(key)
-    panelists.push(panelist)
+    let person = indexed.get(key)
+    if (!person) {
+      person = { panelist, answers: new Map(), gender: null, age: null }
+      indexed.set(key, person)
+    }
+    if (!person.gender) person.gender = normalizeGender(row[GENDER_COL])
+    if (!person.age) {
+      const rawAge = row[usesAgeGroup ? "AgeGroup" : AGE_COL]
+      if (!isMissing(rawAge)) person.age = usesAgeGroup ? String(rawAge) : normalizeAgeToBin(rawAge)
+    }
+    for (const question of questionNames) {
+      if (person.answers.has(question)) continue
+      const value = row[question]
+      if (isMissing(value)) continue
+      const answer = String(value).trim()
+      if (answer) person.answers.set(question, answer)
+    }
   }
+  const panelists = [...indexed.values()]
+    .filter((person) => person.answers.get(clickedQuestion) === clickedAnswer)
+    .map((person) => person.panelist)
   panelists.sort(comparePanelist)
   const page = panelists.slice(offset, offset + limit)
   const ageFilterCount = filters.age_groups?.length ?? 0
@@ -324,7 +315,7 @@ export function localClassificationCohort(input: {
     if (question.question_text === clickedQuestion) continue
     const counts = new Map<string, number>()
     for (const panelist of panelists) {
-      const answer = firstAnswer(filtered, panelist, question.question_text)
+      const answer = indexed.get(String(panelist))?.answers.get(question.question_text)
       if (!answer) continue
       counts.set(answer, (counts.get(answer) ?? 0) + 1)
     }
@@ -338,8 +329,9 @@ export function localClassificationCohort(input: {
   const genderCounts = new Map<string, number>()
   const ageCounts = new Map<string, number>()
   for (const panelist of panelists) {
-    const gender = panelistGender(filtered, panelist)
-    const age = panelistAge(filtered, panelist)
+    const person = indexed.get(String(panelist))
+    const gender = person?.gender
+    const age = person?.age
     if (gender) genderCounts.set(gender, (genderCounts.get(gender) ?? 0) + 1)
     if (age) ageCounts.set(age, (ageCounts.get(age) ?? 0) + 1)
   }
@@ -372,10 +364,13 @@ export function localClassificationCohort(input: {
       label: `Respondent ${offset + index + 1}`,
       session_id: String(panelist),
       panelist_id: String(panelist),
-      gender: panelistGender(filtered, panelist),
-      age_group: panelistAge(filtered, panelist),
+      gender: indexed.get(String(panelist))?.gender ?? null,
+      age_group: indexed.get(String(panelist))?.age ?? null,
       answers: Object.fromEntries(
-        questions.map((question) => [question.question_text, firstAnswer(filtered, panelist, question.question_text)]),
+        questions.map((question) => [
+          question.question_text,
+          indexed.get(String(panelist))?.answers.get(question.question_text) ?? null,
+        ]),
       ),
     })),
     cross_tabs: crossTabs,

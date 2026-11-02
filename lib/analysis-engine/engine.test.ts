@@ -184,6 +184,49 @@ describe("analysis engine basics", () => {
     expect(cohort.demographic_breakdown?.age_group).toEqual({ "25-34": 1, "35-44": 1 })
   })
 
+  it("builds a 322-person cohort from 83,000 rows without repeatedly scanning the dataset", () => {
+    const rows = Array.from({ length: 644 }, (_, panelistIndex) =>
+      Array.from({ length: 129 }, (_, taskIndex) => ({
+        Panelist: panelistIndex + 1,
+        Gender: panelistIndex % 2 === 0 ? "Female" : "Male",
+        Age: 20 + (panelistIndex % 45),
+        Task: taskIndex + 1,
+        Rating: (taskIndex % 5) + 1,
+        "Do you currently use dove?": panelistIndex % 2 === 0 ? "Yes" : "No",
+        Region: panelistIndex % 3 === 0 ? "North" : "South",
+      })),
+    ).flat()
+    const cohort = localClassificationCohort({
+      rows,
+      questions: [
+        {
+          question_id: "prelim",
+          question_text: "Do you currently use dove?",
+          question_type: "multiple_choice",
+          is_required: true,
+          order: 0,
+          answer_options: [{ id: "yes", text: "Yes" }, { id: "no", text: "No" }],
+        },
+        {
+          question_id: "region",
+          question_text: "Region",
+          question_type: "multiple_choice",
+          is_required: true,
+          order: 1,
+          answer_options: [{ id: "north", text: "North" }, { id: "south", text: "South" }],
+        },
+      ],
+      questionText: "Do you currently use dove?",
+      answer: "Yes",
+      limit: 120,
+    })
+    expect(rows).toHaveLength(83_076)
+    expect(cohort.meta.cohort_size).toBe(322)
+    expect(cohort.meta.has_more).toBe(true)
+    expect(cohort.respondents).toHaveLength(120)
+    expect(cohort.cross_tabs.Region).toEqual({ South: 214, North: 108 })
+  })
+
   it("drops only respondents who gave the same score at least twice", () => {
     const dropped = constantRaterIds([
       { Panelist: 1, Rating: 5 },

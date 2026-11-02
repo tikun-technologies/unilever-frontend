@@ -81,7 +81,7 @@ it("puts the study background back on a layer combination before the readout is 
     {},
     "layer",
   )
-  expect(category.items[0].configuration.background_url).toBe(background)
+  expect((category.items[0].configuration as Record<string, unknown>).background_url).toBe(background)
   const remote = withCombinationBackground(
     { items: [{ study_type: "layer", configuration: { background_url: "https://cdn.example.com/bg.png", selected_elements: [] } }] },
     { "Information Block": { "Study Background": background } },
@@ -95,7 +95,7 @@ it("puts the study background back on a layer combination before the readout is 
     {},
     "layer",
   )
-  expect(hidden.items[0].configuration.background_url).toBeUndefined()
+  expect((hidden.items[0].configuration as Record<string, unknown>).background_url).toBeUndefined()
 })
 
 it("asks for a fresh HTML export when the combination generator is not in the file", async () => {
