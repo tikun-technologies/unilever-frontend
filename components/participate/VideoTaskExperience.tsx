@@ -103,20 +103,25 @@ function ClipMedia({
   src,
   mounted,
   shouldPlay,
+  userPaused,
   wantSound,
   soundAttempt,
   isMobile,
   activeVideoRef,
+  awayRef,
   onFatal,
   onAutoplayBlocked,
 }: {
   src: string
   mounted: boolean
   shouldPlay: boolean
+  userPaused: boolean
   wantSound: boolean
   soundAttempt: number
   isMobile: boolean
   activeVideoRef: MutableRefObject<HTMLVideoElement | null>
+  /** True while the browser is in the background. Sound stays off until they return. */
+  awayRef: MutableRefObject<boolean>
   onFatal: () => void
   onAutoplayBlocked: () => void
 }) {
@@ -138,6 +143,8 @@ function ClipMedia({
   const primingRef = useRef(false)
   const shouldPlayRef = useRef(shouldPlay)
   shouldPlayRef.current = shouldPlay
+  const userPausedRef = useRef(userPaused)
+  userPausedRef.current = userPaused
   const [debugLines, setDebugLines] = useState<string[]>([])
   const poster = posterFor(src)
   const clipId = useMemo(() => videoClipLabel(src), [src])
@@ -425,15 +432,17 @@ function ClipMedia({
     }
 
     const start = async () => {
-      if (cancelled || playPending) return
+      if (cancelled || playPending || userPausedRef.current) return
+      // Leaving the app mutes even when the participant had sound on. Unmuting
+      // happens when they come back, inside that visibility handler.
+      const holdMute = awayRef.current || !wantSound
       if (!node.paused && !node.ended) {
-        // Muting is always allowed; unmuting without a tap would pause Safari.
-        if (!wantSound && !node.muted) node.muted = true
+        if (holdMute && !node.muted) node.muted = true
         return
       }
 
       playPending = true
-      node.muted = !wantSound
+      node.muted = holdMute
       const fromTime = node.currentTime
       logRef.current("play-attempt", mediaSnapshot(node))
       armStallWatch(fromTime)
@@ -500,7 +509,8 @@ function ClipMedia({
     const onUnexpectedPause = () => {
       // Safari pauses when something unmutes without a tap, and iOS pauses a
       // clip when another audible one starts. Resume unless we paused it.
-      if (!cancelled && !node.ended) scheduleStart(150)
+      // A pause caused by leaving the app stays paused until they return.
+      if (!cancelled && !node.ended && !userPausedRef.current && !awayRef.current) scheduleStart(150)
     }
     // HLS on Android often ignores the loop attribute and freezes on the last
     // frame. Start the same clip again from the beginning.
@@ -521,7 +531,11 @@ function ClipMedia({
     node.addEventListener("waiting", onWaiting)
     node.addEventListener("pause", onUnexpectedPause)
     node.addEventListener("ended", onEnded)
-    void start()
+    if (userPaused) {
+      if (!node.paused) node.pause()
+    } else {
+      void start()
+    }
 
     return () => {
       cancelled = true
@@ -534,7 +548,7 @@ function ClipMedia({
       node.removeEventListener("pause", onUnexpectedPause)
       node.removeEventListener("ended", onEnded)
     }
-  }, [shouldPlay, wantSound, mounted, soundAttempt]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [shouldPlay, userPaused, wantSound, mounted, soundAttempt]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Runs inside the tap, which is the only context a browser that denied
   // autoplay will accept.
@@ -590,9 +604,16 @@ function ClipMedia({
           } ${hasFrame ? "opacity-0" : "opacity-100"}`}
         />
       )}
-      {shouldPlay && !hasFrame && !needsTap && (slowStart || ((!poster || posterFailed) && !ready)) && (
+      {shouldPlay && !hasFrame && !needsTap && !userPaused && (slowStart || ((!poster || posterFailed) && !ready)) && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
           <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-white" />
+        </div>
+      )}
+      {userPaused && shouldPlay && !needsTap && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm">
+            <Play className="ml-1 h-8 w-8" />
+          </span>
         </div>
       )}
       {needsTap && shouldPlay && (
@@ -733,6 +754,7 @@ export interface VideoTaskExperienceProps {
   lastSelected: number | null
   onSelect: (n: number) => void
   onHover?: (n: number) => void
+  onCollectionStart?: () => void
   ratingPrompt?: string
   /** Clips of the following task, warmed while the participant is rating. */
   upcomingUrls?: string[]
@@ -755,6 +777,7 @@ export function VideoTaskExperience({
   lastSelected,
   onSelect,
   onHover,
+  onCollectionStart,
   ratingPrompt = "How appealing was this set of videos?",
   upcomingUrls,
 }: VideoTaskExperienceProps) {
@@ -783,6 +806,8 @@ export function VideoTaskExperience({
   // If the browser bar hides mid-swipe, the snap points stay where they were.
   const [slideHeight, setSlideHeight] = useState(0)
   const [phase, setPhase] = useState<"watch" | "rate">(clips.length === 0 ? "rate" : "watch")
+  const [countdown, setCountdown] = useState<number | null>(taskNumber === 1 && clips.length > 0 ? 3 : null)
+  const [userPaused, setUserPaused] = useState(false)
   const [failed, setFailed] = useState<Record<number, boolean>>({})
   const [retryCount, setRetryCount] = useState<Record<number, number>>({})
   const [wantSound, setWantSound] = useState(readSoundPref)
@@ -790,6 +815,10 @@ export function VideoTaskExperience({
   const [soundAttempt, setSoundAttempt] = useState(0)
   const wantSoundRef = useRef(wantSound)
   wantSoundRef.current = wantSound
+  const userPausedRef = useRef(userPaused)
+  userPausedRef.current = userPaused
+  // Set while the participant has left the browser (another app, or minimized).
+  const awayRef = useRef(false)
   // The rating lights up on the tap itself. The task moves on a moment later so
   // the participant sees which value was taken, and a second tap is ignored.
   const [picked, setPicked] = useState<number | null>(null)
@@ -807,6 +836,23 @@ export function VideoTaskExperience({
   const questionText = mainQuestion || `Question ${Math.min(taskNumber, totalTasks)}`
   const isMobile = !box.width || box.width < 768
   const clipKey = clips.join("\n")
+
+  useEffect(() => {
+    setUserPaused(false)
+  }, [playIndex, phase])
+
+  useEffect(() => {
+    if (countdown === null) return
+    const timer = window.setTimeout(() => {
+      if (countdown <= 1) {
+        setCountdown(null)
+        onCollectionStart?.()
+      } else {
+        setCountdown(countdown - 1)
+      }
+    }, 1000)
+    return () => window.clearTimeout(timer)
+  }, [countdown]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     // The clip on screen and the next two are already mounted. Warm the one after that.
@@ -827,8 +873,9 @@ export function VideoTaskExperience({
     // a clip that had to start muted.
     const onTap = () => {
       const video = activeVideoRef.current
-      if (!video || !wantSoundRef.current || !video.muted) return
+      if (!video || !wantSoundRef.current || !video.muted || awayRef.current) return
       video.muted = false
+      if (video.paused) return
       video
         .play()
         .then(() => setSoundHint(false))
@@ -838,6 +885,52 @@ export function VideoTaskExperience({
     }
     window.addEventListener("click", onTap, true)
     return () => window.removeEventListener("click", onTap, true)
+  }, [phase])
+
+  useEffect(() => {
+    if (phase !== "watch") return
+
+    const muteAway = () => {
+      awayRef.current = true
+      const nodes = feedRef.current?.querySelectorAll("video")
+      if (nodes && nodes.length > 0) {
+        nodes.forEach((node) => {
+          node.muted = true
+        })
+        return
+      }
+      if (activeVideoRef.current) activeVideoRef.current.muted = true
+    }
+
+    const restore = () => {
+      if (document.visibilityState === "hidden") return
+      awayRef.current = false
+      const video = activeVideoRef.current
+      if (!video || !wantSoundRef.current) return
+      video.muted = false
+      if (userPausedRef.current) return
+      // play() in this handler keeps the return to the app as the gesture that
+      // allows sound. A clip the phone paused while away starts again here.
+      video.play().catch(() => {
+        video.muted = true
+        setSoundHint(true)
+      })
+    }
+
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") muteAway()
+      else restore()
+    }
+
+    document.addEventListener("visibilitychange", onVisibility)
+    window.addEventListener("pagehide", muteAway)
+    window.addEventListener("pageshow", restore)
+    return () => {
+      awayRef.current = false
+      document.removeEventListener("visibilitychange", onVisibility)
+      window.removeEventListener("pagehide", muteAway)
+      window.removeEventListener("pageshow", restore)
+    }
   }, [phase])
 
   const scrollToIndex = useCallback((index: number, behavior: ScrollBehavior = "smooth") => {
@@ -1006,10 +1099,12 @@ export function VideoTaskExperience({
       const video = activeVideoRef.current
       if (video) {
         video.muted = false
-        video.play().catch(() => {
-          video.muted = true
-          setSoundHint(true)
-        })
+        if (!userPaused) {
+          video.play().catch(() => {
+            video.muted = true
+            setSoundHint(true)
+          })
+        }
       }
       setWantSound(true)
       setSoundHint(false)
@@ -1038,11 +1133,6 @@ export function VideoTaskExperience({
   // Match the non-video desktop task header in both the reel and rating views.
   const desktopHeader = (
     <header className="flex-shrink-0 bg-white px-4 pb-2 pt-3 text-sm text-gray-600 sm:px-8 lg:px-10">
-      <div className="mb-2 flex items-start justify-between gap-4">
-        <div className="line-clamp-2 max-w-[calc(100%-5rem)] flex-1 break-words text-lg font-semibold leading-tight text-gray-800 hyphens-auto">
-          {questionText}
-        </div>
-      </div>
       <div className="h-1 overflow-hidden rounded bg-gray-200">
         <div className="h-full bg-[rgba(38,116,186,1)] transition-all" style={{ width: `${progressPct}%` }} />
       </div>
@@ -1063,7 +1153,18 @@ export function VideoTaskExperience({
             {questionText}
           </div>
         </div>
-      ) : desktopHeader}
+      ) : (
+        <header className="flex-shrink-0 bg-white px-4 pb-2 pt-3 text-sm text-gray-600 sm:px-8 lg:px-10">
+          <div className="mb-2 flex items-start justify-between gap-4">
+            <div className="line-clamp-2 max-w-[calc(100%-5rem)] flex-1 break-words text-lg font-semibold leading-tight text-gray-800 hyphens-auto">
+              {questionText}
+            </div>
+          </div>
+          <div className="h-1 overflow-hidden rounded bg-gray-200">
+            <div className="h-full bg-[rgba(38,116,186,1)] transition-all" style={{ width: `${progressPct}%` }} />
+          </div>
+        </header>
+      )}
       <div
         className="flex min-h-0 flex-1 flex-col items-center justify-center px-6"
         style={{ paddingBottom: "max(16px, env(safe-area-inset-bottom))" }}
@@ -1081,6 +1182,19 @@ export function VideoTaskExperience({
     </div>
   )
 
+  const togglePause = () => {
+    if (countdown !== null) return
+    setUserPaused((prev) => {
+      const next = !prev
+      const video = activeVideoRef.current
+      if (video) {
+        if (next) video.pause()
+        else void video.play().catch(() => undefined)
+      }
+      return next
+    })
+  }
+
   if (phase === "rate") {
     return <div style={frameStyle}>{ratingPanel}</div>
   }
@@ -1090,6 +1204,11 @@ export function VideoTaskExperience({
       {!isMobile && desktopHeader}
       <div
         ref={feedRef}
+        onClick={(event) => {
+          if ((event.target as HTMLElement | null)?.closest("button")) return
+          if (scrollingRef.current || playRef.current >= clips.length) return
+          togglePause()
+        }}
         className={`min-h-0 w-full flex-1 snap-y snap-mandatory overflow-y-scroll overscroll-y-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${isMobile ? "" : "bg-white"}`}
         style={{ WebkitOverflowScrolling: "touch", touchAction: "pan-y", transform: "translateZ(0)" }}
       >
@@ -1101,7 +1220,7 @@ export function VideoTaskExperience({
           // Neighbours are paused; only the clip mostly on screen plays.
           const mounted =
             Math.abs(index - activeIndex) <= 1 || (index >= playIndex - 1 && index <= playIndex + 2)
-          const shouldPlay = index === playIndex && !failed[index]
+          const shouldPlay = index === playIndex && !failed[index] && countdown === null
           return (
             <section
               key={`${src}-${index}`}
@@ -1118,10 +1237,12 @@ export function VideoTaskExperience({
                   src={src}
                   mounted={mounted}
                   shouldPlay={shouldPlay}
+                  userPaused={index === playIndex && userPaused}
                   wantSound={wantSound}
                   soundAttempt={soundAttempt}
                   isMobile={isMobile}
                   activeVideoRef={activeVideoRef}
+                  awayRef={awayRef}
                   onFatal={() => setFailed((prev) => ({ ...prev, [index]: true }))}
                   onAutoplayBlocked={() => setSoundHint(true)}
                 />
@@ -1161,17 +1282,21 @@ export function VideoTaskExperience({
         </section>
       </div>
 
+      {countdown !== null && (
+        <div className="pointer-events-auto absolute inset-0 z-30 flex flex-col items-center justify-center bg-white px-6 text-center text-gray-900">
+          <p className="text-lg font-medium text-gray-800 sm:text-xl">Starting the first collection of videos</p>
+          <div className="mt-4 text-4xl font-bold tabular-nums text-[rgba(38,116,186,1)]">{countdown}</div>
+        </div>
+      )}
+
       <div ref={chromeRef} className="pointer-events-none absolute inset-0 z-20 transition-opacity duration-150">
       {isMobile && <div
-        className="pointer-events-none absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/75 via-black/35 to-transparent px-4 pb-16 sm:px-8"
+        className="pointer-events-none absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/75 via-black/35 to-transparent px-4 pb-10 sm:px-8"
         style={{ paddingTop: "max(12px, env(safe-area-inset-top))" }}
       >
-        <div className="mb-3 h-1 w-full overflow-hidden rounded-full bg-white/45">
+        <div className="h-1 w-full overflow-hidden rounded-full bg-white/45">
           <div className="h-full rounded-full bg-[rgba(38,116,186,1)] transition-all" style={{ width: `${progressPct}%` }} />
         </div>
-        <p className="max-w-3xl break-words text-sm font-semibold leading-snug text-white drop-shadow sm:text-base md:text-lg line-clamp-3">
-          {questionText}
-        </p>
       </div>}
 
       {isMobile && <div

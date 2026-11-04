@@ -1157,6 +1157,10 @@ export default function TasksPage() {
             scaleLabels={scaleLabels}
             lastSelected={lastSelected}
             onSelect={handleSelect}
+            onCollectionStart={() => {
+              taskStartRef.current = Date.now()
+              firstViewTimeRef.current = new Date().toISOString()
+            }}
             onHover={(n) => {
               hoverCountsRef.current[n] = (hoverCountsRef.current[n] || 0) + 1
               lastViewTimeRef.current = new Date().toISOString()
