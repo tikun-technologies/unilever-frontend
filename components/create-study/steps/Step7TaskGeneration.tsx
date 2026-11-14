@@ -5,7 +5,14 @@ import { useEffect, useState, useRef, useMemo, useCallback } from "react"
 import { Mail } from "lucide-react"
 import { VideoTaskPreview } from "@/components/create-study/VideoTaskPreview"
 import { Button } from "@/components/ui/button"
-import { buildTaskGenerationPayloadFromLocalStorage, generateTasksWithPolling, JobStatus, getTaskGenerationResult, validateDesignConstraints, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
+import { buildTaskGenerationPayloadFromLocalStorage, downloadTaskMatrixCsv, generateTasksWithPolling, JobStatus, getTaskGenerationResult, getTaskGenerationStatus, validateDesignConstraints, subscribeTaskGenerationStatus } from "@/lib/api/StudyAPI"
+import {
+  isTaskGenerationSaving,
+  isTaskResultNotReady,
+  presentTaskGenerationStatus,
+  resolveTaskGenerationUpdate,
+  SAVING_TASKS_MESSAGE,
+} from "@/lib/utils/taskGenerationProgress"
 import { useJobNotifications } from "@/lib/jobs/JobNotificationContext"
 import {
   areGeneratedTasksStale,
@@ -80,6 +87,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
   const { registerJob, watchJob, jobs } = useJobNotifications()
   const latestTaskJobIdRef = useRef<string | null>(null)
   const appliedTaskResultJobRef = useRef<string | null>(null)
+  const visibilityStatusCheckRef = useRef<boolean>(false)
   const [isGenerating, setIsGenerating] = useState(false)
   const [matrix, setMatrix] = useState<any | null>(null)
   const [isStatsOpen, setIsStatsOpen] = useState(false)
@@ -189,11 +197,20 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     return null
   }
 
-  // Check if job is completed and fetch result
+  // Check if job is completed and fetch result. A processing job, including
+  // one sitting at 90% while tasks are being stored, must not hit the result API.
   const checkAndFetchCompletedJob = async (jobId: string) => {
     try {
       console.log('[Step7] Checking if job is completed:', jobId)
-      const { getTaskGenerationResult } = await import('@/lib/api/StudyAPI')
+      const status = await getTaskGenerationStatus(jobId)
+      const action = resolveTaskGenerationUpdate(status)
+      if (action.kind === 'failed') {
+        handleTaskGenerationFailure(action.error)
+        return true
+      }
+      if (action.kind !== 'fetch-result') {
+        return false
+      }
       const result = await getTaskGenerationResult(jobId)
       console.log('[Step7] getTaskGenerationResult returned:', result)
       if (result && result.tasks) {
@@ -225,6 +242,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         })
       }
     } catch (error) {
+      if (isTaskResultNotReady(error)) return false
       console.log('[Step7] Job not completed or error fetching result:', error)
     }
     return false
@@ -382,10 +400,10 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       const newHighestProgress = Math.max(highestProgress, currentProgress)
       setHighestProgress(newHighestProgress)
 
-      const monotonicStatus = {
+      const monotonicStatus = presentTaskGenerationStatus({
         ...status,
         progress: newHighestProgress
-      }
+      })
 
       setJobStatus(monotonicStatus)
       setIsPolling(status.status === 'processing' || status.status === 'pending')
@@ -403,18 +421,26 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
     }
 
     const onComplete = async () => {
+      if (signal?.aborted) return
       try {
         console.log('[Step7] Resumed job completed, fetching result...')
         const result = await getTaskGenerationResult(jobId)
+        if (!result) return
         savePreviewAndComplete(result)
         clearJobState()
         clearTimerState()
         stopTimerSaving()
         setJobStartTime(null)
         setHighestProgress(0)
-      } finally {
         setIsPolling(false)
         isResuming.current = false
+      } catch (error) {
+        if (isTaskResultNotReady(error)) {
+          window.setTimeout(() => { void onComplete() }, 5000)
+          return
+        }
+        const err = error as { message?: string }
+        handleTaskGenerationFailure(err?.message || 'Task generation failed.')
       }
     }
 
@@ -618,11 +644,17 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         if (abortControllerRef.current === controller) controller?.abort()
       } catch (error) {
         console.log('[Step7] Result not ready yet:', error)
+        if (isTaskResultNotReady(error)) {
+          window.setTimeout(() => { void applyResult(attempt) }, 5000)
+          return
+        }
         if (attempt < 2) {
           window.setTimeout(() => { void applyResult(attempt + 1) }, 1500)
           return
         }
         appliedTaskResultJobRef.current = null
+        const err = error as { message?: string }
+        if (err?.message) handleTaskGenerationFailure(err.message)
       }
     }
     void applyResult(0)
@@ -703,11 +735,12 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         const newHighestProgress = Math.max(highestProgress, currentProgress)
         setHighestProgress(newHighestProgress)
 
-        // Create a modified status object with monotonic progress
-        const monotonicStatus = {
+        // Create a modified status object with monotonic progress.
+        // 90% while still processing is the database save, not a finished matrix.
+        const monotonicStatus = presentTaskGenerationStatus({
           ...status,
           progress: newHighestProgress
-        }
+        })
 
         setJobStatus(monotonicStatus)
         setIsPolling(status.status === 'processing' || status.status === 'pending')
@@ -943,7 +976,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
           }
 
           console.log('[Step7] ✅ Job still in progress, resuming:', jobId)
-          setJobStatus(existingJobState.status)
+          setJobStatus(presentTaskGenerationStatus(existingJobState.status || { status: 'processing', progress: existingJobState.progress }))
           setJobStartTime(existingJobState.startTime)
           setHighestProgress(existingJobState.status?.progress || existingJobState.progress || 0)
           setIsPolling(true)
@@ -1053,7 +1086,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       const jobId = existingJobState.jobId || existingJobState.status?.job_id
       if (!isResuming.current) {
         console.log('[Step7] Step active with job state but not polling, resuming:', jobId)
-        setJobStatus(existingJobState.status)
+        setJobStatus(presentTaskGenerationStatus(existingJobState.status || { status: 'processing', progress: existingJobState.progress }))
         setJobStartTime(existingJobState.startTime)
         setHighestProgress(existingJobState.status?.progress ?? existingJobState.progress ?? 0)
         setIsPolling(true)
@@ -1173,46 +1206,45 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
         return
       }
       
-      // If not already polling/resuming and job is still active, check and resume
-      if (!isPolling && !isResuming.current) {
-        const status = existingJobState.status?.status || existingJobState.status
-        const isActiveJob = status === 'processing' || status === 'pending'
-        
-        if (isActiveJob) {
-          console.log('[Step7] Tab visible with active job, checking completion and resuming if needed...')
-          
-          // First check if job completed while tab was hidden
-          checkAndFetchCompletedJob(jobId).then((isCompleted) => {
-            if (isCompleted) {
-              console.log('[Step7] Job completed while tab was hidden')
-              return
-            }
-            
-            // Job still running, resume polling
-            if (!isPolling && !isResuming.current) {
-              console.log('[Step7] Resuming job polling after tab visibility change')
-              setJobStatus(existingJobState.status)
-              setJobStartTime(existingJobState.startTime)
-              setHighestProgress(existingJobState.status?.progress ?? existingJobState.progress ?? 0)
-              setIsPolling(true)
-              
-              const ac = new AbortController()
-              abortControllerRef.current = ac
-              
-              const savedTimer = loadTimerState()
-              if (savedTimer) {
-                setCountdownSeconds(savedTimer.seconds)
-                countdownRef.current = savedTimer.seconds
-                timerInitialized.current = true
-              }
-              
-              resumeJobPolling(jobId, ac.signal)
-            }
-          }).catch((err) => {
-            console.log('[Step7] Error checking job on visibility change:', err)
-          })
+      const status = existingJobState.status?.status || existingJobState.status
+      const isActiveJob = status === 'processing' || status === 'pending' || status === 'started'
+      if (!isActiveJob || visibilityStatusCheckRef.current) return
+
+      // Browser timers and sockets are throttled in hidden tabs. Always make one
+      // authoritative status request when the tab returns, even when React still
+      // believes polling is active.
+      visibilityStatusCheckRef.current = true
+      console.log('[Step7] Tab visible with active job, checking completion...')
+      checkAndFetchCompletedJob(jobId).then((isCompleted) => {
+        if (isCompleted) {
+          console.log('[Step7] Job completed while tab was hidden')
+          return
         }
-      }
+
+        if (!isPolling && !isResuming.current) {
+          console.log('[Step7] Resuming job polling after tab visibility change')
+          setJobStatus(presentTaskGenerationStatus(existingJobState.status || { status: 'processing', progress: existingJobState.progress }))
+          setJobStartTime(existingJobState.startTime)
+          setHighestProgress(existingJobState.status?.progress ?? existingJobState.progress ?? 0)
+          setIsPolling(true)
+
+          const ac = new AbortController()
+          abortControllerRef.current = ac
+
+          const savedTimer = loadTimerState()
+          if (savedTimer) {
+            setCountdownSeconds(savedTimer.seconds)
+            countdownRef.current = savedTimer.seconds
+            timerInitialized.current = true
+          }
+
+          resumeJobPolling(jobId, ac.signal)
+        }
+      }).catch((err) => {
+        console.log('[Step7] Error checking job on visibility change:', err)
+      }).finally(() => {
+        visibilityStatusCheckRef.current = false
+      })
     }
     
     document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -1609,8 +1641,58 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
   // State for CSV download loading
   const [isDownloadingCSV, setIsDownloadingCSV] = useState(false)
 
-  // Function to download CSV matrix
+  // Stream the requested respondent matrix from the backend. The browser never
+  // downloads or parses the reserve respondent pool as JSON.
   const downloadMatrixCSV = async () => {
+    if (isDownloadingCSV) return
+    if (!matrix) {
+      alert('No task generation data found. Please generate tasks first.')
+      return
+    }
+    if (isPolling || (jobStatus && jobStatus.status !== 'completed')) {
+      alert('Tasks are still being generated. Please wait for completion before downloading CSV.')
+      return
+    }
+
+    const rawStudyId = localStorage.getItem('cs_study_id')
+    if (!rawStudyId) {
+      alert('The study could not be identified. Refresh the page and try again.')
+      return
+    }
+    let studyId = rawStudyId
+    try { studyId = String(JSON.parse(rawStudyId)) } catch { /* raw value */ }
+
+    setIsDownloadingCSV(true)
+    try {
+      const { blob, filename } = await downloadTaskMatrixCsv(studyId)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename
+      link.style.display = 'none'
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (error) {
+      const err = error as { message?: string; status?: number }
+      // Allows frontend-first rolling deployments. Once the backend is updated,
+      // the streaming path above is always used.
+      if (err?.status === 404) {
+        console.warn('[CSV] Streaming endpoint is unavailable; using legacy export once')
+        setIsDownloadingCSV(false)
+        await downloadMatrixCSVLegacy()
+        return
+      }
+      console.error('[CSV] Streaming matrix export failed:', error)
+      alert(err?.message || 'The matrix could not be downloaded. Please try again.')
+    } finally {
+      setIsDownloadingCSV(false)
+    }
+  }
+
+  // Temporary rolling-deployment fallback for an older backend.
+  const downloadMatrixCSVLegacy = async () => {
     const escapeCsvVal = (val: string | number | null | undefined): string => {
       if (val === null || val === undefined) return ''
       const str = String(val)
@@ -1639,14 +1721,34 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
       let tasks = matrix.tasks
       let metadata = matrix.metadata
 
-      // If it's cached preview data, we need to get the full task data
-      if (matrix.preview_tasks && !matrix.tasks) {
-        console.log('[CSV] Using cached preview data - this will only show first respondent')
-        console.log('[CSV] To get all respondents, please regenerate tasks or wait for full completion')
+      const matrixTaskKeys = matrix.tasks && typeof matrix.tasks === 'object'
+        ? Object.keys(matrix.tasks).filter((key) => /^\d+$/.test(key))
+        : []
+      const expectedRespondents = Number(matrix?.metadata?.number_of_respondents || 0)
+      const hasOnlyPreviewTasks = Boolean(
+        matrix?.metadata?.preview_only === true ||
+        (matrix.preview_tasks && !matrix.tasks) ||
+        (expectedRespondents > 0 && matrixTaskKeys.length < expectedRespondents)
+      )
 
-        // Try to get the study ID and fetch full data from the backend when CSV requested.
+      // Step 7 deliberately keeps only one respondent in memory. Fetch the
+      // complete matrix only when the user explicitly asks for the CSV.
+      if (hasOnlyPreviewTasks) {
+        console.log('[CSV] Preview matrix detected; loading complete task data on demand')
+
+        let fullTaskData: any = null
+        if (matrix?.job_id) {
+          try {
+            fullTaskData = await getTaskGenerationResult(String(matrix.job_id), { previewOnly: false })
+          } catch (error) {
+            console.warn('[CSV] Completed job result is unavailable; falling back to study data:', error)
+          }
+        }
+
+        // Completed jobs are cleaned up periodically, so cached previews fall
+        // back to the study endpoint using the persisted study id.
         const studyIdRaw = localStorage.getItem('cs_study_id')
-        if (studyIdRaw) {
+        if (!fullTaskData?.tasks && studyIdRaw) {
           // Parse studyId if it was JSON-stringified, otherwise use raw
           let parsedStudyId: any = studyIdRaw
           try { parsedStudyId = JSON.parse(studyIdRaw) } catch { }
@@ -1654,26 +1756,22 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
           try {
             console.log('[CSV] Attempting to fetch full study data for CSV generation, id=', parsedStudyId)
             const { getStudyDetails } = await import('@/lib/api/StudyAPI')
-            const fullStudyData = await getStudyDetails(parsedStudyId)
-            if (fullStudyData && fullStudyData.tasks) {
-              console.log('[CSV] Successfully fetched full study data with', Object.keys(fullStudyData.tasks).length, 'respondents')
-              tasks = fullStudyData.tasks
-              metadata = fullStudyData
-            } else {
-              console.log('[CSV] Full study data not available, using preview data')
-              tasks = { "0": matrix.preview_tasks }
-              metadata = matrix.metadata || {}
-            }
+            fullTaskData = await getStudyDetails(parsedStudyId)
           } catch (error) {
             console.warn('[CSV] Failed to fetch full study data:', error)
-            console.log('[CSV] Using preview data instead')
-            tasks = { "0": matrix.preview_tasks }
-            metadata = matrix.metadata || {}
           }
-        } else {
-          console.log('[CSV] No study ID found, using preview data')
-          tasks = { "0": matrix.preview_tasks }
-          metadata = matrix.metadata || {}
+        }
+
+        if (!fullTaskData?.tasks) {
+          alert('The complete task matrix could not be loaded. Please try again. No incomplete CSV was downloaded.')
+          return
+        }
+
+        console.log('[CSV] Complete matrix loaded with', Object.keys(fullTaskData.tasks).length, 'respondents')
+        tasks = fullTaskData.tasks
+        metadata = {
+          ...(fullTaskData.metadata || fullTaskData),
+          study_type: fullTaskData.study_type || fullTaskData.metadata?.study_type,
         }
       }
 
@@ -2175,11 +2273,11 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
                     <div>
                       <div className="text-base font-semibold text-gray-900">Task generation failed</div>
                       <p className="mt-2 text-sm text-gray-600">
-                        {getTaskGenerationFailureSuggestion(pollingError || jobStatus?.error || '')}
+                        {getTaskGenerationFailureSuggestion(pollingError || jobStatus?.error || jobStatus?.message || '')}
                       </p>
-                      {pollingError && (
+                      {(pollingError || jobStatus?.error) && (
                         <p className="mt-2 text-xs text-gray-500 break-words">
-                          {pollingError}
+                          {pollingError || jobStatus?.error}
                         </p>
                       )}
                     </div>
@@ -2219,7 +2317,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
 
                     {jobStatus && jobStatus.status !== 'completed' && jobStatus.status !== 'failed' && (
                       <div className="text-sm text-gray-600 font-medium">
-                        {jobStatus.status}
+                        {isTaskGenerationSaving(jobStatus) ? SAVING_TASKS_MESSAGE : jobStatus.status}
                         {typeof jobStatus.progress === 'number' ? ` • ${Math.round(jobStatus.progress)}%` : ''}
                       </div>
                     )}
@@ -2228,7 +2326,7 @@ export function Step7TaskGeneration({ onNext, onBack, active = false, onDataChan
                       <div className="space-y-2">
                         <div className="inline-flex items-center gap-2 text-sm text-gray-600">
                           <span className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></span>
-                          {isPolling ? 'Generating your task' : 'Generating...'}
+                          {isTaskGenerationSaving(jobStatus) ? SAVING_TASKS_MESSAGE : (isPolling ? 'Generating your task' : 'Generating...')}
                         </div>
 
                         {jobStatus && jobStatus.progress !== undefined && jobStatus.progress >= 0 && jobStatus.status === 'processing' && isPolling && (

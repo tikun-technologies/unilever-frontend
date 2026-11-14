@@ -6,6 +6,11 @@ import {
 } from "@/lib/utils/designConstraintsStorage"
 import { buildAgeDistributionPayload } from "@/lib/utils/audienceSegmentationValidation"
 import type { TaskGenerationPrecheckResponse } from "@/lib/utils/taskGenerationPrecheck"
+import {
+  isTaskResultNotReady,
+  presentTaskGenerationStatus,
+  resolveTaskGenerationUpdate,
+} from "@/lib/utils/taskGenerationProgress"
 import { API_BASE_URL } from "./LoginApi"
 import {
   ANALYTICS_SHARE_HEADER,
@@ -1566,22 +1571,51 @@ export async function getTaskGenerationStatus(jobId: string): Promise<JobStatus>
   return data
 }
 
-export async function getTaskGenerationResult(jobId: string): Promise<any> {
+const taskGenerationResultRequests = new Map<string, Promise<any>>()
+const taskGenerationResultCache = new Map<string, { expiresAt: number; data: any }>()
+
+export async function getTaskGenerationResult(
+  jobId: string,
+  options: { previewOnly?: boolean } = {}
+): Promise<any> {
+  const previewOnly = options.previewOnly ?? true
+  const requestKey = `${jobId}:${previewOnly ? 'preview' : 'full'}`
+  const cached = taskGenerationResultCache.get(requestKey)
+  if (cached && cached.expiresAt > Date.now()) return cached.data
+
+  const pending = taskGenerationResultRequests.get(requestKey)
+  if (pending) return pending
+
+  const resultUrl = `${API_BASE_URL}/studies/generate-tasks/result/${encodeURIComponent(jobId)}?preview_only=${previewOnly}`
   console.log('=== FETCHING TASK GENERATION RESULT ===')
-  console.log('URL:', `${API_BASE_URL}/studies/generate-tasks/result/${jobId}`)
-  const res = await fetchWithAuth(`${API_BASE_URL}/studies/generate-tasks/result/${jobId}`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
-  })
-  const text = await res.text().catch(() => '')
-  let data: any = {}
-  try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
-  if (!res.ok) {
-    const msg = (data && (data.detail || data.message)) || text || `Fetch job result failed (${res.status})`
-    throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
+  console.log('URL:', resultUrl)
+
+  const request = (async () => {
+    const res = await fetchWithAuth(resultUrl, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    })
+    const text = await res.text().catch(() => '')
+    let data: any = {}
+    try { data = text ? JSON.parse(text) : {} } catch { data = { detail: text } }
+    if (!res.ok) {
+      const msg = (data && (data.detail || data.message)) || text || `Fetch job result failed (${res.status})`
+      throw Object.assign(new Error(typeof msg === 'string' ? msg : JSON.stringify(msg)), { status: res.status, data })
+    }
+    console.log('Task generation result:', data)
+    // Multiple completion channels can fire together (jobs socket, dedicated
+    // socket, visibility recovery). Reuse the completed preview briefly instead
+    // of downloading and parsing it more than once.
+    taskGenerationResultCache.set(requestKey, { expiresAt: Date.now() + 30_000, data })
+    return data
+  })()
+
+  taskGenerationResultRequests.set(requestKey, request)
+  try {
+    return await request
+  } finally {
+    taskGenerationResultRequests.delete(requestKey)
   }
-  console.log('Task generation result:', data)
-  return data
 }
 
 export async function cancelTaskGeneration(jobId: string): Promise<any> {
@@ -1640,39 +1674,28 @@ export async function pollJobStatus(
       const currentProgress = typeof status?.progress === 'number' ? status.progress : 0
       console.log(`📊 Job status (attempt ${attempt}):`, status.status, currentProgress ? `${currentProgress}%` : '')
 
+      const action = resolveTaskGenerationUpdate(status)
       if (onProgress) {
-        onProgress(status)
+        onProgress(presentTaskGenerationStatus(status))
       }
 
-      if (status.status === 'completed') {
+      if (action.kind === 'fetch-result') {
         console.log('✅ Job completed successfully')
         return status
       }
 
-      if (status.status === 'failed') {
-        console.error('❌ Job failed:', status.error)
-        throw new Error(status.error || 'Job failed')
+      if (action.kind === 'failed') {
+        console.error('❌ Job failed:', action.error)
+        const failure = new Error(action.error)
+        ;(failure as Error & { taskGenerationTerminal?: boolean }).taskGenerationTerminal = true
+        throw failure
       }
 
-      // Adaptive polling: faster when progress is high
+      // Adaptive polling: faster when progress is high. 90% is the save,
+      // not completion, so the result is not requested here.
       let intervalDelay = baseIntervalDelay
 
-      // Once generation is nearly done, ask for the tasks themselves.
-      // The status payload can sit below "completed" after the tasks already exist.
       if (currentProgress >= 90) {
-        try {
-          const result = await getTaskGenerationResult(jobId)
-          if (result && result.tasks) {
-            console.log('✅ Result endpoint returned tasks, job is complete')
-            return {
-              ...status,
-              status: 'completed' as const,
-              progress: 100,
-            }
-          }
-        } catch {
-          // Result is not stored yet. Check again on the next pass.
-        }
         intervalDelay = 5000
       }
       // If progress >= 80%, poll every 3 seconds
@@ -1690,6 +1713,7 @@ export async function pollJobStatus(
 
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') throw error
+      if ((error as { taskGenerationTerminal?: boolean })?.taskGenerationTerminal) throw error
       console.error(`❌ Error checking job status (attempt ${attempt}):`, error)
 
       // Wait before retry (use base interval for errors)
@@ -1906,18 +1930,17 @@ export function subscribeTaskGenerationStatus(
           const message = JSON.parse(ev.data)
           
           if (message.type === 'progress') {
+            const presented = presentTaskGenerationStatus({
+              status: 'processing',
+              progress: message.progress,
+              message: message.message,
+            })
             onProgress({
               job_id: jobId,
               status: 'processing',
               progress: message.progress,
-              message: message.message
+              message: presented.message || message.message,
             })
-            // Tasks are stored before some sockets send a separate completed event.
-            if (typeof message.progress === 'number' && message.progress >= 100) {
-              jobCompleted = true
-              onComplete()
-              cleanup()
-            }
           } else if (message.type === 'completed') {
             console.log('[WS] Job completed:', jobId)
             jobCompleted = true
@@ -2066,41 +2089,53 @@ export async function generateTasksWithPolling(
 
       return new Promise((resolve, reject) => {
         let settled = false
+        let fetchingResult = false
         let unsubscribeProgress: (() => void) | null = null
-        let resultProbe: number | null = null
+        let resultRetry: number | null = null
 
-        const stopProbe = () => {
-          if (resultProbe !== null) window.clearInterval(resultProbe)
-          resultProbe = null
+        const stopResultRetry = () => {
+          if (resultRetry !== null) window.clearTimeout(resultRetry)
+          resultRetry = null
         }
 
-        // Status can stay at 90 after the tasks are already stored. Ask for the
-        // result directly instead of polling status until a completed event arrives.
-        const startResultProbe = () => {
-          if (resultProbe !== null || settled) return
-          resultProbe = window.setInterval(() => {
-            if (settled) {
-              stopProbe()
-              return
-            }
-            void getTaskGenerationResult(effectiveJobId)
-              .then((result) => {
-                if (result?.tasks) void completeJob()
-              })
-              .catch(() => {
-                /* tasks are not stored yet */
-              })
-          }, 4000)
-        }
-
-        const completeJob = async () => {
+        const failJob = (error: string) => {
           if (settled) return
           settled = true
-          stopProbe()
+          fetchingResult = false
+          stopResultRetry()
           unsubscribeProgress?.()
+          reject(new Error(error || 'Task generation failed.'))
+        }
+
+        const reportUpdate = (update: { status?: string; progress?: number; message?: string; error?: string }) => {
+          const action = resolveTaskGenerationUpdate(update)
+          if (action.kind === 'failed') {
+            failJob(action.error)
+            return
+          }
+          if (onProgress) {
+            onProgress({
+              job_id: effectiveJobId,
+              status: (update.status || 'processing') as JobStatus['status'],
+              progress: update.progress,
+              message: action.kind === 'saving' ? action.message : update.message,
+            })
+          }
+          if (action.kind === 'fetch-result') void completeJob()
+        }
+
+        // The result exists only after the job row is completed. A 400 while
+        // the save is still open is not a failed generation.
+        const completeJob = async () => {
+          if (settled || fetchingResult) return
+          fetchingResult = true
           try {
             console.log('🔄 Job completed, fetching final result...')
             const result = await getTaskGenerationResult(effectiveJobId)
+            if (settled) return
+            settled = true
+            stopResultRetry()
+            unsubscribeProgress?.()
             const studyId = result?.study_id || result?.metadata?.study_id
             if (studyId) {
               try {
@@ -2111,34 +2146,27 @@ export async function generateTasksWithPolling(
             }
             resolve(result)
           } catch (e) {
-            reject(e)
+            fetchingResult = false
+            if (settled) return
+            if (isTaskResultNotReady(e)) {
+              stopResultRetry()
+              resultRetry = window.setTimeout(() => { void completeJob() }, 5000)
+              return
+            }
+            const err = e as { message?: string }
+            failJob(err?.message || 'Task generation failed.')
           }
-        }
-
-        const failJob = (error: string) => {
-          if (settled) return
-          settled = true
-          stopProbe()
-          unsubscribeProgress?.()
-          reject(new Error(error))
         }
 
         if (jobHandlers) {
           console.log('🔄 Using shared jobs WebSocket for task-generation progress...')
           unsubscribeProgress = jobHandlers.watchJob(effectiveJobId, {
             onProgress: (job) => {
-              if (onProgress) {
-                onProgress({
-                  job_id: effectiveJobId,
-                  status: job.status as JobStatus['status'],
-                  progress: job.progress,
-                  message: job.message,
-                })
-              }
-              if (typeof job.progress === 'number' && job.progress >= 90) startResultProbe()
-              if (job.status === 'completed' || (typeof job.progress === 'number' && job.progress >= 100)) {
-                void completeJob()
-              }
+              reportUpdate({
+                status: job.status,
+                progress: job.progress,
+                message: job.message,
+              })
             },
             onComplete: () => {
               void completeJob()
@@ -2151,8 +2179,7 @@ export async function generateTasksWithPolling(
           unsubscribeProgress = subscribeTaskGenerationStatus(
             effectiveJobId,
             (status) => {
-              if (onProgress) onProgress(status)
-              if (typeof status.progress === 'number' && status.progress >= 90) startResultProbe()
+              reportUpdate(status)
             },
             () => {
               void completeJob()
@@ -2166,10 +2193,11 @@ export async function generateTasksWithPolling(
           signal.addEventListener(
             'abort',
             () => {
-              stopProbe()
+              stopResultRetry()
               unsubscribeProgress?.()
               if (!settled) {
                 settled = true
+                fetchingResult = false
                 reject(new DOMException('Aborted', 'AbortError'))
               }
             },
@@ -2358,6 +2386,55 @@ export async function listSavedDesigns(studyId: string, designType: SavedDesignT
     throw Object.assign(new Error(typeof msg === "string" ? msg : JSON.stringify(msg)), { status: res.status, data })
   }
   return data
+}
+
+/** Download the generated task matrix without loading the matrix JSON in the browser. */
+export async function downloadTaskMatrixCsv(
+  studyId: string
+): Promise<{ blob: Blob; filename: string }> {
+  const cleanId = normalizeStudyId(studyId)
+  if (!cleanId) throw new Error("A study is required to download the matrix.")
+
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), 300_000)
+  let res: Response
+  try {
+    res = await fetchWithAuth(`${API_BASE_URL}/studies/${cleanId}/tasks/export.csv`, {
+      method: "GET",
+      headers: { Accept: "text/csv" },
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error("The matrix export took too long. Please try again.")
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeout)
+  }
+
+  if (res.status === 204) throw new Error("Your session expired. Sign in and try again.")
+  if (!res.ok) {
+    const text = await res.text().catch(() => "")
+    let message = `Matrix download failed (${res.status})`
+    try {
+      const parsed = text ? JSON.parse(text) : null
+      message = messageFromDetail(parsed?.detail) || message
+    } catch {
+      if (text.trim() && text.length < 400) message = text.trim()
+    }
+    throw Object.assign(new Error(message), { status: res.status })
+  }
+
+  const blob = await res.blob()
+  if (!blob.size) throw new Error("The downloaded matrix was empty.")
+  return {
+    blob,
+    filename: filenameFromDisposition(
+      res.headers.get("Content-Disposition") || "",
+      "study_matrix.csv",
+    ),
+  }
 }
 
 export async function createSavedDesign(
