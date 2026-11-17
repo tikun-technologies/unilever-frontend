@@ -218,6 +218,23 @@ export function deleteLocalDesignCategory(studyId: string, categoryId: string) {
   })
 }
 
+export function reorderLocalDesignCategoryItems(studyId: string, categoryId: string, savedDesignIds: string[]) {
+  const store = readCategoryStore(studyId) || { categories: [], deleted_ids: [] }
+  const categories = store.categories.map((category) => {
+    if (category.id !== categoryId) return category
+    const byId = new Map(category.items.map((item) => [item.saved_design_id, item]))
+    const items = savedDesignIds.flatMap((id, position) => {
+      const item = byId.get(id)
+      return item ? [{ ...item, position }] : []
+    })
+    category.items.forEach((item) => {
+      if (!savedDesignIds.includes(item.saved_design_id)) items.push({ ...item, position: items.length })
+    })
+    return { ...category, items, updated_at: new Date().toISOString() }
+  })
+  writeCategoryStore(studyId, { ...store, categories })
+}
+
 export function removeLocalDesignCategoryItem(studyId: string, categoryId: string, savedDesignId: string) {
   const store = readCategoryStore(studyId) || { categories: [], deleted_ids: [] }
   const categories = store.categories.map((category) =>

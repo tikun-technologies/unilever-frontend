@@ -20,6 +20,7 @@ import {
   listSavedDesigns,
   removeDesignCategoryItem,
   renameDesignCategory,
+  reorderDesignCategoryItems,
   renameSavedDesign,
   SavedDesignConfigurationPayload,
   SavedDesignPayload,
@@ -52,6 +53,7 @@ import {
   listLocalDesignCategories,
   removeDesignFromLocalCategories,
   removeLocalDesignCategoryItem,
+  reorderLocalDesignCategoryItems,
   renameDesignInLocalCategories,
   renameLocalDesignCategory,
 } from "@/lib/export/designCategoryLocalStorage"
@@ -4006,6 +4008,43 @@ export function AnalyticsDesignConfigurator({
     }
   }
 
+  const handleReorderCategoryItems = async (categoryId: string, savedDesignIds: string[]) => {
+    const previous = designCategories
+    setDesignCategories((current) => current.map((category) => {
+      if (category.id !== categoryId) return category
+      const byId = new Map(category.items.map((item) => [item.saved_design_id, item]))
+      const items = savedDesignIds.flatMap((id, position) => {
+        const item = byId.get(id)
+        return item ? [{ ...item, position }] : []
+      })
+      return { ...category, items }
+    }))
+    try {
+      if (isLocalPersistence) {
+        reorderLocalDesignCategoryItems(studyId, categoryId, savedDesignIds)
+        return
+      }
+      const updated = await reorderDesignCategoryItems(studyId, categoryId, savedDesignIds)
+      const byId = new Map(updated.items.map((item) => [item.saved_design_id, item]))
+      const items = savedDesignIds.flatMap((id, position) => {
+        const item = byId.get(id)
+        return item ? [{ ...item, position }] : []
+      })
+      updated.items.forEach((item) => {
+        if (!savedDesignIds.includes(item.saved_design_id)) items.push({ ...item, position: items.length })
+      })
+      setDesignCategories((current) => {
+        const next = current.map((category) => (
+          category.id === updated.id ? { ...updated, items } : category
+        ))
+        return [...next].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+      })
+    } catch (error) {
+      setDesignCategories(previous)
+      setCategoryError((error as Error)?.message || "Failed to reorder combinations")
+    }
+  }
+
   const handleRemoveCategoryItem = async (categoryId: string, savedDesignId: string) => {
     const confirmed = window.confirm("Remove this combination from the category? The saved design itself is kept.")
     if (!confirmed) return
@@ -5368,6 +5407,7 @@ export function AnalyticsDesignConfigurator({
         onRenameItem={handleRenameSavedDesign}
         onDeleteCategory={(categoryId) => void handleDeleteCategory(categoryId)}
         onRemoveItem={(categoryId, savedDesignId) => void handleRemoveCategoryItem(categoryId, savedDesignId)}
+        onReorderItems={(categoryId, savedDesignIds) => void handleReorderCategoryItems(categoryId, savedDesignIds)}
       />
 
       <SavedDesignCompareOverlay

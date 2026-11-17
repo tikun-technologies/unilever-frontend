@@ -2637,6 +2637,23 @@ export async function deleteDesignCategory(studyId: string, categoryId: string):
   await readStudyJson(res, `Failed to delete category (${res.status})`)
 }
 
+export async function reorderDesignCategoryItems(
+  studyId: string,
+  categoryId: string,
+  savedDesignIds: string[],
+): Promise<DesignCategoryPayload> {
+  const cleanId = normalizeStudyId(studyId)
+  const res = await fetchWithAuth(
+    `${API_BASE_URL}/studies/${cleanId}/design-categories/${categoryId}/items/order`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ saved_design_ids: savedDesignIds }),
+    },
+  )
+  return readStudyJson<DesignCategoryPayload>(res, `Failed to reorder combinations (${res.status})`)
+}
+
 export async function removeDesignCategoryItem(studyId: string, categoryId: string, savedDesignId: string): Promise<void> {
   const cleanId = normalizeStudyId(studyId)
   const res = await fetchWithAuth(

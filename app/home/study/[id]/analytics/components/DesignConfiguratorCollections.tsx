@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import {
   Check,
@@ -8,6 +8,7 @@ import {
   Download,
   FolderPlus,
   Folders,
+  GripVertical,
   Loader2,
   Pencil,
   Sparkles,
@@ -16,6 +17,18 @@ import {
 } from "lucide-react"
 import type { DesignCategoryPayload } from "@/lib/api/StudyAPI"
 import type { ComparisonBase } from "@/lib/analytics/reportComparison"
+
+function sortCategoryItems(items: DesignCategoryPayload["items"]) {
+  return [...(items || [])].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name))
+}
+
+function moveCategoryItem<T>(items: T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= items.length || to >= items.length) return items
+  const next = [...items]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  return next
+}
 
 export function reportCombinationPrefix(metric: string): string | null {
   const key = metric.trim().toLowerCase()
@@ -671,6 +684,7 @@ export function DesignCategoryDrawer({
   onRenameItem,
   onDeleteCategory,
   onRemoveItem,
+  onReorderItems,
 }: {
   isOpen: boolean
   categories: DesignCategoryPayload[]
@@ -692,12 +706,51 @@ export function DesignCategoryDrawer({
   onRenameItem: (savedDesignId: string, name: string) => Promise<void> | void
   onDeleteCategory: (categoryId: string) => void
   onRemoveItem: (categoryId: string, savedDesignId: string) => void
+  onReorderItems?: (categoryId: string, savedDesignIds: string[]) => void
 }) {
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({})
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draftName, setDraftName] = useState("")
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [itemDraftName, setItemDraftName] = useState("")
+  const [dragPreview, setDragPreview] = useState<{ categoryId: string; from: number; over: number } | null>(null)
+  const dragRef = useRef<{
+    categoryId: string
+    from: number
+    over: number
+    pointerId: number
+    ids: string[]
+  } | null>(null)
+
+  const updateDragTarget = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current
+    if (!drag || event.pointerId !== drag.pointerId) return
+    const scroller = event.currentTarget.closest("[data-report-scroll]")
+    if (scroller instanceof HTMLElement) {
+      const rect = scroller.getBoundingClientRect()
+      if (event.clientY < rect.top + 36) scroller.scrollTop -= 14
+      else if (event.clientY > rect.bottom - 36) scroller.scrollTop += 14
+    }
+    const hit = document.elementFromPoint(event.clientX, event.clientY)
+    const row = hit?.closest<HTMLElement>("[data-saved-design-id]")
+    if (!row || row.dataset.categoryId !== drag.categoryId) return
+    const over = drag.ids.indexOf(row.dataset.savedDesignId || "")
+    if (over < 0 || over === drag.over) return
+    drag.over = over
+    setDragPreview({ categoryId: drag.categoryId, from: drag.from, over })
+  }
+
+  const finishDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current
+    if (!drag || event.pointerId !== drag.pointerId) return
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    dragRef.current = null
+    setDragPreview(null)
+    if (drag.from === drag.over || !onReorderItems) return
+    onReorderItems(drag.categoryId, moveCategoryItem(drag.ids, drag.from, drag.over))
+  }
 
   useEffect(() => {
     if (!isOpen) return
@@ -753,7 +806,7 @@ export function DesignCategoryDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+        <div data-report-scroll className="flex-1 overflow-y-auto px-4 py-4 sm:px-5">
           {downloadingCategoryId ? (
             <div className="mb-3 flex items-center gap-2 rounded-2xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs font-medium leading-5 text-blue-800" role="status">
               <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
@@ -889,7 +942,10 @@ export function DesignCategoryDrawer({
                         {category.items.length === 0 ? (
                           <p className="px-2 py-3 text-xs font-medium text-gray-500">No combinations in this category yet.</p>
                         ) : (
-                          category.items.map((item) => {
+                          (dragPreview?.categoryId === category.id
+                            ? moveCategoryItem(sortCategoryItems(category.items), dragPreview.from, dragPreview.over)
+                            : sortCategoryItems(category.items)
+                          ).map((item) => {
                             const active = item.saved_design_id === activeDesignId
                             const score = item.total_coefficient
                             const scoreLabel = score == null
@@ -898,12 +954,16 @@ export function DesignCategoryDrawer({
                                 ? String(score)
                                 : score.toFixed(1)
                             const editingItem = editingItemId === item.id
+                            const originIndex = sortCategoryItems(category.items).findIndex((entry) => entry.saved_design_id === item.saved_design_id)
+                            const dragging = dragPreview?.categoryId === category.id && dragPreview.from === originIndex
                             return (
                               <div
                                 key={item.id}
-                                className={`flex items-center gap-2 rounded-2xl border px-2 py-2 ${
+                                data-category-id={category.id}
+                                data-saved-design-id={item.saved_design_id}
+                                className={`flex items-center gap-1 rounded-2xl border px-2 py-2 ${
                                   active ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"
-                                }`}
+                                } ${dragging ? "opacity-70" : ""}`}
                               >
                                 {editingItem ? (
                                   <form
@@ -952,6 +1012,34 @@ export function DesignCategoryDrawer({
                                   </form>
                                 ) : (
                                   <>
+                                    {canEdit && onReorderItems && (
+                                      <button
+                                        type="button"
+                                        className="flex h-9 w-7 shrink-0 cursor-grab touch-none items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700 active:cursor-grabbing disabled:cursor-not-allowed disabled:opacity-40"
+                                        aria-label={`Drag ${item.name} to reorder`}
+                                        title="Drag to reorder"
+                                        disabled={locked}
+                                        onPointerDown={(event) => {
+                                          if (event.button !== 0 || locked) return
+                                          event.preventDefault()
+                                          const ids = sortCategoryItems(category.items).map((entry) => entry.saved_design_id)
+                                          event.currentTarget.setPointerCapture(event.pointerId)
+                                          dragRef.current = {
+                                            categoryId: category.id,
+                                            from: originIndex,
+                                            over: originIndex,
+                                            pointerId: event.pointerId,
+                                            ids,
+                                          }
+                                          setDragPreview({ categoryId: category.id, from: originIndex, over: originIndex })
+                                        }}
+                                        onPointerMove={updateDragTarget}
+                                        onPointerUp={finishDrag}
+                                        onPointerCancel={finishDrag}
+                                      >
+                                        <GripVertical className="h-4 w-4" />
+                                      </button>
+                                    )}
                                     <button
                                       type="button"
                                       onClick={() => onOpenItem(item.saved_design_id)}
