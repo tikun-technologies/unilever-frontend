@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
+import { motion } from "framer-motion"
 import {
   Check,
   ChevronDown,
@@ -713,7 +714,16 @@ export function DesignCategoryDrawer({
   const [draftName, setDraftName] = useState("")
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [itemDraftName, setItemDraftName] = useState("")
-  const [dragPreview, setDragPreview] = useState<{ categoryId: string; from: number; over: number } | null>(null)
+  const [dragPreview, setDragPreview] = useState<{
+    categoryId: string
+    from: number
+    over: number
+    x: number
+    y: number
+    offsetX: number
+    offsetY: number
+    width: number
+  } | null>(null)
   const dragRef = useRef<{
     categoryId: string
     from: number
@@ -728,16 +738,27 @@ export function DesignCategoryDrawer({
     const scroller = event.currentTarget.closest("[data-report-scroll]")
     if (scroller instanceof HTMLElement) {
       const rect = scroller.getBoundingClientRect()
-      if (event.clientY < rect.top + 36) scroller.scrollTop -= 14
-      else if (event.clientY > rect.bottom - 36) scroller.scrollTop += 14
+      if (event.clientY < rect.top + 48) scroller.scrollTop -= 12
+      else if (event.clientY > rect.bottom - 48) scroller.scrollTop += 12
     }
-    const hit = document.elementFromPoint(event.clientX, event.clientY)
-    const row = hit?.closest<HTMLElement>("[data-saved-design-id]")
-    if (!row || row.dataset.categoryId !== drag.categoryId) return
-    const over = drag.ids.indexOf(row.dataset.savedDesignId || "")
-    if (over < 0 || over === drag.over) return
-    drag.over = over
-    setDragPreview({ categoryId: drag.categoryId, from: drag.from, over })
+    const draggedId = drag.ids[drag.from]
+    const others = Array.from(
+      document.querySelectorAll<HTMLElement>(`[data-category-id="${drag.categoryId}"][data-saved-design-id]`)
+    ).filter((row) => row.dataset.savedDesignId !== draggedId)
+    let insertAt = others.length
+    for (let index = 0; index < others.length; index += 1) {
+      const rect = others[index].getBoundingClientRect()
+      if (event.clientY < rect.top + rect.height / 2) {
+        insertAt = index
+        break
+      }
+    }
+    drag.over = insertAt
+    setDragPreview((current) => (
+      current
+        ? { ...current, over: insertAt, x: event.clientX, y: event.clientY }
+        : current
+    ))
   }
 
   const finishDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -751,6 +772,19 @@ export function DesignCategoryDrawer({
     if (drag.from === drag.over || !onReorderItems) return
     onReorderItems(drag.categoryId, moveCategoryItem(drag.ids, drag.from, drag.over))
   }
+
+  const isReorderingCombination = dragPreview !== null
+  useEffect(() => {
+    if (!isReorderingCombination) return
+    const previousCursor = document.body.style.cursor
+    const previousUserSelect = document.body.style.userSelect
+    document.body.style.cursor = "grabbing"
+    document.body.style.userSelect = "none"
+    return () => {
+      document.body.style.cursor = previousCursor
+      document.body.style.userSelect = previousUserSelect
+    }
+  }, [isReorderingCombination])
 
   useEffect(() => {
     if (!isOpen) return
@@ -956,14 +990,23 @@ export function DesignCategoryDrawer({
                             const editingItem = editingItemId === item.id
                             const originIndex = sortCategoryItems(category.items).findIndex((entry) => entry.saved_design_id === item.saved_design_id)
                             const dragging = dragPreview?.categoryId === category.id && dragPreview.from === originIndex
+                            const detail = item.design_type === "input"
+                              ? `${item.selection_count} selected`
+                              : [item.metric, item.segment_label || "Overall", comparisonLegend(item)].filter(Boolean).join(" · ")
                             return (
-                              <div
+                              <motion.div
                                 key={item.id}
+                                layout
                                 data-category-id={category.id}
                                 data-saved-design-id={item.saved_design_id}
+                                transition={{ layout: { type: "spring", stiffness: 520, damping: 38, mass: 0.7 } }}
                                 className={`flex items-center gap-1 rounded-2xl border px-2 py-2 ${
-                                  active ? "border-blue-500 bg-blue-50" : "border-gray-200 bg-white"
-                                } ${dragging ? "opacity-70" : ""}`}
+                                  dragging
+                                    ? "border-2 border-dashed border-blue-300 bg-blue-50/80 [&>*]:invisible"
+                                    : active
+                                      ? "border-blue-500 bg-blue-50"
+                                      : "border-gray-200 bg-white"
+                                }`}
                               >
                                 {editingItem ? (
                                   <form
@@ -1023,6 +1066,8 @@ export function DesignCategoryDrawer({
                                           if (event.button !== 0 || locked) return
                                           event.preventDefault()
                                           const ids = sortCategoryItems(category.items).map((entry) => entry.saved_design_id)
+                                          const row = event.currentTarget.closest<HTMLElement>("[data-saved-design-id]")
+                                          const rect = row?.getBoundingClientRect()
                                           event.currentTarget.setPointerCapture(event.pointerId)
                                           dragRef.current = {
                                             categoryId: category.id,
@@ -1031,7 +1076,16 @@ export function DesignCategoryDrawer({
                                             pointerId: event.pointerId,
                                             ids,
                                           }
-                                          setDragPreview({ categoryId: category.id, from: originIndex, over: originIndex })
+                                          setDragPreview({
+                                            categoryId: category.id,
+                                            from: originIndex,
+                                            over: originIndex,
+                                            x: event.clientX,
+                                            y: event.clientY,
+                                            offsetX: rect ? event.clientX - rect.left : 0,
+                                            offsetY: rect ? event.clientY - rect.top : 0,
+                                            width: rect?.width || 320,
+                                          })
                                         }}
                                         onPointerMove={updateDragTarget}
                                         onPointerUp={finishDrag}
@@ -1053,11 +1107,7 @@ export function DesignCategoryDrawer({
                                           </span>
                                         )}
                                       </span>
-                                      <span className="mt-0.5 block truncate text-xs text-gray-500">
-                                        {item.design_type === "input"
-                                          ? `${item.selection_count} selected`
-                                          : [item.metric, item.segment_label || "Overall", comparisonLegend(item)].filter(Boolean).join(" · ")}
-                                      </span>
+                                      <span className="mt-0.5 block truncate text-xs text-gray-500">{detail}</span>
                                     </button>
                                     {item.design_type !== "input" && scoreLabel && (
                                       <span className="flex-shrink-0 tabular-nums text-sm font-black text-gray-900">{scoreLabel}</span>
@@ -1090,7 +1140,37 @@ export function DesignCategoryDrawer({
                                     )}
                                   </>
                                 )}
-                              </div>
+                                {dragging && dragPreview && createPortal(
+                                  <div
+                                    className="pointer-events-none fixed z-[260] flex items-center gap-1 rounded-2xl border border-blue-500 bg-white px-2 py-2 shadow-[0_18px_40px_rgba(15,23,42,0.28)]"
+                                    style={{
+                                      width: dragPreview.width,
+                                      left: dragPreview.x - dragPreview.offsetX,
+                                      top: dragPreview.y - dragPreview.offsetY,
+                                      transform: "scale(1.035) rotate(0.6deg)",
+                                    }}
+                                  >
+                                    <span className="flex h-9 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                                      <GripVertical className="h-4 w-4" />
+                                    </span>
+                                    <span className="min-w-0 flex-1 px-2 py-1.5 text-left">
+                                      <span className="flex items-center gap-2">
+                                        <span className="truncate text-sm font-bold text-gray-900">{item.name}</span>
+                                        {item.design_type === "input" && (
+                                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-blue-700">
+                                            Input
+                                          </span>
+                                        )}
+                                      </span>
+                                      <span className="mt-0.5 block truncate text-xs text-gray-500">{detail}</span>
+                                    </span>
+                                    {item.design_type !== "input" && scoreLabel && (
+                                      <span className="flex-shrink-0 tabular-nums text-sm font-black text-gray-900">{scoreLabel}</span>
+                                    )}
+                                  </div>,
+                                  document.body
+                                )}
+                              </motion.div>
                             )
                           })
                         )}
