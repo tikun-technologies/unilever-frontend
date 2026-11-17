@@ -673,6 +673,9 @@
   .z-\[240\] {
     z-index: 240;
   }
+  .z-\[250\] {
+    z-index: 250;
+  }
   .z-\[260\] {
     z-index: 260;
   }
@@ -1880,6 +1883,9 @@
   }
   .cursor-default {
     cursor: default;
+  }
+  .cursor-grab {
+    cursor: grab;
   }
   .cursor-help {
     cursor: help;
@@ -4584,6 +4590,10 @@
     --tw-shadow: 0 1px var(--tw-shadow-color, rgb(0 0 0 / 0.05));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
   }
+  .shadow-\[0_18px_40px_rgba\(15\,23\,42\,0\.28\)\] {
+    --tw-shadow: 0 18px 40px var(--tw-shadow-color, rgba(15,23,42,0.28));
+    box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
+  }
   .shadow-\[0_20px_60px_-20px_rgba\(15\,23\,42\,0\.15\)\] {
     --tw-shadow: 0 20px 60px -20px var(--tw-shadow-color, rgba(15,23,42,0.15));
     box-shadow: var(--tw-inset-shadow), var(--tw-inset-ring-shadow), var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow);
@@ -6357,6 +6367,11 @@
   .active\:scale-\[0\.99\] {
     &:active {
       scale: 0.99;
+    }
+  }
+  .active\:cursor-grabbing {
+    &:active {
+      cursor: grabbing;
     }
   }
   .active\:bg-black {

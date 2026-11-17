@@ -2,7 +2,6 @@
 
 import React, { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { motion } from "framer-motion"
 import {
   Check,
   ChevronDown,
@@ -29,6 +28,67 @@ function moveCategoryItem<T>(items: T[], from: number, to: number): T[] {
   const [moved] = next.splice(from, 1)
   next.splice(to, 0, moved)
   return next
+}
+
+type DragRowBox = { top: number; height: number; outer: number; left: number; width: number }
+
+function measureCategoryRows(categoryId: string, ids: string[]): DragRowBox[] {
+  const rows = Array.from(document.querySelectorAll<HTMLElement>(`[data-category-id="${categoryId}"][data-saved-design-id]`))
+  const byId = new Map(rows.map((row) => [row.dataset.savedDesignId || "", row.getBoundingClientRect()]))
+  return ids.map((id, index) => {
+    const rect = byId.get(id)
+    const next = ids[index + 1] ? byId.get(ids[index + 1]) : undefined
+    const top = rect?.top ?? 0
+    const height = rect?.height ?? 0
+    return {
+      top,
+      height,
+      outer: next ? next.top - top : height + 8,
+      left: rect?.left ?? 0,
+      width: rect?.width ?? 320,
+    }
+  })
+}
+
+function placeDraggedRow(boxes: DragRowBox[], from: number, contentY: number) {
+  const dragged = boxes[from]
+  let insertAt = 0
+  let seen = 0
+  for (let index = 0; index < boxes.length; index += 1) {
+    if (index === from) continue
+    const midpoint = boxes[index].top + boxes[index].height / 2
+    if (contentY < midpoint) {
+      insertAt = seen
+      break
+    }
+    seen += 1
+    insertAt = seen
+  }
+
+  const others = boxes.map((box, index) => ({ box, index })).filter((entry) => entry.index !== from)
+  const visualTop = boxes.map((box) => box.top)
+  let y = boxes[0]?.top ?? 0
+  let otherCursor = 0
+  let gapTop = y
+  for (let visual = 0; visual < boxes.length; visual += 1) {
+    if (visual === insertAt) {
+      gapTop = y
+      y += dragged.outer
+      continue
+    }
+    const other = others[otherCursor]
+    visualTop[other.index] = y
+    y += other.box.outer
+    otherCursor += 1
+  }
+  return {
+    insertAt,
+    shifts: boxes.map((box, index) => (index === from ? 0 : visualTop[index] - box.top)),
+    gapTop,
+    gapLeft: dragged.left,
+    gapWidth: dragged.width,
+    gapHeight: dragged.height,
+  }
 }
 
 export function reportCombinationPrefix(metric: string): string | null {
@@ -723,6 +783,12 @@ export function DesignCategoryDrawer({
     offsetX: number
     offsetY: number
     width: number
+    height: number
+    shifts: number[]
+    gapTop: number
+    gapLeft: number
+    gapWidth: number
+    gapHeight: number
   } | null>(null)
   const dragRef = useRef<{
     categoryId: string
@@ -730,50 +796,101 @@ export function DesignCategoryDrawer({
     over: number
     pointerId: number
     ids: string[]
+    boxes: DragRowBox[]
+    scrollTop: number
+    scroller: HTMLElement | null
   } | null>(null)
+  const stopDragListenersRef = useRef<(() => void) | null>(null)
 
-  const updateDragTarget = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const trackDrag = (event: PointerEvent) => {
     const drag = dragRef.current
     if (!drag || event.pointerId !== drag.pointerId) return
-    const scroller = event.currentTarget.closest("[data-report-scroll]")
-    if (scroller instanceof HTMLElement) {
-      const rect = scroller.getBoundingClientRect()
-      if (event.clientY < rect.top + 48) scroller.scrollTop -= 12
-      else if (event.clientY > rect.bottom - 48) scroller.scrollTop += 12
+    if (drag.scroller) {
+      const rect = drag.scroller.getBoundingClientRect()
+      if (event.clientY < rect.top + 48) drag.scroller.scrollTop -= 12
+      else if (event.clientY > rect.bottom - 48) drag.scroller.scrollTop += 12
     }
-    const draggedId = drag.ids[drag.from]
-    const others = Array.from(
-      document.querySelectorAll<HTMLElement>(`[data-category-id="${drag.categoryId}"][data-saved-design-id]`)
-    ).filter((row) => row.dataset.savedDesignId !== draggedId)
-    let insertAt = others.length
-    for (let index = 0; index < others.length; index += 1) {
-      const rect = others[index].getBoundingClientRect()
-      if (event.clientY < rect.top + rect.height / 2) {
-        insertAt = index
-        break
-      }
-    }
-    drag.over = insertAt
+    const scrollDelta = (drag.scroller?.scrollTop ?? drag.scrollTop) - drag.scrollTop
+    const placed = placeDraggedRow(drag.boxes, drag.from, event.clientY + scrollDelta)
+    drag.over = placed.insertAt
     setDragPreview((current) => (
       current
-        ? { ...current, over: insertAt, x: event.clientX, y: event.clientY }
+        ? {
+            ...current,
+            over: placed.insertAt,
+            x: event.clientX,
+            y: event.clientY,
+            shifts: placed.shifts,
+            gapTop: placed.gapTop - scrollDelta,
+            gapLeft: placed.gapLeft,
+            gapWidth: placed.gapWidth,
+            gapHeight: placed.gapHeight,
+          }
         : current
     ))
   }
 
-  const finishDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+  const finishDrag = (event: PointerEvent) => {
     const drag = dragRef.current
     if (!drag || event.pointerId !== drag.pointerId) return
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId)
-    }
+    stopDragListenersRef.current?.()
+    stopDragListenersRef.current = null
     dragRef.current = null
     setDragPreview(null)
     if (drag.from === drag.over || !onReorderItems) return
     onReorderItems(drag.categoryId, moveCategoryItem(drag.ids, drag.from, drag.over))
   }
 
+  const startDrag = (event: React.PointerEvent<HTMLButtonElement>, categoryId: string, from: number, ids: string[]) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    stopDragListenersRef.current?.()
+    const scroller = event.currentTarget.closest<HTMLElement>("[data-report-scroll]")
+    const row = event.currentTarget.closest<HTMLElement>("[data-saved-design-id]")
+    const rect = row?.getBoundingClientRect()
+    const boxes = measureCategoryRows(categoryId, ids)
+    const placed = placeDraggedRow(boxes, from, event.clientY)
+    dragRef.current = {
+      categoryId,
+      from,
+      over: from,
+      pointerId: event.pointerId,
+      ids,
+      boxes,
+      scrollTop: scroller?.scrollTop ?? 0,
+      scroller,
+    }
+    setDragPreview({
+      categoryId,
+      from,
+      over: from,
+      x: event.clientX,
+      y: event.clientY,
+      offsetX: rect ? event.clientX - rect.left : 0,
+      offsetY: rect ? event.clientY - rect.top : 0,
+      width: rect?.width || boxes[from]?.width || 320,
+      height: rect?.height || boxes[from]?.height || 64,
+      shifts: placed.shifts.map(() => 0),
+      gapTop: rect?.top ?? placed.gapTop,
+      gapLeft: rect?.left ?? placed.gapLeft,
+      gapWidth: rect?.width ?? placed.gapWidth,
+      gapHeight: rect?.height ?? placed.gapHeight,
+    })
+    const onMove = (pointerEvent: PointerEvent) => trackDrag(pointerEvent)
+    const onEnd = (pointerEvent: PointerEvent) => finishDrag(pointerEvent)
+    window.addEventListener("pointermove", onMove)
+    window.addEventListener("pointerup", onEnd)
+    window.addEventListener("pointercancel", onEnd)
+    stopDragListenersRef.current = () => {
+      window.removeEventListener("pointermove", onMove)
+      window.removeEventListener("pointerup", onEnd)
+      window.removeEventListener("pointercancel", onEnd)
+    }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
   const isReorderingCombination = dragPreview !== null
+  useEffect(() => () => stopDragListenersRef.current?.(), [])
   useEffect(() => {
     if (!isReorderingCombination) return
     const previousCursor = document.body.style.cursor
@@ -789,7 +906,12 @@ export function DesignCategoryDrawer({
   useEffect(() => {
     if (!isOpen) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose()
+      if (event.key !== "Escape") return
+      stopDragListenersRef.current?.()
+      stopDragListenersRef.current = null
+      dragRef.current = null
+      setDragPreview(null)
+      onClose()
     }
     document.addEventListener("keydown", onKey)
     const previous = document.body.style.overflow
@@ -976,10 +1098,7 @@ export function DesignCategoryDrawer({
                         {category.items.length === 0 ? (
                           <p className="px-2 py-3 text-xs font-medium text-gray-500">No combinations in this category yet.</p>
                         ) : (
-                          (dragPreview?.categoryId === category.id
-                            ? moveCategoryItem(sortCategoryItems(category.items), dragPreview.from, dragPreview.over)
-                            : sortCategoryItems(category.items)
-                          ).map((item) => {
+                          sortCategoryItems(category.items).map((item) => {
                             const active = item.saved_design_id === activeDesignId
                             const score = item.total_coefficient
                             const scoreLabel = score == null
@@ -989,20 +1108,21 @@ export function DesignCategoryDrawer({
                                 : score.toFixed(1)
                             const editingItem = editingItemId === item.id
                             const originIndex = sortCategoryItems(category.items).findIndex((entry) => entry.saved_design_id === item.saved_design_id)
-                            const dragging = dragPreview?.categoryId === category.id && dragPreview.from === originIndex
+                            const categoryDrag = dragPreview?.categoryId === category.id ? dragPreview : null
+                            const dragging = categoryDrag?.from === originIndex
+                            const shift = categoryDrag?.shifts[originIndex] || 0
                             const detail = item.design_type === "input"
                               ? `${item.selection_count} selected`
                               : [item.metric, item.segment_label || "Overall", comparisonLegend(item)].filter(Boolean).join(" · ")
                             return (
-                              <motion.div
+                              <div
                                 key={item.id}
-                                layout
                                 data-category-id={category.id}
                                 data-saved-design-id={item.saved_design_id}
-                                transition={{ layout: { type: "spring", stiffness: 520, damping: 38, mass: 0.7 } }}
+                                style={categoryDrag ? { transform: `translateY(${shift}px)`, transition: "transform 180ms ease" } : undefined}
                                 className={`flex items-center gap-1 rounded-2xl border px-2 py-2 ${
                                   dragging
-                                    ? "border-2 border-dashed border-blue-300 bg-blue-50/80 [&>*]:invisible"
+                                    ? "invisible"
                                     : active
                                       ? "border-blue-500 bg-blue-50"
                                       : "border-gray-200 bg-white"
@@ -1063,33 +1183,10 @@ export function DesignCategoryDrawer({
                                         title="Drag to reorder"
                                         disabled={locked}
                                         onPointerDown={(event) => {
-                                          if (event.button !== 0 || locked) return
-                                          event.preventDefault()
+                                          if (locked) return
                                           const ids = sortCategoryItems(category.items).map((entry) => entry.saved_design_id)
-                                          const row = event.currentTarget.closest<HTMLElement>("[data-saved-design-id]")
-                                          const rect = row?.getBoundingClientRect()
-                                          event.currentTarget.setPointerCapture(event.pointerId)
-                                          dragRef.current = {
-                                            categoryId: category.id,
-                                            from: originIndex,
-                                            over: originIndex,
-                                            pointerId: event.pointerId,
-                                            ids,
-                                          }
-                                          setDragPreview({
-                                            categoryId: category.id,
-                                            from: originIndex,
-                                            over: originIndex,
-                                            x: event.clientX,
-                                            y: event.clientY,
-                                            offsetX: rect ? event.clientX - rect.left : 0,
-                                            offsetY: rect ? event.clientY - rect.top : 0,
-                                            width: rect?.width || 320,
-                                          })
+                                          startDrag(event, category.id, originIndex, ids)
                                         }}
-                                        onPointerMove={updateDragTarget}
-                                        onPointerUp={finishDrag}
-                                        onPointerCancel={finishDrag}
                                       >
                                         <GripVertical className="h-4 w-4" />
                                       </button>
@@ -1141,15 +1238,26 @@ export function DesignCategoryDrawer({
                                   </>
                                 )}
                                 {dragging && dragPreview && createPortal(
-                                  <div
-                                    className="pointer-events-none fixed z-[260] flex items-center gap-1 rounded-2xl border border-blue-500 bg-white px-2 py-2 shadow-[0_18px_40px_rgba(15,23,42,0.28)]"
-                                    style={{
-                                      width: dragPreview.width,
-                                      left: dragPreview.x - dragPreview.offsetX,
-                                      top: dragPreview.y - dragPreview.offsetY,
-                                      transform: "scale(1.035) rotate(0.6deg)",
-                                    }}
-                                  >
+                                  <>
+                                    <div
+                                      className="pointer-events-none fixed z-[250] rounded-2xl border-2 border-dashed border-blue-300 bg-blue-50/80"
+                                      style={{
+                                        top: dragPreview.gapTop,
+                                        left: dragPreview.gapLeft,
+                                        width: dragPreview.gapWidth,
+                                        height: dragPreview.gapHeight,
+                                        transition: "top 180ms ease",
+                                      }}
+                                    />
+                                    <div
+                                      className="pointer-events-none fixed z-[260] flex items-center gap-1 rounded-2xl border border-blue-500 bg-white px-2 py-2 shadow-[0_18px_40px_rgba(15,23,42,0.28)]"
+                                      style={{
+                                        width: dragPreview.width,
+                                        left: dragPreview.x - dragPreview.offsetX,
+                                        top: dragPreview.y - dragPreview.offsetY,
+                                        transform: "scale(1.035) rotate(0.6deg)",
+                                      }}
+                                    >
                                     <span className="flex h-9 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
                                       <GripVertical className="h-4 w-4" />
                                     </span>
@@ -1167,10 +1275,11 @@ export function DesignCategoryDrawer({
                                     {item.design_type !== "input" && scoreLabel && (
                                       <span className="flex-shrink-0 tabular-nums text-sm font-black text-gray-900">{scoreLabel}</span>
                                     )}
-                                  </div>,
+                                  </div>
+                                  </>,
                                   document.body
                                 )}
-                              </motion.div>
+                              </div>
                             )
                           })
                         )}
